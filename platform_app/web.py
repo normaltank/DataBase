@@ -1,5 +1,4 @@
 import csv
-import hashlib
 import io
 import json
 import os
@@ -7,27 +6,20 @@ import re
 import secrets
 import sqlite3
 import uuid
-import zipfile
-from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
-from urllib.parse import urlsplit
 
 from flask import Flask, abort, g, jsonify, render_template, request, send_file, session
 from werkzeug.exceptions import HTTPException
 from werkzeug.security import check_password_hash
 
 from .store import connect, decoded, initialize, now, save_revision
+from .record_revisions import RecordRevisions, validate_text, check_version
 from . import source_catalog, workflow, evidence, identity, operations, reading
 
 ROOT = Path(__file__).resolve().parent.parent
-RECORD_FIELDS = ["kind", "title", "original_title", "authors", "source_id", "serial_id", "publication_title",
-                 "published_on", "language", "abstract", "keywords", "countries", "doi", "url", "visibility", "unresolved_refs"] + list(workflow.RECORD_DEFAULTS) + workflow.EVIDENCE_FIELDS
 SOURCE_FIELDS = ["name", "original_name", "kind", "classification", "location", "country", "research_scope",
                  "website", "catalogue_url", "host_id", "publisher_id", "issn", "scope_status", "notes"] + list(workflow.SOURCE_DEFAULTS)
-KINDS = {"research_article", "journal_article", "report", "compilation", "book_section", "book", "book_review",
-         "conference_abstract", "thesis", "presentation", "speech", "policy", "news", "other"}
-KINDS |= workflow.CONTENT_KINDS
 SOURCE_KINDS = {"think_tank", "institution", "journal", "serial", "portal", "registry_publication"}
 
 
@@ -146,35 +138,20 @@ def create_app(data_dir=None, testing=False):
             abort(400, "表单格式不正确。")
         return obj
 
-    def visible(r):
-        u = user()
-        if r["evidence_record_id"]:
-            original = identity.resolve(db(), "records", r["evidence_record_id"])
-            if not original or original["id"] == r["id"] or not visible(original):
-                return False
-        return r["visibility"] == "shared" or u["role"] == "admin" or r["owner_id"] == u["id"] or r["author_id"] == u["id"] or (u["id"] in json.loads(r["editors"]) and (r["kind"] not in workflow.PERSONAL_KINDS or r["author_confirmed"]))
+    def records():
+        return RecordRevisions(db(), user(), data_dir / "uploads")
 
-    def editable(r):
-        u = user()
-        if r["kind"] == "directory_translation":
-            return True
-        if r["kind"] in workflow.PERSONAL_KINDS:
-            return bool(r["author_confirmed"]) and (r["author_id"] == u["id"] or u["id"] in json.loads(r["editors"]))
-        return u["role"] == "admin" or r["owner_id"] == u["id"] or u["id"] in json.loads(r["editors"])
+    def visible(row):
+        return records().visible(row)
+
+    def editable(row):
+        return records().editable(row)
 
     def get_record(rid, edit=False):
-        r = identity.resolve(db(), "records", rid)
-        if not r or not visible(r):
-            abort(404, "资料不存在，或当前账号没有查看权限。")
-        if edit and not editable(r):
-            abort(403, "此内容尚待作者确认，或当前账号没有正文编辑授权。")
-        return r
+        return records().get(rid, edit=edit)
 
     def get_source(sid):
-        row = identity.resolve(db(), "sources", sid)
-        if not row:
-            abort(404, "来源不存在。")
-        return row
+        return records().source(sid)
 
     def record_summary(r, favorite_ids=None):
         obj = {k: r[k] for k in ["id", "kind", "title", "original_title", "authors", "source_id", "serial_id",
@@ -278,240 +255,28 @@ def create_app(data_dir=None, testing=False):
         linked = [r for r in db().execute("SELECT r.* FROM records r JOIN record_links l ON r.id=l.original_id WHERE l.report_id=?", (row["id"],)) if visible(r)] if row["kind"] == "research_note" and not row["evidence_record_id"] else ()
         return jsonify(reading.copy_text(row, adopted, linked))
 
-    def validate_text(data, fields, base=None):
-        values = {}
-        for field in fields:
-            value = data.get(field, base[field] if base else "")
-            if value is None:
-                value = ""
-            limit = 500000 if field in ["body_html", "body_text", "introduction_html", "introduction_text"] else 40000 if field in ["abstract", "notes", "unresolved_refs", "quote", "translation", "interpretation"] else 4000
-            if not isinstance(value, str) or len(value) > limit:
-                abort(400, "字段格式或长度不正确。")
-            values[field] = value.strip()
-        for field in ["url", "website", "catalogue_url"]:
-            if values.get(field):
-                try:
-                    parsed = urlsplit(values[field])
-                    valid = parsed.scheme in ["https", "http"] and parsed.hostname and not parsed.username and not parsed.password
-                except ValueError:
-                    valid = False
-                if not valid:
-                    abort(400, "网址需要使用有效的 http:// 或 https:// 地址。")
-        return values
-
-    def check_version(data, row):
-        if type(data.get("version")) is not int or data["version"] != row["version"]:
-            abort(409, "这条内容已被更新，请重新打开后再保存。")
-
-    def validate_record(data, base=None):
-        values = validate_text(data, RECORD_FIELDS, base)
-        if base:
-            values["aliases"] = identity.retained_aliases(db(), "records", base["id"], values["aliases"])
-        values["kind"] = values["kind"] or "report"
-        values["visibility"] = values["visibility"] or "shared"
-        if not values["title"]:
-            abort(400, "请填写题名。")
-        if values["kind"] not in KINDS or values["visibility"] not in ["shared", "restricted"]:
-            abort(400, "资料类型或共享范围不正确。")
-        try:
-            values["body_html"], values["body_text"] = workflow.clean_rich(values["body_html"])
-        except ValueError as error:
-            abort(400, str(error))
-        if base and base["kind"] != values["kind"] and (base["kind"] in workflow.CONTENT_KINDS or values["kind"] == "directory_translation"):
-            abort(400, "已保存内容的维护类型不能改变；请分别新建，避免改变既有编辑责任。")
-        if values["kind"] == "directory_translation":
-            if values["visibility"] != "shared" or data.get("editors", []):
-                abort(400, "目录译稿由中心全体有效成员共同维护。")
-            if not values["authors"] or not values["coverage"]:
-                abort(400, "请填写编译者及年份、卷期或覆盖范围。")
-        if values["kind"] in workflow.PERSONAL_KINDS:
-            if base and base["kind"] in workflow.PERSONAL_KINDS:
-                if "author_id" in data and data["author_id"] != base["author_id"]:
-                    abort(403, "负责作者请通过确认流程维护。")
-            else:
-                author_id = data.get("author_id") or user()["id"]
-                if not isinstance(author_id, str):
-                    abort(400, "负责作者账号格式不正确。")
-                if not db().execute("SELECT 1 FROM users WHERE id=? AND active=1", (author_id,)).fetchone():
-                    abort(400, "请选择有效的负责作者账号。")
-                values.update(author_id=author_id, author_confirmed=int(author_id == user()["id"]))
-        if values["published_on"] and not re.fullmatch(r"\d{4}(-\d{2}(-\d{2})?)?", values["published_on"]):
-            abort(400, "日期请填写为 YYYY、YYYY-MM 或 YYYY-MM-DD。")
-        if values["published_on"]:
-            try:
-                parts = [int(x) for x in values["published_on"].split("-")]
-                date(*(parts + [1] * (3-len(parts))))
-            except ValueError:
-                abort(400, "日期不存在，请检查年月日。")
-        if base and values["kind"] in workflow.CONTENT_KINDS and base["kind"] not in workflow.CONTENT_KINDS:
-            if db().execute("SELECT 1 FROM record_links WHERE original_id=?", (base["id"],)).fetchone() or db().execute("SELECT 1 FROM records WHERE evidence_record_id=?", (base["id"],)).fetchone():
-                abort(409, "此资料已被成果或摘录作为原文引用，不能改成研究内容类型。")
-        for field in ["source_id", "serial_id"]:
-            values[field] = values[field] or None
-            if values[field]:
-                src = get_source(values[field])
-                values[field] = src["id"]
-                if field == "serial_id" and src["kind"] not in ["journal", "serial"]:
-                    abort(400, "请选择期刊或连续出版物。")
-        editors = data.get("editors", json.loads(base["editors"]) if base else [])
-        if not isinstance(editors, list) or not all(isinstance(x, str) for x in editors):
-            abort(400, "授权同事格式不正确。")
-        manages_acl = (base["author_confirmed"] and base["author_id"] == user()["id"]) if base and base["kind"] in workflow.PERSONAL_KINDS else (not base or user()["id"] == base["owner_id"] or user()["role"] == "admin")
-        if base and not manages_acl:
-            if set(editors) != set(json.loads(base["editors"])) or values["visibility"] != base["visibility"]:
-                abort(403, "只有负责作者可调整个人成果授权；其他资料由提交者或管理员调整。")
-        if values["kind"] in workflow.PERSONAL_KINDS and not base and not values["author_confirmed"]:
-            editors = []
-        valid_users = {r[0] for r in db().execute("SELECT id FROM users WHERE active=1")}
-        if not set(editors) <= valid_users:
-            abort(400, "授权人员不存在。")
-        values["editors"] = json.dumps(sorted(set(editors)))
-        linked = data.get("linked_ids", None)
-        if linked is None:
-            linked = [r[0] for r in db().execute("SELECT original_id FROM record_links WHERE report_id=?", (base["id"],))] if base else []
-        if not isinstance(linked, list) or not all(isinstance(x, str) for x in linked) or len(linked) > 100:
-            abort(400, "原文关联格式不正确。")
-        if linked and values["kind"] not in workflow.CONTENT_KINDS:
-            abort(400, "编译成果可以关联原始资料。")
-        canonical_links = []
-        for rid in set(linked):
-            original = get_record(rid)
-            if original["kind"] in workflow.CONTENT_KINDS or (base and rid == base["id"]):
-                abort(400, "请关联原始资料，不可关联成果本身。")
-            canonical_links.append(original["id"])
-        associated = data.get("related_source_ids", workflow.source_ids(db(), base["id"]) if base else [])
-        if not isinstance(associated, list) or len(associated) > 100 or not all(isinstance(s, str) for s in associated):
-            abort(400, "关联来源格式不正确。")
-        associated = [get_source(sid)["id"] for sid in associated]
-        if values["kind"] == "directory_translation" and not associated:
-            abort(400, "请至少选择一个关联来源。")
-        cited = evidence.validate(db(), data, values, base, get_record)
-        return values, sorted(set(canonical_links)), sorted(set(associated)), cited
-
-    def add_upload(rid, data, current_ids):
-        file = request.files.get("file")
-        if not file or not file.filename:
-            return current_ids, None
-        if data.get("sharing_confirmed") is not True:
-            abort(400, "请确认附件可在所选范围内共享。")
-        name = file.filename.replace("\\", "/").rsplit("/", 1)[-1]
-        if len(name) > 180 or any(ord(c) < 32 for c in name):
-            abort(400, "文件名过长或包含无效字符。")
-        suffix = Path(name).suffix.lower()
-        if suffix not in [".pdf", ".docx", ".txt", ".md"]:
-            abort(400, "支持 PDF、DOCX、TXT 和 Markdown，单文件最多 20 MB。")
-        content = file.read(20 * 1024 * 1024 + 1)
-        if not content or len(content) > 20 * 1024 * 1024:
-            abort(400, "文件为空或超过 20 MB。")
-        if suffix == ".pdf" and not content.startswith(b"%PDF-"):
-            abort(400, "文件内容不是有效的 PDF。")
-        if suffix == ".docx":
-            try:
-                with zipfile.ZipFile(io.BytesIO(content)) as archive:
-                    if "word/document.xml" not in archive.namelist():
-                        raise ValueError()
-            except (ValueError, zipfile.BadZipFile):
-                abort(400, "文件内容不是有效的 DOCX。")
-        if suffix in [".txt", ".md"]:
-            try:
-                content.decode("utf-8-sig")
-            except UnicodeDecodeError:
-                abort(400, "文本文件请使用 UTF-8 编码。")
-        aid = uuid.uuid4().hex
-        path = data_dir / "uploads" / (aid + suffix)
-        path.write_bytes(content)
-        db().execute("INSERT INTO attachments VALUES (?,?,?,?,?,?,?)", (aid, rid, name, path.name, len(content), hashlib.sha256(content).hexdigest(), now()))
-        return current_ids + [aid], path
-
     @app.post("/api/records")
     def new_record():
-        data = body()
-        values, linked, associated, cited = validate_record(data)
-        # DOI duplicates are blocked even when the duplicate is restricted; no metadata is disclosed.
-        if values["doi"] and db().execute("SELECT 1 FROM records WHERE lower(doi)=lower(?)", (values["doi"],)).fetchone():
-            abort(409, "该 DOI 已登记，请联系管理员核对重复条目。")
-        rid = "LOCAL-" + uuid.uuid4().hex[:12].upper()
-        values.update(id=rid, owner_id=user()["id"], created_at=now(), updated_at=now())
-        path = None
-        try:
-            with db():
-                db().execute(f"INSERT INTO records ({','.join(values)}) VALUES ({','.join('?' for _ in values)})", list(values.values()))
-                attachments, path = add_upload(rid, data, [])
-                db().execute("UPDATE records SET attachment_ids=? WHERE id=?", (json.dumps(attachments), rid))
-                db().executemany("INSERT INTO record_links VALUES (?,?)", [(rid, x) for x in linked])
-                workflow.set_sources(db(), rid, associated)
-                evidence.save_links(db(), rid, cited, get_record)
-                save_revision(db(), "record", rid, "提交资料", user()["id"])
-        except Exception:
-            if path:
-                path.unlink(missing_ok=True)
-            raise
-        return jsonify(id=rid), 201
+        return jsonify(id=records().create(body(), request.files.get("file"))), 201
 
     @app.put("/api/records/<rid>")
     def edit_record(rid):
-        row = get_record(rid, edit=True)
-        rid = row["id"]
-        data = body()
-        check_version(data, row)
-        values, linked, associated, cited = validate_record(data, row)
-        if values["doi"] and db().execute("SELECT 1 FROM records WHERE lower(doi)=lower(?) AND id<>?", (values["doi"], rid)).fetchone():
-            abort(409, "该 DOI 已登记，请联系管理员核对重复条目。")
-        path = None
-        try:
-            with db():
-                db().execute("BEGIN IMMEDIATE")
-                check_version(data, get_record(rid, edit=True))
-                if not db().execute("SELECT 1 FROM revisions WHERE target_type='record' AND target_id=?", (rid,)).fetchone():
-                    save_revision(db(), "record", rid, "导入初始版本", "admin")
-                attachment_ids, path = add_upload(rid, data, json.loads(row["attachment_ids"]))
-                values.update(attachment_ids=json.dumps(attachment_ids), status="pending", version=row["version"] + 1, updated_at=now())
-                db().execute(f"UPDATE records SET {','.join(k+'=?' for k in values)} WHERE id=?", [*values.values(), rid])
-                db().execute("DELETE FROM record_links WHERE report_id=?", (rid,))
-                db().executemany("INSERT INTO record_links VALUES (?,?)", [(rid, x) for x in linked])
-                workflow.set_sources(db(), rid, associated)
-                evidence.save_links(db(), rid, cited, get_record, data.get("refresh_citations") is True)
-                save_revision(db(), "record", rid, "修订资料", user()["id"])
-        except Exception:
-            if path:
-                path.unlink(missing_ok=True)
-            raise
-        return jsonify(id=rid)
+        return jsonify(id=records().edit(rid, body(), request.files.get("file")))
 
     @app.post("/api/records/<rid>/author")
     def confirm_author(rid):
-        db().execute("BEGIN IMMEDIATE")
-        row, data = get_record(rid), body()
-        rid = row["id"]
-        check_version(data, row)
-        if row["kind"] not in workflow.PERSONAL_KINDS or row["author_confirmed"]:
-            abort(409, "此内容无需确认，或作者已经确认。")
-        author_id = data.get("author_id", row["author_id"])
-        if not isinstance(author_id, str):
-            abort(400, "请选择负责作者账号。")
-        if author_id != row["author_id"] and user()["id"] != row["owner_id"]:
-            abort(403, "只有原提交者可以指定待确认的负责作者。")
-        if not db().execute("SELECT 1 FROM users WHERE id=? AND active=1", (author_id,)).fetchone():
-            abort(400, "请选择有效的负责作者。")
-        confirmed = data.get("confirm") is True
-        if confirmed and author_id != user()["id"]:
-            abort(403, "必须由负责作者本人确认。")
-        if not confirmed and row["owner_id"] != user()["id"]:
-            abort(403, "只有提交者可以指定作者。")
-        with db():
-            if not db().execute("SELECT 1 FROM revisions WHERE target_type='record' AND target_id=?", (rid,)).fetchone():
-                save_revision(db(), "record", rid, "作者确认前版本", user()["id"])
-            db().execute("UPDATE records SET author_id=?,author_confirmed=?,editors='[]',version=version+1,updated_at=? WHERE id=?", (author_id, int(confirmed), now(), rid))
-            save_revision(db(), "record", rid, "负责作者本人确认" if confirmed else "指定负责作者，等待本人确认", user()["id"])
-        return jsonify(id=rid)
+        return jsonify(id=records().confirm_author(rid, body()))
 
     @app.post("/api/review/<kind>/<row_id>")
     def review(kind, row_id):
         admin()
         if kind not in ["record", "source"]:
             abort(404)
-        table = "records" if kind == "record" else "sources"
-        row = get_record(row_id) if kind == "record" else get_source(row_id)
+        if kind == "record":
+            records().review(row_id, body())
+            return jsonify(ok=True)
+        table = "sources"
+        row = get_source(row_id)
         row_id = row["id"]
         data = body()
         check_version(data, row)
@@ -565,64 +330,27 @@ def create_app(data_dir=None, testing=False):
 
     @app.post("/api/history/<int:revision_id>/restore")
     def restore_revision(revision_id):
-        # Lock before validating cross-source relationships, including restoration.
-        db().execute("BEGIN IMMEDIATE")
         row = db().execute("SELECT * FROM revisions WHERE id=?", (revision_id,)).fetchone()
         if not row:
             abort(404)
-        kind, rid = row["target_type"], row["target_id"]
-        current = get_record(rid, edit=True) if kind == "record" else get_source(rid)
+        if row["target_type"] == "record":
+            return jsonify(id=records().restore(revision_id, body()))
+        # Source graph validation and restoration retain their existing policy.
+        db().execute("BEGIN IMMEDIATE")
+        rid = row["target_id"]
+        current = get_source(rid)
         if current["id"] != rid:
             abort(409, "此历史属于已合并的原记录，只供查阅；请在保留记录中手工修订。")
-        if kind == "source":
-            admin()
-        data = body()
-        check_version(data, current)
-        snapshot = json.loads(row["snapshot_json"])
-        if kind == "record" and snapshot["kind"] in workflow.CONTENT_KINDS and (db().execute("SELECT 1 FROM record_links WHERE original_id=?", (rid,)).fetchone() or db().execute("SELECT 1 FROM records WHERE evidence_record_id=?", (rid,)).fetchone()):
-            abort(409, "此资料现已被成果或摘录引用，不能恢复为研究内容类型。")
-        fields = RECORD_FIELDS + ["attachment_ids", "evidence_version", "evidence_snapshot_json"] if kind == "record" else SOURCE_FIELDS + list(source_catalog.DEFAULTS)
-        values = {k: snapshot[k] for k in fields if k in snapshot}
-        if kind == "source":
-            # Pre-upgrade snapshots have no new metadata: retain those current fields.
-            values = source_values(values, current)
-        # Restoration never restores old permissions. Current ACL and ownership remain authoritative.
-        if kind == "record":
-            values["visibility"] = current["visibility"]
-            values["aliases"] = identity.retained_aliases(db(), "records", rid, values.get("aliases", current["aliases"]))
-            for key in ["source_id", "serial_id"]:
-                if values.get(key):
-                    values[key] = get_source(values[key])["id"]
-            if values.get("evidence_record_id"):
-                values["evidence_record_id"] = get_record(values["evidence_record_id"])["id"]
-            if current["kind"] in workflow.CONTENT_KINDS and values["kind"] != current["kind"]:
-                abort(409, "历史类型不符合当前维护责任，请手工修订内容。")
+        admin()
+        check_version(body(), current)
+        old = json.loads(row["snapshot_json"])
+        values = source_values({k: old[k] for k in SOURCE_FIELDS + list(source_catalog.DEFAULTS) if k in old}, current)
         values.update(status="pending", version=current["version"]+1, updated_at=now())
-        table = "records" if kind == "record" else "sources"
         with db():
-            changed = db().execute(f"UPDATE {table} SET {','.join(k+'=?' for k in values)} WHERE id=? AND version=?", [*values.values(), rid, current["version"]]).rowcount
+            changed = db().execute(f"UPDATE sources SET {','.join(k+'=?' for k in values)} WHERE id=? AND version=?", [*values.values(), rid, current["version"]]).rowcount
             if not changed:
                 abort(409, "内容已变化，请刷新。")
-            if kind == "record":
-                if values.get("evidence_record_id"):
-                    original = get_record(values["evidence_record_id"])
-                    if original["kind"] in workflow.CONTENT_KINDS:
-                        abort(409, "历史证据对象的类型已改变，请手工修订。")
-                if "evidence_citations" in snapshot:
-                    db().execute("DELETE FROM evidence_links WHERE report_id=?", (rid,))
-                    for link in snapshot["evidence_citations"]:
-                        cited_record = get_record(link["excerpt_id"])
-                        db().execute("INSERT INTO evidence_links VALUES (?,?,?,?)", (rid, cited_record["id"], link["excerpt_version"], link["snapshot_json"]))
-                if "related_source_ids" in snapshot:
-                    associated = sorted({get_source(sid)["id"] for sid in snapshot["related_source_ids"]})
-                    workflow.set_sources(db(), rid, associated)
-                db().execute("DELETE FROM record_links WHERE report_id=?", (rid,))
-                for linked_id in snapshot.get("linked_ids", []):
-                    original = get_record(linked_id)
-                    if original["kind"] in workflow.CONTENT_KINDS:
-                        abort(409, "历史关联对象的类型已改变，请手工修订。")
-                    db().execute("INSERT OR IGNORE INTO record_links VALUES (?,?)", (rid, original["id"]))
-            save_revision(db(), kind, rid, f"恢复版本 {snapshot['version']}", user()["id"])
+            save_revision(db(), "source", rid, f"恢复版本 {old['version']}", user()["id"])
         return jsonify(id=rid)
 
     @app.get("/api/sources")
@@ -877,8 +605,7 @@ def create_app(data_dir=None, testing=False):
         path = create_backup(data_dir)
         return send_file(path, as_attachment=True, download_name=path.name, mimetype="application/zip")
 
-    identity.register(app, SimpleNamespace(db=db, user=user, body=body, get_record=get_record, get_source=get_source,
-                                          visible=visible, editable=editable, source_values=source_values))
+    identity.register(app, db=db, body=body, records=records, validate_source=source_values)
     operations.register(app, SimpleNamespace(db=db, user=user, body=body, admin=admin, get_record=get_record,
                                             get_source=get_source, visible=visible, editable=editable,
                                             get_collection=get_collection, record_summary=record_summary,

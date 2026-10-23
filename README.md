@@ -157,13 +157,14 @@ python app.py --no-import
 | 路径 | 用途 |
 | --- | --- |
 | `app.py` | 启动与初始导入 |
-| `platform_app/store.py` | 数据结构与修订记录 |
+| `platform_app/store.py` | 数据结构与通用修订记录存储 |
+| `platform_app/record_revisions.py` | 资料修改的权限、关联、版本、历史及失败回滚；来源合并的资料转接 |
 | `platform_app/source_catalog.py` | 来源增量迁移、类型、国别依据与机构关系校验 |
 | `platform_app/importer.py` | 只读导入四张指定主表、唯一关系匹配、导入报告 |
 | `platform_app/web.py` | 登录、权限、查询、投稿、专题、核对、历史、导出接口 |
 | `platform_app/maintenance.py` | 完整备份与安全恢复到新目录 |
 | `platform_app/workflow.py` | 正文净化、检索片段及结构 3—5 增量迁移 |
-| `platform_app/evidence.py`、`platform_app/identity.py` | 证据版本快照、身份去重与人工合并 |
+| `platform_app/evidence.py`、`platform_app/identity.py` | 证据版本快照、旧编号解析、重复候选与来源图重写 |
 | `platform_app/operations.py` | 专题研究、成员和完整内容导出 |
 | `platform_app/reading.py`、`tests/test_reading.py` | 阅读入口、可见引用复制及对应验证 |
 | `templates/`、`static/` | 中文响应式界面 |
@@ -171,6 +172,7 @@ python app.py --no-import
 | `static/ux.js`、`static/ux.css` | 阅读优先页面、继续研究、阅读说明和复制回退 |
 | `scripts/update_source_catalog.py`、`scripts/correct_source_types.py` | 一次性采纳核查样本、纠正有历史可证明的自动类型；均先备份 |
 | `tests/test_platform.py` | 权限和关键业务流程验证 |
+| `tests/test_record_revisions.py` | 合成存储故障下的回滚、版本历史及历史附件保全验证 |
 | `tests/test_source_catalog.py`、`tests/test_source_types.py` | 来源筛选、关系、类型纠错、历史及数据升级验证 |
 | `tests/test_workflow.py` | 共编、作者确认、证据、合并、专题、成员、导出及完整恢复验证 |
 | `docs/施工说明.md` | 乙方施工范围、技术决定与后续工作 |

@@ -102,15 +102,11 @@ def decoded(row):
 
 def save_revision(db, kind, row_id, action, actor):
     table = {"record": "records", "source": "sources", "collection": "collections"}[kind]
-    snapshot = dict(db.execute(f"SELECT * FROM {table} WHERE id=?", (row_id,)).fetchone())
     if kind == "record":
-        snapshot["linked_ids"] = [r[0] for r in db.execute(
-            "SELECT original_id FROM record_links WHERE report_id=? ORDER BY original_id", (row_id,))]
-        if db.execute("SELECT 1 FROM sqlite_master WHERE name='record_sources'").fetchone():
-            from .workflow import source_ids
-            snapshot["related_source_ids"] = source_ids(db, row_id)
-        if db.execute("SELECT 1 FROM sqlite_master WHERE name='evidence_links'").fetchone():
-            snapshot["evidence_citations"] = [dict(r) for r in db.execute("SELECT * FROM evidence_links WHERE report_id=?", (row_id,))]
+        from .record_revisions import snapshot as record_snapshot
+        snapshot = record_snapshot(db, row_id)
+    else:
+        snapshot = dict(db.execute(f"SELECT * FROM {table} WHERE id=?", (row_id,)).fetchone())
     if kind == "collection":
         snapshot["item_ids"] = [r[0] for r in db.execute("SELECT record_id FROM collection_items WHERE collection_id=? ORDER BY record_id", (row_id,))]
     db.execute("INSERT INTO revisions(target_type,target_id,action,actor_id,created_at,snapshot_json) VALUES (?,?,?,?,?,?)",
