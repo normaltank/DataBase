@@ -25,9 +25,9 @@
 
 以下按原路径保留，记录对应日期的工作与证据。“运行中”“待验收”“暂停”和旧对话派工均按当时语境阅读；当前工作流见上方入口。部分截图、测试产物和绝对路径证据仅原本地环境可查，公开克隆不包含这些材料。
 
-### 资料修订与历史（2026-10-23，PR 分支交付）
+### 资料修订与历史（2026-10-23，已合并并完成本地切换）
 
-- [执行与审查记录](../work/资料修订与历史执行记录.md)：恢复测试修正、完整修改动作与受控失败验证。任务和合并状态见 [Issue #2](https://github.com/normaltank/DataBase/issues/2)／[PR #3](https://github.com/normaltank/DataBase/pull/3)，不表示正式服务已经加载。
+- [执行与审查记录](../work/资料修订与历史执行记录.md)：恢复测试修正、完整修改动作、受控失败验证及备份后的本地切换。任务和合并记录见 [Issue #2](https://github.com/normaltank/DataBase/issues/2)／[PR #3](https://github.com/normaltank/DataBase/pull/3)。
 
 ### 产品讨论与方案
 
