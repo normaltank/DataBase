@@ -187,6 +187,23 @@ class PlatformTests(unittest.TestCase):
         self.assertEqual(len(self.detail(rid)["attachments"]), 1)
         self.assertEqual(self.clients["researcher"].get("/api/attachments/"+second).status_code, 404)
 
+    def test_attachment_insert_failure_cleans_new_record_and_upload(self):
+        original = self.record()
+        original_before = self.detail(original)
+        db = connect(self.data_dir / "platform.sqlite3")
+        try:
+            with db:
+                db.execute("CREATE TRIGGER refuse_upload BEFORE INSERT ON attachments BEGIN SELECT RAISE(ABORT, 'synthetic storage failure'); END")
+        finally:
+            db.close()
+        failed = self.call("researcher", "/api/records",
+                           {"title": "未完成的上传", "kind": "compilation", "linked_ids": [original], "sharing_confirmed": True},
+                           file=("失败附件.txt", b"must be removed"))
+        self.assertEqual(failed.status_code, 409, failed.json)
+        self.assertEqual(self.clients["researcher"].get("/api/records").json["total"], 1)
+        self.assertEqual(self.detail(original), original_before)
+        self.assertEqual(list((self.data_dir / "uploads").iterdir()), [])
+
     def test_duplicates_and_malformed_inputs(self):
         self.record(doi="10.1234/test")
         self.assertEqual(self.call("colleague", "/api/records", {"title": "重复", "doi": "10.1234/TEST"}).status_code, 409)
@@ -202,8 +219,12 @@ class PlatformTests(unittest.TestCase):
         self.call("researcher", "/api/records", {"title": "引用成果", "kind": "compilation", "linked_ids": [rid]})
         self.assertEqual(self.call("researcher", "/api/records/"+rid, {"version": 1, "kind": "compilation"}, "PUT").status_code, 409)
 
-    def test_joint_hosts_and_type_restore_invariants(self):
-        ids = [self.call("researcher", "/api/sources", {"name": name, "kind": "institution"}).json["id"] for name in ["机构甲", "机构乙"]]
+    def test_joint_hosts_are_visible_from_both_institutions(self):
+        ids = []
+        for name in ["机构甲", "机构乙"]:
+            response = self.call("researcher", "/api/sources", {"name": name, "kind": "institution"})
+            self.assertEqual(response.status_code, 201, response.json)
+            ids.append(response.json["id"])
         serial = self.call("researcher", "/api/sources", {"name": "联合期刊", "kind": "journal", "host_id": " | ".join(ids)})
         self.assertEqual(serial.status_code, 201)
         sid = serial.json["id"]
@@ -211,11 +232,54 @@ class PlatformTests(unittest.TestCase):
         self.assertEqual({s["id"] for s in detail["institutions"]}, set(ids))
         for parent in ids:
             self.assertIn(sid, [s["id"] for s in self.clients["colleague"].get("/api/sources/"+parent).json["related"]])
-        rid = self.call("researcher", "/api/records", {"title": "待改类型", "kind": "compilation"}).json["id"]
-        self.call("researcher", "/api/records/"+rid, {"version": 1, "kind": "report"}, "PUT")
-        self.call("researcher", "/api/records", {"title": "引用后禁止恢复类型", "kind": "compilation", "linked_ids": [rid]})
-        revision = self.clients["researcher"].get("/api/history/record/"+rid).json["items"][-1]["id"]
-        self.assertEqual(self.call("researcher", f"/api/history/{revision}/restore", {"version": 2}).status_code, 409)
+
+    def test_restore_old_type_preserves_current_personal_responsibility(self):
+        rid = self.record()
+        history_url = "/api/history/record/" + rid
+        revision = self.clients["researcher"].get(history_url).json["items"][-1]["id"]
+        changed = self.call("researcher", "/api/records/" + rid,
+                            {"version": 1, "kind": "compilation"}, "PUT")
+        self.assertEqual(changed.status_code, 200, changed.json)
+        before = self.detail(rid)
+        history_before = self.clients["researcher"].get(history_url).json
+        self.assertEqual(before["kind"], "compilation")
+        self.assertEqual(before["author_id"], "researcher")
+        restored = self.call("researcher", f"/api/history/{revision}/restore", {"version": before["version"]})
+        self.assertEqual(restored.status_code, 409, restored.json)
+        self.assertEqual(restored.json["error"], "历史类型不符合当前维护责任，请手工修订内容。")
+        self.assertEqual(self.detail(rid), before)
+        self.assertEqual(self.clients["researcher"].get(history_url).json, history_before)
+
+    def test_legacy_content_snapshot_cannot_restore_over_referenced_original(self):
+        # Compatibility fixture: current clients cannot create this historical type transition.
+        for reference in ["linked_ids", "evidence_record_id"]:
+            with self.subTest(reference=reference):
+                rid = self.record()
+                history_url = "/api/history/record/" + rid
+                revision = self.clients["researcher"].get(history_url).json["items"][-1]["id"]
+                snapshot = self.clients["researcher"].get(f"/api/history/{revision}").json["snapshot"]
+                snapshot["kind"] = "compilation"
+                db = connect(self.data_dir / "platform.sqlite3")
+                try:
+                    with db:
+                        db.execute("UPDATE revisions SET snapshot_json=? WHERE id=?", (json.dumps(snapshot), revision))
+                finally:
+                    db.close()
+                payload = {"title": "引用旧状态的原文", "kind": "compilation", "linked_ids": [rid]}
+                if reference == "evidence_record_id":
+                    payload = {"title": "摘录旧状态的原文", "kind": "research_note", "evidence_record_id": rid,
+                               "quote": "原文观点", "locator": "第 3 页"}
+                created = self.call("researcher", "/api/records", payload)
+                self.assertEqual(created.status_code, 201, created.json)
+                before = self.detail(rid)
+                dependent_before = self.detail(created.json["id"])
+                history_before = self.clients["researcher"].get(history_url).json
+                restored = self.call("researcher", f"/api/history/{revision}/restore", {"version": before["version"]})
+                self.assertEqual(restored.status_code, 409, restored.json)
+                self.assertEqual(restored.json["error"], "此资料现已被成果或摘录引用，不能恢复为研究内容类型。")
+                self.assertEqual(self.detail(rid), before)
+                self.assertEqual(self.detail(created.json["id"]), dependent_before)
+                self.assertEqual(self.clients["researcher"].get(history_url).json, history_before)
 
     def test_persistence_after_application_restart(self):
         rid = self.record()

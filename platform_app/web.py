@@ -419,8 +419,13 @@ def create_app(data_dir=None, testing=False):
                 abort(400, "文本文件请使用 UTF-8 编码。")
         aid = uuid.uuid4().hex
         path = data_dir / "uploads" / (aid + suffix)
-        path.write_bytes(content)
-        db().execute("INSERT INTO attachments VALUES (?,?,?,?,?,?,?)", (aid, rid, name, path.name, len(content), hashlib.sha256(content).hexdigest(), now()))
+        try:
+            path.write_bytes(content)
+            db().execute("INSERT INTO attachments VALUES (?,?,?,?,?,?,?)", (aid, rid, name, path.name, len(content), hashlib.sha256(content).hexdigest(), now()))
+        except Exception:
+            # The caller cannot clean a path that this function has not returned yet.
+            path.unlink(missing_ok=True)
+            raise
         return current_ids + [aid], path
 
     @app.post("/api/records")
