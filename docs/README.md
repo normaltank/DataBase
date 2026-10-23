@@ -19,7 +19,7 @@
 
 ## 已确认、尚待施工的规格
 
-截至本页整理时，[人物 Wiki 与研究对象关联](specs/作者档案与研究对象关联.md) 已形成规格并发布为 [父任务 #1](https://github.com/normaltank/DataBase/issues/1)，尚未拆分子任务或实施应用。下一建设阶段由 `to-tickets` 形成完整流程任务，经确认后进入 `implement-spec`。
+截至本页整理时，[人物 Wiki 与研究对象关联](specs/作者档案与研究对象关联.md) 已形成规格并发布为 [父任务 #1](https://github.com/normaltank/DataBase/issues/1)。用户已确认七项完整流程的拆分，子任务 #6—#12 及原生依赖已发布，进入 `implement-spec`；确认与覆盖依据见[拆分发布记录](../work/人物Wiki任务拆分草案.md)。功能验收尚未完成，执行状态以 Issues 为准。
 
 ## 历史档案
 
@@ -28,6 +28,7 @@
 ### 资料修订与历史（2026-10-23，已合并并完成本地切换）
 
 - [执行与审查记录](../work/资料修订与历史执行记录.md)：恢复测试修正、完整修改动作、受控失败验证及备份后的本地切换。任务和合并记录见 [Issue #2](https://github.com/normaltank/DataBase/issues/2)／[PR #3](https://github.com/normaltank/DataBase/pull/3)。
+- 后续复盘已落实默认合成检查及双系统 CI，见 [Issue #4](https://github.com/normaltank/DataBase/issues/4)／[PR #5](https://github.com/normaltank/DataBase/pull/5)；统一入口见[自动验证](../README.md#自动验证)。
 
 ### 产品讨论与方案
 
