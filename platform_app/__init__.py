@@ -1,0 +1,1 @@
+"""Research commons local application."""

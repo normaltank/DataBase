@@ -1,0 +1,295 @@
+"""Local research collections, member administration and permission-aware export."""
+import hashlib
+import html
+import io
+import json
+import re
+import uuid
+import zipfile
+from pathlib import Path
+
+from flask import abort, jsonify, request, send_file, session
+from werkzeug.security import check_password_hash, generate_password_hash
+
+from . import workflow, identity
+from .store import now, save_revision
+
+COLLECTION_FIELDS = ["name", "description", "visibility", "research_question", "comparison_html", "comparison_text", "stage_judgment"]
+
+
+def collection_values(data, base=None):
+    values = {}
+    for key in COLLECTION_FIELDS:
+        value = data.get(key, base[key] if base else "")
+        if not isinstance(value, str) or len(value) > (500000 if key.startswith("comparison_") else 40000):
+            abort(400, "专题字段格式不正确或内容过长。")
+        values[key] = value.strip()
+    if not values["name"] or values["visibility"] not in {"private", "shared"}:
+        abort(400, "请填写专题名称并选择共享范围。")
+    try:
+        values["comparison_html"], values["comparison_text"] = workflow.clean_rich(values["comparison_html"])
+    except ValueError as error:
+        abort(400, str(error))
+    return values
+
+
+def password(value):
+    if not isinstance(value, str) or not 12 <= len(value) <= 200:
+        abort(400, "密码需要 12—200 个字符。")
+    return generate_password_hash(value)
+
+
+def register(app, ctx):
+    db, user, body = ctx.db, ctx.user, ctx.body
+
+    @app.get("/api/collections/<cid>")
+    def collection_detail(cid):
+        row = ctx.get_collection(cid)
+        items = [ctx.record_summary(r) for r in db().execute("SELECT r.* FROM records r JOIN collection_items i ON i.record_id=r.id WHERE i.collection_id=? AND r.merged_into IS NULL ORDER BY r.updated_at DESC", (cid,)) if ctx.visible(r)]
+        return jsonify(**dict(row), items=items, can_edit=True, can_manage_visibility=row["owner_id"] == user()["id"])
+
+    @app.put("/api/collections/<cid>")
+    def edit_collection(cid):
+        db().execute("BEGIN IMMEDIATE")
+        row, data = ctx.get_collection(cid, edit=True), body()
+        ctx.check_version(data, row)
+        values = collection_values(data, row)
+        if values["visibility"] != row["visibility"] and row["owner_id"] != user()["id"]:
+            abort(403, "只有专题创建者可以调整可见范围。")
+        with db():
+            if not db().execute("SELECT 1 FROM revisions WHERE target_type='collection' AND target_id=?", (cid,)).fetchone():
+                save_revision(db(), "collection", cid, "专题修订前版本", user()["id"])
+            values.update(version=row["version"] + 1, updated_at=now())
+            db().execute(f"UPDATE collections SET {','.join(k+'=?' for k in values)} WHERE id=?", [*values.values(), cid])
+            save_revision(db(), "collection", cid, "修订研究问题、比较或阶段判断", user()["id"])
+        return jsonify(id=cid)
+
+    @app.get("/api/collections/<cid>/history")
+    def collection_history(cid):
+        ctx.get_collection(cid)
+        rows = db().execute("SELECT r.*,u.name AS actor_name FROM revisions r JOIN users u ON u.id=r.actor_id WHERE target_type='collection' AND target_id=? ORDER BY r.id DESC", (cid,))
+        return jsonify(items=[{"id": r["id"], "version": json.loads(r["snapshot_json"])["version"], "actor_name": r["actor_name"], "created_at": r["created_at"], "action": r["action"]} for r in rows])
+
+    @app.post("/api/collections/<cid>/restore/<int:revision_id>")
+    def restore_collection(cid, revision_id):
+        db().execute("BEGIN IMMEDIATE")
+        row, data = ctx.get_collection(cid, edit=True), body()
+        ctx.check_version(data, row)
+        revision = db().execute("SELECT * FROM revisions WHERE id=? AND target_type='collection' AND target_id=?", (revision_id, cid)).fetchone()
+        if not revision:
+            abort(404)
+        snapshot = json.loads(revision["snapshot_json"])
+        snapshot["visibility"] = row["visibility"]
+        values = collection_values(snapshot, row)
+        records = sorted({ctx.get_record(rid)["id"] for rid in snapshot.get("item_ids", [])})
+        with db():
+            values.update(version=row["version"] + 1, updated_at=now())
+            db().execute(f"UPDATE collections SET {','.join(k+'=?' for k in values)} WHERE id=?", [*values.values(), cid])
+            db().execute("DELETE FROM collection_items WHERE collection_id=?", (cid,))
+            db().executemany("INSERT INTO collection_items VALUES (?,?)", [(cid, rid) for rid in records])
+            save_revision(db(), "collection", cid, "恢复专题版本 " + str(snapshot["version"]), user()["id"])
+        return jsonify(id=cid)
+
+    @app.get("/api/members")
+    def members():
+        ctx.admin()
+        return jsonify(items=[dict(r) for r in db().execute("SELECT id,username,name,role,active FROM users ORDER BY active DESC,name")])
+
+    @app.post("/api/members")
+    def new_member():
+        ctx.admin()
+        db().execute("BEGIN IMMEDIATE")
+        ctx.admin()
+        data = body()
+        username, name, role = data.get("username", ""), data.get("name", ""), data.get("role", "researcher")
+        if not isinstance(username, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{3,64}", username) or not isinstance(name, str) or not 1 <= len(name.strip()) <= 100 or role not in {"admin", "researcher"}:
+            abort(400, "请填写姓名、3—64 位字母数字账号及有效角色。")
+        if db().execute("SELECT 1 FROM users WHERE lower(username)=lower(?)", (username,)).fetchone():
+            abort(409, "账号已存在。")
+        hashed = password(data.get("password"))
+        uid = "member-" + uuid.uuid4().hex[:12]
+        with db():
+            db().execute("INSERT INTO users(id,username,name,password_hash,role) VALUES (?,?,?,?,?)", (uid, username, name.strip(), hashed, role))
+            db().execute("INSERT INTO member_events(actor_id,member_id,action,created_at) VALUES (?,?,?,?)", (user()["id"], uid, "创建成员", now()))
+        return jsonify(id=uid), 201
+
+    @app.put("/api/members/<uid>")
+    def edit_member(uid):
+        ctx.admin()
+        actor = user()["id"]
+        db().execute("BEGIN IMMEDIATE")
+        ctx.admin()
+        row, data = db().execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone(), body()
+        if not row:
+            abort(404)
+        values = {}
+        for key in ["name", "role", "active"]:
+            if key in data:
+                values[key] = data[key]
+        if "name" in values and (not isinstance(values["name"], str) or not 1 <= len(values["name"].strip()) <= 100):
+            abort(400, "姓名格式不正确。")
+        if "role" in values and values["role"] not in {"admin", "researcher"}:
+            abort(400, "角色不正确。")
+        if "active" in values and type(values["active"]) is not bool:
+            abort(400, "请指定是否启用。")
+        if row["active"] and row["role"] == "admin" and (not values.get("active", True) or values.get("role", row["role"]) != "admin"):
+            if db().execute("SELECT count(*) FROM users WHERE active=1 AND role='admin'").fetchone()[0] <= 1:
+                abort(409, "必须保留至少一位有效管理员。")
+        if "password" in data:
+            values["password_hash"] = password(data["password"])
+        if not values:
+            abort(400, "没有要修改的成员信息。")
+        if any(key in values for key in ["active", "role", "password_hash"]):
+            values["credential_version"] = row["credential_version"] + 1
+        with db():
+            db().execute(f"UPDATE users SET {','.join(key+'=?' for key in values)} WHERE id=?", [*values.values(), uid])
+            action = "重置凭据" if "password_hash" in values else "停用成员" if values.get("active") is False else "维护成员信息"
+            db().execute("INSERT INTO member_events(actor_id,member_id,action,created_at) VALUES (?,?,?,?)", (actor, uid, action, now()))
+        return jsonify(id=uid, reauthenticate=uid == actor and "credential_version" in values)
+
+    @app.post("/api/account/password")
+    def own_password():
+        db().execute("BEGIN IMMEDIATE")
+        uid, data = user()["id"], body()
+        row = db().execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
+        old = data.get("old_password", "")
+        if not isinstance(old, str) or not check_password_hash(row["password_hash"], old):
+            abort(403, "当前密码不正确。")
+        hashed = password(data.get("new_password"))
+        with db():
+            db().execute("UPDATE users SET password_hash=?,credential_version=credential_version+1 WHERE id=?", (hashed, uid))
+            db().execute("INSERT INTO member_events(actor_id,member_id,action,created_at) VALUES (?,?,?,?)", (uid, uid, "本人修改密码", now()))
+        session["credential_version"] = row["credential_version"] + 1
+        return jsonify(ok=True)
+
+    @app.get("/api/export/content")
+    def export_content():
+        selected, _ = ctx.filtered_records(request.args)
+        # Include accessible referenced evidence and originals so local links remain useful.
+        records, pending = {}, [r["id"] for r in selected]
+        while pending:
+            rid = pending.pop()
+            if rid in records:
+                continue
+            item = ctx.record_detail(rid).get_json()
+            records[item["id"]] = item
+            pending.extend(r["id"] for r in item["linked_records"] if r["id"] not in records)
+            pending.extend(c["excerpt_id"] for c in item["evidence_citations"] if c["excerpt_id"] not in records)
+            for citation in item["evidence_citations"]:
+                if citation["snapshot"].get("evidence_record_id"):
+                    pending.append(ctx.get_record(citation["snapshot"]["evidence_record_id"])["id"])
+            if item["evidence_record_id"]:
+                pending.append(ctx.get_record(item["evidence_record_id"])["id"])
+        collections = []
+        for row in db().execute("SELECT * FROM collections"):
+            if row["visibility"] == "private" and row["owner_id"] != user()["id"]:
+                continue
+            item = dict(row)
+            item["item_ids"] = [r[0] for r in db().execute("SELECT record_id FROM collection_items WHERE collection_id=?", (row["id"],)) if r[0] in records]
+            if item["item_ids"] or request.args.get("collection") == row["id"]:
+                collections.append(item)
+        sources = [dict(r) for r in db().execute("SELECT * FROM sources WHERE merged_into IS NULL")]
+        paths = {rid: "records/" + hashlib.sha256(rid.encode()).hexdigest()[:20] + ".html" for rid in records}
+        source_paths = {s["id"]: "sources/" + hashlib.sha256(s["id"].encode()).hexdigest()[:20] + ".html" for s in sources}
+        attachments = {}
+        for item in records.values():
+            aids = [a["id"] for a in item["attachments"]]
+            if item["evidence_attachment_id"]:
+                aids.append(item["evidence_attachment_id"])
+            for citation in item["evidence_citations"]:
+                if citation["snapshot"].get("evidence_attachment_id"):
+                    aids.append(citation["snapshot"]["evidence_attachment_id"])
+            for aid in aids:
+                a = db().execute("SELECT * FROM attachments WHERE id=?", (aid,)).fetchone()
+                if a:
+                    original = identity.resolve(db(), "records", a["record_id"])
+                    if original and ctx.visible(original):
+                        attachments[aid] = dict(a)
+        payload = {"format": "research-content-v1", "exported_at": now(), "selected_ids": [r["id"] for r in selected],
+                   "records": list(records.values()), "sources": sources, "collections": collections, "attachments": list(attachments.values())}
+        output = io.BytesIO()
+        style = "body{font:16px/1.7 system-ui,sans-serif;max-width:960px;margin:32px auto;padding:0 20px;color:#202f42}a{color:#234e78}pre{font:inherit;white-space:pre-wrap}section{margin:28px 0}"
+        style += (Path(app.static_folder) / "reading.css").read_text(encoding="utf-8")
+
+        def page(title, content):
+            # Presentation wrappers belong only to the export, never to stored content.
+            content = re.sub(r"<table\b[^>]*>", lambda match: '<div class="reading-table" role="region" aria-label="内容表格" tabindex="0">' + match.group(), content, flags=re.I)
+            content = re.sub(r"</table\s*>", "</table></div>", content, flags=re.I)
+            return '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>' + html.escape(title) + '</title><style>' + style + '</style><body class="reading-content"><h1>' + html.escape(title) + '</h1>' + content + '</body></html>'
+
+        def prose(label, value):
+            return "<section><h2>" + html.escape(label) + "</h2><pre>" + html.escape(str(value or "")) + "</pre></section>" if value else ""
+
+        def original_snapshot(snapshot):
+            if not snapshot:
+                return ""
+            fields = [("title", "题名"), ("original_title", "原题名"), ("authors", "署名"), ("published_on", "日期"), ("id", "编号"), ("version", "版本"), ("url", "原文链接"), ("doi", "DOI")]
+            details = "\n".join(label + "：" + str(snapshot[key]) for key, label in fields if snapshot.get(key) not in (None, ""))
+            return '<section><h2>引用时的原始资料快照</h2><pre>' + html.escape(details) + '</pre>' + (snapshot.get("body_html") or "") + prose("原摘要", snapshot.get("abstract")) + '</section>'
+
+        with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("content.json", json.dumps(payload, ensure_ascii=False, indent=2))
+            index = "<p>包括当前可见正文、附件、来源、专题和引用时的证据快照。账户凭据不在此导出中；全部历史的系统恢复使用完整备份。</p><ul>"
+            for item in records.values():
+                rid = item["id"]
+                index += '<li><a href="' + paths[rid] + '">' + html.escape(item["title"]) + "</a></li>"
+                content = '<p><a href="../index.html">返回目录</a></p>' + prose("身份与出处", f"编号：{rid}\n署名：{item['authors']}\n日期：{item['published_on']}\n版本：{item['version']}\n覆盖范围：{item['coverage']}\n原目录出处：{item['original_catalogue']}\n原文链接：{item['url']}")
+                content += prose("摘要与说明", item["abstract"]) + "<section><h2>正文</h2>" + item["body_html"] + "</section>"
+                for key, label in [("quote", "原文摘录"), ("translation", "译文"), ("interpretation", "研究员说明"), ("locator", "原文定位")]:
+                    content += prose(label, item[key])
+                content += original_snapshot(item["evidence_snapshot"])
+                for a in item["attachments"]:
+                    if a["id"] in attachments:
+                        content += '<p><a href="../attachments/' + attachments[a["id"]]["stored_name"] + '">' + html.escape(a["name"]) + '</a></p>'
+                if item["evidence_attachment_id"] in attachments:
+                    attached = attachments[item["evidence_attachment_id"]]
+                    content += '<p><a href="../attachments/' + attached["stored_name"] + '">引用时附件：' + html.escape(attached["name"]) + '</a></p>'
+                for citation in item["evidence_citations"]:
+                    snap = citation["snapshot"]
+                    content += '<section><h2>引用证据 · 版本 ' + str(citation["excerpt_version"]) + '</h2>'
+                    content += prose("笔记题名", snap.get("title")) + (snap.get("body_html") or "")
+                    content += prose("摘录／译文／说明／定位", "\n\n".join(str(snap.get(k, "")) for k in ["quote", "translation", "interpretation", "locator"]))
+                    content += original_snapshot(json.loads(snap.get("evidence_snapshot_json") or "{}"))
+                    if citation["excerpt_id"] in paths:
+                        content += '<a href="../' + paths[citation["excerpt_id"]] + '">返回证据笔记</a>'
+                    if snap.get("evidence_record_id"):
+                        original_id = ctx.get_record(snap["evidence_record_id"])["id"]
+                        if original_id in paths:
+                            content += '<p><a href="../' + paths[original_id] + '">返回引用时对应原文</a></p>'
+                    if snap.get("evidence_attachment_id") in attachments:
+                        attached = attachments[snap["evidence_attachment_id"]]
+                        content += '<p><a href="../attachments/' + attached["stored_name"] + '">采用版本的原文附件：' + html.escape(attached["name"]) + '</a></p>'
+                    content += "</section>"
+                for original in item["linked_records"]:
+                    if original["id"] in paths:
+                        content += '<p><a href="../' + paths[original["id"]] + '">原文：' + html.escape(original["title"]) + '</a></p>'
+                if item["evidence_record_id"]:
+                    original_id = ctx.get_record(item["evidence_record_id"])["id"]
+                    if original_id in paths:
+                        content += '<p><a href="../' + paths[original_id] + '">返回摘录对应原文</a> · 引用原文版本 ' + str(item["evidence_version"]) + '</p>'
+                for sid in set(item["related_source_ids"] + [item["source_id"], item["serial_id"]]):
+                    if sid in source_paths:
+                        content += '<p><a href="../' + source_paths[sid] + '">查看关联来源：' + html.escape(next(s["name"] for s in sources if s["id"] == sid)) + '</a></p>'
+                archive.writestr(paths[rid], page(item["title"], content))
+            index += "</ul>"
+            index += "<h2>来源介绍与登记</h2><ul>"
+            for source in sources:
+                index += '<li><a href="' + source_paths[source["id"]] + '">' + html.escape(source["name"]) + '</a></li>'
+                content = '<p><a href="../index.html">返回目录</a></p>' + source["introduction_html"]
+                for key, label in [("id", "稳定编号"), ("original_name", "原名"), ("aliases", "别名"), ("website", "官网"), ("notes", "原始备注"), ("country_evidence", "国家依据"), ("host_evidence", "主办依据"), ("international_evidence", "国际定位依据")]:
+                    content += prose(label, source[key])
+                for item in records.values():
+                    if source["id"] in [item["source_id"], item["serial_id"], *item["related_source_ids"]]:
+                        content += '<p><a href="../' + paths[item["id"]] + '">' + html.escape(item["title"]) + '</a></p>'
+                archive.writestr(source_paths[source["id"]], page(source["name"], content))
+            index += "</ul>"
+            for collection in collections:
+                index += "<section><h2>" + html.escape(collection["name"]) + "</h2>" + prose("研究问题", collection["research_question"]) + collection["comparison_html"] + prose("阶段判断", collection["stage_judgment"]) + "</section>"
+            archive.writestr("index.html", page("研究资料内容导出", index))
+            for attachment in attachments.values():
+                path = ctx.data_dir / "uploads" / attachment["stored_name"]
+                if not path.is_file():
+                    abort(409, "附件文件缺失，无法完成完整内容导出。")
+                archive.write(path, "attachments/" + attachment["stored_name"])
+        output.seek(0)
+        return send_file(output, mimetype="application/zip", as_attachment=True, download_name="research-content.zip")

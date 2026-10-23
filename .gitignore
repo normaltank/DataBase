@@ -1,0 +1,56 @@
+# Python environments and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local databases, uploads, backups and service state (at any depth)
+data/
+data-*/
+uploads/
+backups/
+logs/
+*.sqlite*
+*.db
+*.db-*
+*.zip
+*.log
+*.pid
+.session-key
+
+# Local credentials and editor / browser state
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+.idea/
+.vscode/
+.playwright-mcp/
+.DS_Store
+Thumbs.db
+
+# Generated acceptance data, exports, screenshots and rendered documents
+tests/artifacts/
+docs/*.png
+docs/*.jpg
+docs/*.jpeg
+
+# Keep project handoff documents, not historical data copies or render output
+work/*
+!work/*.md
+!work/research-workflow-validation/
+work/research-workflow-validation/*
+!work/research-workflow-validation/commander-browser-checks.md
+
+# Keep plans and reproducible acceptance scripts; local manifests stay local
+.planning/*
+!.planning/*/
+.planning/*/*
+!.planning/*/*.md
+!.planning/*/*.py
