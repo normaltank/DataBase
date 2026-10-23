@@ -14,3 +14,5 @@ Verified primary records:
 The seven entries are examples for approval, not a complete list or a first-phase promise to ingest all material. No impact factors, rankings, comprehensive access or publisher permissions are inferred.
 
 Verification subtask complete. Return to document editing workflow.
+
+> 归档说明（2026-10-23）：历史档案。方案阶段的候选来源核查，只证明所列核查范围。后续结果或导航见 [对应入口](../docs/README.md)。

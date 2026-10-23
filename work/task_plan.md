@@ -13,6 +13,8 @@ Boundaries: no fees, quotes, implementation jargon, invented names, facilities, 
 
 Errors: one web batch containing slow direct institutional pages was terminated. Use indexed official pages and targeted searches instead of retrying the slow batch.
 
+> 归档说明（2026-10-23）：历史档案。方案补充修订已完成；正文中的 pending 和 in progress 是当时步骤，完成结果见文末。后续结果或导航见 [对应入口](proposal_rewrite_plan.md)。
+
 Source identity and topical-fit verification complete for seven candidates. Building six-page revised document.
 
 DOCX exported to six pages. Pages 1–2 visually reviewed: clean layout; shorten one page-label cell to remove a lone final character.
