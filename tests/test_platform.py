@@ -2,6 +2,7 @@ import csv
 import hashlib
 import io
 import json
+import os
 import tempfile
 import unittest
 import zipfile
@@ -320,8 +321,10 @@ class PlatformTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             restore_backup(tampered, Path(self.temp.name)/"tampered-output")
 
-    @unittest.skipUnless(DEFAULT_ROOT.is_dir(), "External ThinkTank dataset unavailable")
+    @unittest.skipUnless(os.environ.get("RUN_THINKTANK_IMPORT_TEST") == "1", "External ThinkTank test requires explicit opt-in")
     def test_real_import_is_idempotent_and_read_only(self):
+        if not DEFAULT_ROOT.is_dir():
+            self.skipTest("External ThinkTank dataset unavailable")
         before = {name: hashlib.sha256((DEFAULT_ROOT/name).read_bytes()).hexdigest() for name in FILES}
         result = import_thinktank(self.data_dir)
         self.assertEqual((result["records"],result["source_rows"],result["serial_rows"]), (493,64,79))

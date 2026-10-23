@@ -182,10 +182,33 @@ python app.py --no-import
 
 修订接口需要传入当前 `version`，防止覆盖同事已保存的新版本。编辑者不得通过接口自行扩大授权；管理员核对接口与备份接口也在服务端检查角色。
 
-运行自动验证：
+## 自动验证
+
+安装依赖后，在仓库目录运行统一检查：
 
 ```powershell
-python -m unittest discover -s tests -v
+python scripts/check.py
 ```
 
-测试使用独立临时目录，不改动试用数据；真实资料导入检查对 ThinkTank 主表计算前后散列，目录不存在时跳过该项。自动采集、附件全文提取／OCR、实时协作、正式网络部署、对外发布和高级分析仍未接入，详见施工说明。
+该入口检查应用、维护脚本和测试的 Python 语法，再发现并执行完整合成数据套件。测试使用独立临时目录；入口始终关闭外部资料测试，包括当前终端曾设置外部检查开关的情况。语法错误、测试失败、未发现测试或全部跳过均返回非零退出码。
+
+直接运行 `python -m unittest discover -s tests -v` 时，外部资料测试同样默认跳过，连 ThinkTank 目录是否存在也不会探测。需要单项调试时，可使用 unittest 的 `-p` 或 `-k` 筛选；交付前仍运行上述完整入口。
+
+[GitHub Actions](.github/workflows/check.yml) 在推送和 PR 时，使用 Ubuntu、Windows 与 Python 3.12 执行同一命令，令牌仅有读取仓库内容的权限。结果以对应提交的实际检查记录为准；配置存在不代表某次运行已经通过。
+
+### 单独检查真实资料导入
+
+只有在已获授权、确认[四张试点主表](#初始数据及其边界)可供此次验证时，才在 PowerShell 显式开启并单独运行原外部测试：
+
+```powershell
+$env:RUN_THINKTANK_IMPORT_TEST = "1"
+try {
+    python -m unittest discover -s tests -p test_platform.py -k real_import -v
+} finally {
+    Remove-Item Env:\RUN_THINKTANK_IMPORT_TEST -ErrorAction SilentlyContinue
+}
+```
+
+该测试先检查默认资料目录是否存在；缺失则跳过，存在时读取指定主表，对导入前后散列、幂等性和关联进行验证，输出使用临时数据库。普通检查与 CI 均不执行这一项。
+
+自动采集、附件全文提取／OCR、实时协作、正式网络部署、对外发布和高级分析仍未接入，详见施工说明。
