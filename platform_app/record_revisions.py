@@ -460,7 +460,7 @@ class RecordRevisions:
                     allowed=not blocked, blocked_reason=blocked, impact=self._merge_impact(kind, keep, duplicate),
                     explanation="保留所选主记录的当前内容，补充旧名称与编号线索并转接关联。另一记录原文与历史归档保留；不会把两份正文自动拼接。")
 
-    def _source_records(self, keep_id, duplicate_id):
+    def _rewire_source_record_links(self, keep_id, duplicate_id):
         for field in ["source_id", "serial_id"]:
             self.db.execute(f"UPDATE records SET {field}=? WHERE {field}=?", (keep_id, duplicate_id))
         self.db.execute("INSERT OR IGNORE INTO record_sources(record_id,source_id) SELECT record_id,? FROM record_sources WHERE source_id=?", (keep_id, duplicate_id))
@@ -498,7 +498,7 @@ class RecordRevisions:
                 self._merge_records(keep, duplicate)
             else:
                 identity.rewrite_source_graph(self.db, keep, duplicate, validate_source)
-                self._source_records(kid, did)
+                self._rewire_source_record_links(kid, did)
             self.db.execute(f"UPDATE {table} SET merged_into=?,version=version+1,updated_at=? WHERE id=?", (kid, now(), did))
             if kind == "source":
                 self.db.execute("UPDATE sources SET version=version+1,status='pending',updated_at=? WHERE id=?", (now(), kid))
