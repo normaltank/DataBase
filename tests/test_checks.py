@@ -116,3 +116,72 @@ class SyntheticFixture(unittest.TestCase):
                 result = self.run_check(self.checkout(source))
                 self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertIn("No synthetic tests ran", result.stderr)
+
+    def test_check_command_rejects_suites_skipped_during_setup(self):
+        fixtures = {
+            "module": '''
+import unittest
+def setUpModule():
+    raise unittest.SkipTest("module setup skipped")
+class SyntheticFixture(unittest.TestCase):
+    def test_sample(self):
+        self.fail("setup skip must prevent execution")
+''',
+            "class": '''
+import unittest
+class SyntheticFixture(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        raise unittest.SkipTest("class setup skipped")
+    def test_sample(self):
+        self.fail("setup skip must prevent execution")
+''',
+            "test": '''
+import unittest
+class SyntheticFixture(unittest.TestCase):
+    def setUp(self):
+        self.skipTest("test setup skipped")
+    def test_sample(self):
+        self.fail("setup skip must prevent execution")
+''',
+        }
+        for name, source in fixtures.items():
+            with self.subTest(setup=name):
+                result = self.run_check(self.checkout(source))
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("No synthetic tests ran", result.stderr)
+                self.assertIn(f"{name} setup skipped", result.stderr)
+
+    def test_check_command_accepts_executed_test_alongside_class_setup_skip(self):
+        root = self.checkout('''
+import unittest
+class SkippedFixture(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        raise unittest.SkipTest("class setup skipped")
+    def test_sample(self):
+        self.fail("setup skip must prevent execution")
+class SyntheticFixture(unittest.TestCase):
+    def test_sample(self):
+        print("SYNTHETIC_SAMPLE_EXECUTED")
+        self.assertEqual(2 + 2, 4)
+''')
+        result = self.run_check(root)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("SYNTHETIC_SAMPLE_EXECUTED", result.stdout)
+        self.assertIn("class setup skipped", result.stderr)
+
+    def test_check_command_accepts_executed_test_with_skipped_subtest(self):
+        root = self.checkout('''
+import unittest
+class SyntheticFixture(unittest.TestCase):
+    def test_sample(self):
+        with self.subTest(part="optional"):
+            self.skipTest("optional subtest skipped")
+        self.assertEqual(2 + 2, 4)
+        print("SYNTHETIC_SAMPLE_EXECUTED")
+''')
+        result = self.run_check(root)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("SYNTHETIC_SAMPLE_EXECUTED", result.stdout)
+        self.assertIn("optional subtest skipped", result.stderr)
