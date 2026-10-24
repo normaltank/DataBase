@@ -49,7 +49,7 @@ def target(db, subject_type, subject_id):
     if not isinstance(subject_type, str) or subject_type not in SUBJECT_TYPES or not isinstance(subject_id, str):
         abort(400, "请选择人物、机构或期刊作为研究对象。")
     if subject_type == "person":
-        row = db.execute("SELECT * FROM people WHERE id=?", (subject_id,)).fetchone()
+        row = identity.resolve(db, "people", subject_id)
     else:
         row = identity.resolve(db, "sources", subject_id)
     if not row:
@@ -65,19 +65,26 @@ def snapshot(db, note_id):
 
 
 def read(db, note_id):
-    return [{**r, "subject_name": target(db, r["subject_type"], r["subject_id"])["name"]}
-            for r in snapshot(db, note_id)]
+    items = []
+    for relation in snapshot(db, note_id):
+        item = {**relation, "subject_name": target(db, relation["subject_type"], relation["subject_id"])["name"]}
+        last = db.execute("SELECT action,identity_event_id,created_at FROM research_subject_history WHERE relation_id=? ORDER BY id DESC LIMIT 1",
+                          (relation["id"],)).fetchone()
+        if last and last["identity_event_id"]:
+            item["identity_change"] = {"event_id": last["identity_event_id"], "action": last["action"], "created_at": last["created_at"]}
+        items.append(item)
+    return items
 
 
-def audit(db, relation_id, actor_id, action):
+def audit(db, relation_id, actor_id, action, *, event_id=None):
     row = db.execute("SELECT * FROM research_subjects WHERE id=?", (relation_id,)).fetchone()
     state = dict(row)
     for prefix in ["", "original_"]:
         table = "people" if state[prefix + "subject_type"] == "person" else "sources"
         subject = db.execute(f"SELECT name FROM {table} WHERE id=?", (state[prefix + "subject_id"],)).fetchone()
         state[prefix + "subject_name"] = subject["name"] if subject else state[prefix + "subject_id"]
-    db.execute("""INSERT INTO research_subject_history(relation_id,action,actor_id,created_at,snapshot_json)
-                  VALUES (?,?,?,?,?)""", (relation_id, action, actor_id, now(), json.dumps(state, ensure_ascii=False)))
+    db.execute("""INSERT INTO research_subject_history(relation_id,action,actor_id,created_at,snapshot_json,identity_event_id)
+                  VALUES (?,?,?,?,?,?)""", (relation_id, action, actor_id, now(), json.dumps(state, ensure_ascii=False), event_id))
 
 
 def save(db, note_id, kind, desired, actor_id):
@@ -89,6 +96,7 @@ def save(db, note_id, kind, desired, actor_id):
     retained, endpoints = set(), set()
     for item in desired:
         subject_type, subject_id = item.get("subject_type"), item.get("subject_id")
+        requested_subject_id = subject_id
         subject_id = target(db, subject_type, subject_id)["id"]
         pair = subject_type, subject_id
         row = next((r for r in current if r["id"] == item.get("id")), None) if item.get("id") else next(
@@ -113,7 +121,7 @@ def save(db, note_id, kind, desired, actor_id):
             relation_id = "subject-" + uuid.uuid4().hex
             db.execute("""INSERT INTO research_subjects(id,note_id,original_note_id,subject_type,subject_id,
                 original_subject_type,original_subject_id,created_by,updated_by,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
-                       (relation_id, note_id, note_id, subject_type, subject_id, subject_type, subject_id, actor_id, actor_id, now(), now()))
+                       (relation_id, note_id, note_id, subject_type, subject_id, subject_type, requested_subject_id, actor_id, actor_id, now(), now()))
             retained.add(relation_id)
             audit(db, relation_id, actor_id, "created")
     for row in current:
@@ -208,5 +216,5 @@ def register(app, ctx):
         rows = ctx.db().execute("""SELECT h.*,u.name AS actor_name FROM research_subject_history h
             JOIN research_subjects s ON s.id=h.relation_id JOIN users u ON u.id=h.actor_id
             WHERE s.note_id=? ORDER BY h.id DESC""", (row["id"],))
-        return jsonify(items=[{**{k: h[k] for k in ["id", "relation_id", "action", "actor_id", "actor_name", "created_at"]},
+        return jsonify(items=[{**{k: h[k] for k in ["id", "relation_id", "action", "actor_id", "actor_name", "created_at", "identity_event_id"]},
                                "snapshot": json.loads(h["snapshot_json"])} for h in rows])

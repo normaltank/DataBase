@@ -1,0 +1,29 @@
+.identity-comparison{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin:22px 0}
+.identity-person{min-width:0;border:1px solid var(--border);border-radius:9px;padding:20px;background:var(--surface)}
+.identity-person h3{margin:5px 0 10px;font-size:20px;overflow-wrap:anywhere}
+.identity-person .eyebrow{color:var(--primary);font-size:14px;margin:0}
+.identity-person>.rich-prose{margin:18px 0}
+.identity-person>.prose{white-space:pre-wrap;line-height:1.7;overflow-wrap:anywhere}
+.identity-id{overflow-wrap:anywhere}
+.identity-choices{margin:26px 0}
+.identity-choices fieldset{border:1px solid var(--border);padding:15px 18px;border-radius:8px;margin:14px 0;min-width:0}
+.identity-choices legend{font-weight:600;padding:0 7px}
+.identity-choices fieldset label{display:flex;align-items:flex-start;gap:10px;line-height:1.7;margin:9px 0;cursor:pointer}
+.identity-choices input[type=radio],.identity-confirm input{flex-shrink:0;margin-top:5px}
+.identity-choices label span{overflow-wrap:anywhere;min-width:0}
+.identity-relations{margin:25px 0}
+.identity-relations details{padding:14px 0;border-bottom:1px solid var(--border)}
+.identity-relations summary{font-weight:600;cursor:pointer}
+.identity-relations p{line-height:1.7;overflow-wrap:anywhere}
+.identity-relations article{border-bottom:1px dotted var(--border);padding:8px 0}
+.identity-relations h4{margin:10px 0}
+.identity-confirm{margin:20px 0;align-items:flex-start;line-height:1.7}
+.identity-candidates article{padding:18px 0;border-bottom:1px solid var(--border)}
+.identity-candidates h3{margin:6px 0}.identity-candidates p{line-height:1.7;overflow-wrap:anywhere}
+.identity-event{padding:20px 0;border-bottom:1px solid var(--border)}
+.identity-event>details{margin:20px 0}.identity-event>.prose{white-space:pre-wrap;overflow-wrap:anywhere}
+.identity-blocked{border-left:4px solid var(--accent)}
+.person-redirect{margin:15px 0 24px;overflow-wrap:anywhere;line-height:1.8}
+.person-identity dd>a{display:inline-block;max-width:100%;padding:5px 0}
+[data-form=person-identity]>.field textarea{min-height:95px}
+@media(max-width:650px){.identity-comparison{grid-template-columns:minmax(0,1fr);gap:14px}.identity-person{padding:16px}.identity-choices fieldset{padding:12px}.identity-confirm{gap:10px}.person-page .detail-actions{gap:9px;flex-wrap:wrap}}

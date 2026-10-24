@@ -10,7 +10,7 @@ from pathlib import Path
 from flask import abort, jsonify, request, send_file
 from PIL import Image, UnidentifiedImageError
 
-from . import workflow
+from . import workflow, identity
 from .store import connect, now, save_revision
 from .record_revisions import check_version
 
@@ -81,6 +81,16 @@ def validated_image(upload):
     return content, stored_extension, mime
 
 
+def retained_names(db, pid, value):
+    members = identity.origins(db, "people", pid)
+    names = [value]
+    for old_id in members:
+        if old_id != pid:
+            old = db.execute("SELECT * FROM people WHERE id=?", (old_id,)).fetchone()
+            names.extend(old[key] for key in ["name", "original_name", "chinese_name", "aliases"])
+    return "\n".join(line for line in identity.aliases(*names).splitlines() if line not in members)
+
+
 class PersonProfiles:
     """Current authenticated member's person identity and version operations."""
 
@@ -106,20 +116,28 @@ class PersonProfiles:
         return row
 
     def detail(self, pid):
-        row = self.get(pid)
+        row = identity.resolve(self.db, "people", pid)
+        if not row:
+            abort(404, "人物档案不存在。")
+        requested_id, pid = pid, row["id"]
         actor = self.db.execute("""SELECT u.id,u.name,r.created_at FROM revisions r JOIN users u ON u.id=r.actor_id
             WHERE target_type='person' AND target_id=? ORDER BY r.id DESC LIMIT 1""", (pid,)).fetchone()
-        return {**dict(row), "avatar": self.avatar(pid, row["avatar_id"]), "can_edit": True, "can_restore": True,
+        return {**dict(row), "requested_id": requested_id,
+                "previous_ids": [old for old in identity.origins(self.db, "people", pid) if old != pid],
+                "avatar": self.avatar(pid, row["avatar_id"]), "can_edit": True, "can_restore": True,
                 "last_modifier": dict(actor) if actor else None}
 
     def avatar(self, pid, avatar_id):
         if not avatar_id:
             return None
-        row = self.db.execute("SELECT * FROM person_avatars WHERE id=? AND person_id=?", (avatar_id, pid)).fetchone()
-        if not row:
+        row = self.db.execute("SELECT * FROM person_avatars WHERE id=?", (avatar_id,)).fetchone()
+        referenced = row and (row["person_id"] == pid or self.db.execute(
+            "SELECT 1 FROM revisions WHERE target_type='person' AND target_id=? AND json_extract(snapshot_json,'$.avatar_id')=?",
+            (pid, avatar_id)).fetchone())
+        if not referenced:
             abort(404, "头像不存在。")
         return {**{k: row[k] for k in ["id", "name", "mime_type", "bytes", "sha256", "created_at"]},
-                "url": f"/api/people/{pid}/avatars/{avatar_id}"}
+                "owner_id": row["person_id"], "url": f"/api/people/{row['person_id']}/avatars/{avatar_id}"}
 
     def upload_avatar(self, pid, current, upload, created_files):
         if not current["avatar_source"]:
@@ -152,6 +170,8 @@ class PersonProfiles:
     def update(self, pid, data, revision_id=None, upload=None):
         with self.mutation() as created_files:
             row = self.get(pid)
+            if row["merged_into"]:
+                abort(409, "此档案已合并，请打开当前人物档案维护；拆回请使用身份操作。")
             check_version(data, row)
             action = "修订人物档案"
             if revision_id is not None:
@@ -163,6 +183,7 @@ class PersonProfiles:
                 action = "恢复人物版本 " + str(snapshot["version"])
                 data = {**snapshot, "change_note": data.get("change_note", "")}
             current = values(data, row)
+            current["aliases"] = retained_names(self.db, pid, current["aliases"])
             if revision_id is not None:
                 current["avatar_id"] = snapshot.get("avatar_id")
                 self.avatar(pid, current["avatar_id"])
@@ -178,7 +199,7 @@ class PersonProfiles:
         return self.detail(pid)
 
     def history(self, pid):
-        self.get(pid)
+        person = self.get(pid)
         rows = self.db.execute("""SELECT r.*,u.name AS actor_name FROM revisions r JOIN users u ON u.id=r.actor_id
             WHERE target_type='person' AND target_id=? ORDER BY r.id DESC""", (pid,))
         items = []
@@ -186,7 +207,7 @@ class PersonProfiles:
             snapshot = json.loads(row["snapshot_json"])
             snapshot["avatar"] = self.avatar(pid, snapshot.get("avatar_id"))
             items.append({**{k: row[k] for k in ["id", "actor_id", "actor_name", "created_at", "action"]},
-                          "version": snapshot["version"], "snapshot": snapshot, "can_restore": True})
+                          "version": snapshot["version"], "snapshot": snapshot, "can_restore": not bool(person["merged_into"])})
         return items
 
 
@@ -203,8 +224,9 @@ def register(app, ctx):
             size = min(100, max(1, int(request.args.get("page_size", "24"))))
         except ValueError:
             abort(400, "分页参数不正确。")
-        rows = [r for r in ctx.db().execute("SELECT * FROM people ORDER BY updated_at DESC,id")
-                if all(w in " ".join(r[k] for k in ["name", "original_name", "chinese_name", "aliases"]).casefold() for w in words)]
+        rows = [r for r in ctx.db().execute("SELECT * FROM people WHERE merged_into IS NULL ORDER BY updated_at DESC,id")
+                if all(w in " ".join([r[k] for k in ["name", "original_name", "chinese_name", "aliases"]] +
+                                     identity.origins(ctx.db(), "people", r["id"])).casefold() for w in words)]
         return jsonify(items=[service.detail(r["id"]) for r in rows[(page-1)*size:page*size]], total=len(rows), page=page, page_size=size)
 
     @app.get("/api/people/<pid>")
