@@ -15,7 +15,7 @@ from werkzeug.security import check_password_hash
 
 from .store import connect, decoded, initialize, now, save_revision
 from .record_revisions import RecordRevisions, validate_text, check_version
-from . import source_catalog, workflow, evidence, identity, operations, reading
+from . import source_catalog, workflow, evidence, identity, operations, reading, people
 
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE_FIELDS = ["name", "original_name", "kind", "classification", "location", "country", "research_scope",
@@ -606,6 +606,7 @@ def create_app(data_dir=None, testing=False):
         return send_file(path, as_attachment=True, download_name=path.name, mimetype="application/zip")
 
     identity.register(app, db=db, body=body, records=records, validate_source=source_values)
+    people.register(app, SimpleNamespace(db=db, user=user, body=body, data_dir=data_dir))
     operations.register(app, SimpleNamespace(db=db, user=user, body=body, admin=admin, get_record=get_record,
                                             get_source=get_source, visible=visible, editable=editable,
                                             get_collection=get_collection, record_summary=record_summary,

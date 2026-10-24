@@ -90,6 +90,8 @@ def initialize(data_dir):
     migrate_research(data_dir)
     from .workflow import migrate_operations
     migrate_operations(data_dir)
+    from .people import migrate as migrate_people
+    migrate_people(data_dir)
 
 
 def decoded(row):
@@ -101,7 +103,7 @@ def decoded(row):
 
 
 def save_revision(db, kind, row_id, action, actor):
-    table = {"record": "records", "source": "sources", "collection": "collections"}[kind]
+    table = {"record": "records", "source": "sources", "collection": "collections", "person": "people"}[kind]
     if kind == "record":
         from .record_revisions import snapshot as record_snapshot
         snapshot = record_snapshot(db, row_id)
