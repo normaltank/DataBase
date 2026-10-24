@@ -177,6 +177,8 @@ def validate_metadata(db, data, values, base=None):
     if base:
         from .bylines import validate_source_kind
         validate_source_kind(db, base["id"], values["kind"])
+        from .affiliations import validate_source_kind as validate_affiliation_kind
+        validate_affiliation_kind(db, base["id"], values["kind"])
     current = unpack(base) if base else dict(DEFAULTS)
     sid = base["id"] if base else None
     if base and values['kind'] != base['kind']:

@@ -1,0 +1,10 @@
+.affiliation-card {padding:16px 0;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+.affiliation-card:last-child {border-bottom:0}
+.affiliation-card p {margin:6px 0;line-height:1.65}
+.affiliation-card h3 {margin:0 0 8px}
+.affiliation-editor-row {min-width:0;margin:20px 0;padding:18px;border:1px solid var(--border);border-radius:12px}
+.affiliation-editor-row legend {padding:0 8px;font-weight:650;color:var(--primary)}
+.affiliation-editor-row .field,.employment-section,.article-affiliation-section {min-width:0}
+.affiliation-editor-row select {width:100%;text-overflow:ellipsis}
+.employment-section h2,.institution-affiliations h2 {font-size:20px}
+@media(max-width:600px){.affiliation-editor-row{padding:12px}.affiliation-card .row{gap:12px}.affiliation-editor-row .form-grid{grid-template-columns:minmax(0,1fr)}}

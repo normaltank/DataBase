@@ -123,6 +123,7 @@ async function uxReadRecord(record) {
     +'<div class="ux-bibliography">'+(meta.length?'<p>'+meta.map(esc).join(' · ')+'</p>':'')+(sources.length?'<p>'+sources.map(esc).join(' · ')+'</p>':'')+(record.coverage?'<p>'+esc(record.coverage)+'</p>':'')+((record.related_source_ids||[]).length?'<p>关联来源：'+record.related_source_ids.map(sourceName).join(' / ')+'</p>':'')+'</div>'
     +'<div class="ux-reading-actions ux-reading-toolbar">'+uxReadingActions(record)+'<button class="button tiny" type="button" data-action="ux-copy" data-id="'+esc(record.id)+'">'+uxCopyLabel(record)+'</button></div><div data-copy-region></div>'
     +bylines
+    +await articleAffiliationSection(record)
     +(personalKinds.has(record.kind)&&!record.author_confirmed?authorPanel(record):personalKinds.has(record.kind)?'<p class="ux-author">负责作者：'+esc(record.author_name||recordAuthorLabel(record))+' · 已由本人确认</p>':'')
     +(record.abstract?'<section class="detail-section ux-abstract"><h3>摘要</h3><p class="prose">'+esc(record.abstract)+'</p></section>':'')
     +(record.body_html?'<section class="detail-section ux-main-body" id="ux-body"><h3>正文</h3><div class="rich-prose">'+readRich(record.body_html)+'</div></section>':'')

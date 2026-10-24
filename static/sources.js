@@ -40,6 +40,9 @@ async function openSource(id){
     fields=detailPair('机构类型',s.institution_types.map(t=>esc(institutionTypes[t])).join(' / '))+detailPair('机构所在地',esc(s.location))+detailPair('机构国家',esc(s.country));
     sections=`<section class="detail-section"><h3>机构国家依据</h3>${evidenceHtml(s.country_evidence)}</section>`+relationDetails(s);
     sections+=await bylineWorksSection('institution',s.id);
+    sections+=await employmentSection(s.id,true);
+    sections+=await institutionAffiliationsSection(s.id);
+    sections+=await institutionPublishedSection(s.id);
     if(state.bylineSourceReturn?.id===s.id)sections=linkButton('返回资料','byline-back',state.bylineSourceReturn.record)+sections;
   }else if(isPublication(s)){
     fields=detailPair('主办机构',sourceName(s.host_id))+detailPair('出版机构',sourceName(s.publisher_id))+detailPair('主办方国别',esc(countryText(s)))+detailPair('出版方国家（另记）',esc(s.publisher_countries.join(' / ')))+detailPair('ISSN',esc(s.issn));

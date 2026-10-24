@@ -17,7 +17,7 @@ from urllib.parse import urlsplit
 
 from flask import abort
 
-from . import evidence, identity, source_catalog, workflow, note_subjects, bylines
+from . import evidence, identity, source_catalog, workflow, note_subjects, bylines, affiliations
 from .store import now, save_revision
 
 RECORD_FIELDS = ["kind", "title", "original_title", "authors", "source_id", "serial_id", "publication_title",
@@ -473,6 +473,7 @@ class RecordRevisions:
             abort(409, "合并后的别名过长，请先人工整理别名。")
         self.db.execute("UPDATE records SET attachment_ids=?,aliases=? WHERE id=?", (json.dumps(attachments), names, kid))
         bylines.Bylines(self.db, self.actor, self).merge_records(kid, did)
+        affiliations.ArticleAffiliations(self.db, self.actor, self).merge_records(kid, did)
 
     def preview_merge(self, data):
         kind, table, keep, duplicate = self._merge_pair(data)
@@ -490,6 +491,8 @@ class RecordRevisions:
         self.db.execute("INSERT OR IGNORE INTO record_sources(record_id,source_id) SELECT record_id,? FROM record_sources WHERE source_id=?", (keep_id, duplicate_id))
         self.db.execute("DELETE FROM record_sources WHERE source_id=?", (duplicate_id,))
         bylines.Bylines(self.db, self.actor, self).merge_sources(keep_id, duplicate_id)
+        affiliations.Employments(self.db, self.actor).merge_sources(keep_id, duplicate_id)
+        affiliations.ArticleAffiliations(self.db, self.actor, self).merge_sources(keep_id, duplicate_id)
 
     def merge(self, data, validate_source):
         with self._transaction():
@@ -513,6 +516,7 @@ class RecordRevisions:
                 affected_records.update(r[0] for r in self.db.execute("SELECT id FROM records WHERE source_id=? OR serial_id=?", (did, did)))
                 affected_records.update(r[0] for r in self.db.execute("SELECT record_id FROM record_sources WHERE source_id=?", (did,)))
                 affected_records.update(bylines.source_records(self.db, did))
+                affected_records.update(affiliations.source_records(self.db, did))
                 affected_records.update(r[0] for r in self.db.execute("SELECT note_id FROM research_subjects WHERE subject_id=? AND subject_type<>'person'", (did,)))
                 affected_sources = identity.source_merge_dependents(self.db, did) - {kid, did}
             records_before = {rid: self.db.execute("SELECT * FROM records WHERE id=?", (rid,)).fetchone() for rid in affected_records}
