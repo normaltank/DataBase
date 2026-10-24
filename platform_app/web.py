@@ -250,7 +250,7 @@ def create_app(data_dir=None, testing=False):
         obj["evidence_file_url"] = f"/api/records/{rid}/evidence-file" if row["evidence_attachment_id"] else ""
         obj["previous_ids"] = [x for x in identity.origins(db(), "records", rid) if x != rid]
         if row["kind"] == "research_note":
-            obj["research_subjects"] = note_subjects.read(db(), rid)
+            obj["research_subjects"] = note_subjects.read(db(), rid, visible)
         return jsonify(obj)
 
     @app.get("/api/records/<rid>/copy-text")

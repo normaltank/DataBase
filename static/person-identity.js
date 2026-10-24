@@ -42,13 +42,35 @@ async function personIdentityHistory(pid) {
 
 async function previewPersonSplit(eventId,draft={}) {
   const preview=await api('/api/people/identity-events/'+encodeURIComponent(eventId)+'/split-preview',{method:'POST',body:{}});
-  modal('拆回人物合并',`<form data-form="person-identity" data-operation="split"><p class="notice">原合并依据：${esc(preview.merge.evidence)}</p><h3>合并前的档案</h3><div class="identity-comparison">${preview.merge.people_before.map(person=>identityPersonCard(person,person.id===preview.merge.keep_id?'保留编号的原档案':person.id===preview.merge.duplicate_id?'并入的原档案':'关联的原身份')).join('')}</div>${identityRelations(preview.relationships)}${preview.allowed?'<p class="notice">可恢复两个原身份及仅由这次合并转接的关系，全部历史与头像继续保留。</p>':`<p class="notice identity-blocked" role="alert">${esc(preview.reason)}</p>`}${identityFormEnd('split',draft,preview.allowed)}</form>`);
+  modal('拆回人物合并',`<form data-form="person-identity" data-operation="split"><p class="notice">原合并依据：${esc(preview.merge.evidence)}</p>${preview.allowed?'<p class="notice">恢复两个原身份。后续独立编辑、明确纠正及解除保持；仅按本次合并的来历恢复原转接。</p>':`<p class="notice identity-blocked" role="alert">${esc(preview.reason)}</p>`}${preview.split_order.length?`<section class="identity-split-order"><h3>先拆回后续合并</h3><ol>${preview.split_order.map(event=>`<li><p>${esc(event.duplicate_name)} → ${esc(event.keep_name)}<br><span class="small">${esc(event.evidence)}</span></p><button type="button" class="button" data-action="person-preview-split" data-id="${esc(event.event_id)}">预览这次后续合并</button></li>`).join('')}</ol><p class="form-help">按顺序完成后，从身份整理历史重新预览本次。</p></section>`:''}${identitySplitChanges(preview,draft)}<details class="identity-originals"><summary>查看合并前档案与文章单位</summary><div class="identity-comparison">${preview.merge.people_before.map(person=>identityPersonCard(person,person.id===preview.merge.keep_id?'保留编号的原档案':person.id===preview.merge.duplicate_id?'并入的原档案':'关联的原身份')).join('')}</div>${identityRelations(preview.relationships)}</details>${identityFormEnd('split',draft,preview.allowed)}</form>`);
   const form=document.querySelector('[data-form=person-identity]');form._identity={preview,eventId};form._requestKey=crypto.randomUUID();
   if(form.elements.evidence)form.elements.evidence.required=true;
 }
 
+function identitySplitChanges(preview,draft) {
+  const labels={transferred:'原有转接',added:'后续新增',corrected:'独立更正',removed:'已解除',unchanged:'原有确定关系'};
+  const people=preview.merge.people_before,keep=people.find(p=>p.id===preview.merge.keep_id),duplicate=people.find(p=>p.id===preview.merge.duplicate_id);
+  const rows=Object.entries(preview.changes).flatMap(([type,items])=>items.map(row=>({...row,type})));
+  const fieldLabels={...personIdentityFields,introduction_html:'介绍',introduction_text:'介绍',avatar_id:'头像',avatar_source:'头像来源',aliases:'姓名写法',sources:'参考出处'};
+  const edited=preview.profile_changes.filter(p=>p.fields.length).map(p=>`<p>${esc(people.find(person=>person.id===p.person_id)?.name||'原档案')}：${esc([...new Set(p.fields.map(key=>fieldLabels[key]||key))].join('、'))}</p>`).join('');
+  return `<section class="identity-split-changes"><h3>拆回后的归属</h3><p class="form-help">仅列出你当前可阅读的关系。新增作品可以待确认；新增任职须明确分配。笔记研究对象由作者或当前授权同事确认。</p>${edited?`<div class="notice"><strong>保留后续独立修改</strong>${edited}</div>`:''}${Object.entries(labels).map(([classification,label])=>{
+    const group=rows.filter(row=>row.classification===classification);if(!group.length)return '';
+    return `<details ${classification==='added'?'open':''}><summary>${label} · ${group.length} 条</summary>${group.map(row=>{
+      const note=preview.relationships.notes.find(item=>item.subjects.some(s=>s.id===row.id));
+      const work=preview.relationships.works.find(item=>item.bylines.some(s=>s.id===row.id));
+      const title=row.type==='employments'?`${row.institution?.name||''} · ${row.role}`:row.type==='bylines'?`${work?.title||''} · ${row.raw_name}`:note?.title||'';
+      const current=row.type==='employments'?row.person?.name:row.type==='bylines'?row.target?.name:row.subject_name;
+      const restored=people.find(person=>person.id===row.restore_id)?.name;
+      const hint=classification==='transferred'?'按原来历恢复归属，后续字段保留。':classification==='corrected'?'保留已明确纠正的当前归属。':classification==='removed'?'保持解除，保留历史。':'保留现有关系。';
+      const value=draft.allocations?.[row.type]?.[row.id]||'';
+      return `<article><h4>${esc(title)}</h4>${current?`<p class="small">当前：${esc(current)}${restored?' → 恢复为 '+esc(restored):''}</p>`:''}${classification==='added'?(row.can_assign&&preview.allowed?`<label class="field"><span>${row.type==='employments'?'任职归属 *':'新增关系归属'}</span><select data-split-allocation data-relation-type="${row.type}" data-relation-id="${esc(row.id)}" aria-label="${esc(title)}的归属" ${row.type==='employments'?'required':''}>${row.type==='employments'?`<option value="">请选择人物</option>`:`<option value="pending" ${!value||value==='pending'?'selected':''}>${row.type==='subjects'?'保留待作者复核':'保留待确认'}</option>`}<option value="keep" ${value==='keep'?'selected':''}>${esc(keep.name)}（保留原编号）</option><option value="duplicate" ${value==='duplicate'?'selected':''}>${esc(duplicate.name)}（恢复原编号）</option></select></label>`:`<p class="small">${row.type==='subjects'?'由笔记作者或当前授权同事稍后复核。':'拆回时明确选择归属。'}</p>`):`<p class="small">${hint}</p>`}</article>`;
+    }).join('')}</details>`;
+  }).join('')||'<p>没有需要转接或分配的可阅读关系。</p>'}</section>`;
+}
+
 function identityDraft(form) {
-  return {evidence:form.elements.evidence?.value||'',choices:Object.fromEntries(Object.keys(personIdentityFields).map(key=>[key,form.elements[key]?.value||'']))};
+  const allocations={};form.querySelectorAll('[data-split-allocation]').forEach(select=>{(allocations[select.dataset.relationType]||={})[select.dataset.relationId]=select.value;});
+  return {evidence:form.elements.evidence?.value||'',allocations,choices:Object.fromEntries(Object.keys(personIdentityFields).map(key=>[key,form.elements[key]?.value||'']))};
 }
 
 async function submitPersonIdentity(form) {
@@ -57,6 +79,7 @@ async function submitPersonIdentity(form) {
   const draft=identityDraft(form),operation=form.dataset.operation;
   const body={preview_id:form._identity.preview.preview_id,idempotency_key:form._requestKey,evidence:draft.evidence,confirmed:form.elements.confirmed.checked};
   if(operation==='merge')body.choices=draft.choices;
+  else body.allocations=draft.allocations;
   form.dataset.saving='true';
   try {
     const result=await api('/api/people/'+operation,{method:'POST',body});

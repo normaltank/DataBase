@@ -95,6 +95,352 @@ class PersonIdentityTests(unittest.TestCase):
         Image.new("RGB", (24, 24), color).save(output, format="PNG")
         return output.getvalue()
 
+    def test_split_preserves_independent_corrections_removals_and_later_profile_fields(self):
+        first = self.person("原人物甲", introduction_html="<p>原介绍甲</p>")
+        second = self.person("原人物乙", introduction_html="<p>原介绍乙</p>")
+        third = self.person("已核实的第三人")
+        work = self.record()
+        originals = self.bylines(work, [second, second, second])["items"]
+        merged = self.call("/api/people/merge", self.intent(self.compare(first, second))).json
+        current = self.get(f"/api/records/{work}/bylines")
+        rows = current["items"]
+        rows[1].update(target_id=third, evidence="独立核实为第三人")
+        response = self.call(f"/api/records/{work}/bylines", {**current, "items": rows[:2], "change_note": "改归与解除"}, method="PUT")
+        self.assertEqual(response.status_code, 200, response.json)
+        # Moving away and back is still an independent decision, even at the same endpoint.
+        current = response.json
+        current["items"][1].update(target_id=first, evidence="再次核实为甲")
+        self.assertEqual(self.call(f"/api/records/{work}/bylines", {**current, "change_note": "明确改回甲"}, method="PUT").status_code, 200)
+        profile = self.get(f"/api/people/{first}")
+        saved = self.call(f"/api/people/{first}", {"version": profile["version"], "introduction_html": "<p>合并后新介绍</p>",
+            "avatar_source": "后续合成头像", "change_note": "独立补充介绍头像"}, method="PUT", image=self.image("green"))
+        self.assertEqual(saved.status_code, 200, saved.json)
+        preview = self.call(f"/api/people/identity-events/{merged['event_id']}/split-preview")
+        self.assertTrue(preview.json["allowed"], preview.json)
+        self.assertEqual({r["id"]: r["classification"] for r in preview.json["changes"]["bylines"]},
+                         {originals[0]["id"]: "transferred", originals[1]["id"]: "corrected", originals[2]["id"]: "removed"})
+        result = self.call("/api/people/split", self.split_intent(merged["event_id"]))
+        self.assertEqual(result.status_code, 200, result.json)
+        rows = self.get(f"/api/records/{work}/bylines")["items"]
+        self.assertEqual([(r["id"], r["target_id"]) for r in rows], [(originals[0]["id"], second), (originals[1]["id"], first)])
+        first_now = self.get(f"/api/people/{first}")
+        self.assertEqual(first_now["introduction_html"], "<p>合并后新介绍</p>")
+        self.assertEqual(self.download(first_now["avatar"]["url"]), self.image("green"))
+        self.assertEqual(self.get(f"/api/people/{second}")["introduction_html"], "<p>原介绍乙</p>")
+
+    def test_later_merge_must_split_first_and_system_split_versions_do_not_block_the_earlier_merge(self):
+        first, second, fourth = self.person(), self.person("人物乙"), self.person("人物丁")
+        work = self.record()
+        self.bylines(work, [second, fourth])
+        early = self.call("/api/people/merge", self.intent(self.compare(first, second), key="merge-first-pair")).json
+        later = self.call("/api/people/merge", self.intent(self.compare(first, fourth), key="merge-second-pair")).json
+        preview = self.call(f"/api/people/identity-events/{early['event_id']}/split-preview").json
+        self.assertFalse(preview["allowed"])
+        self.assertEqual([item["event_id"] for item in preview["split_order"]], [later["event_id"]])
+        self.assertEqual(self.call("/api/people/split", self.split_intent(early["event_id"], key="early-rejected")).status_code, 409)
+        self.assertEqual(self.call("/api/people/split", self.split_intent(later["event_id"], key="later-first")).status_code, 200)
+        current = self.call(f"/api/people/identity-events/{early['event_id']}/split-preview").json
+        self.assertTrue(current["allowed"], current)
+        self.assertEqual(self.call("/api/people/split", self.split_intent(early["event_id"], key="early-after-later")).status_code, 200)
+        self.assertEqual([row["target_id"] for row in self.get(f"/api/records/{work}/bylines")["items"]], [second, fourth])
+        self.assertEqual([self.get(f"/api/people/{pid}")["id"] for pid in [first, second, fourth]], [first, second, fourth])
+
+    def test_private_added_note_edges_wait_for_the_author_without_blocking_or_leaking(self):
+        first, second, third = self.person(), self.person("人物乙"), self.person("确定的其他人物")
+        institute = self.source()
+        journal = self.call("/api/sources", {"name": "合成期刊", "kind": "journal"}).json["id"]
+        merged = self.call("/api/people/merge", self.intent(self.compare(first, second)), "researcher").json
+        notes = [self.record(kind="research_note", title="隐藏的延后复核笔记" + str(index), visibility="restricted",
+            body_html="<p>独立正文保持</p>", research_subjects=[{"subject_type": "person", "subject_id": first},
+                {"subject_type": "person", "subject_id": third}, {"subject_type": "institution", "subject_id": institute},
+                {"subject_type": "journal", "subject_id": journal}]) for index in range(3)]
+        report = self.record(kind="research_report", evidence_ids=[notes[0]], body_html="<p>固定报告正文</p>")
+        citation = self.get(f"/api/records/{report}")["evidence_citations"][0]["snapshot"]
+        before = {rid: self.get(f"/api/records/{rid}") for rid in notes}
+        preview = self.call(f"/api/people/identity-events/{merged['event_id']}/split-preview", user="colleague").json
+        self.assertTrue(preview["allowed"], preview)
+        self.assertEqual(preview["changes"]["subjects"], [])
+        self.assertEqual(preview["relationships"]["notes"], [])
+        self.assertNotIn("隐藏", json.dumps(preview, ensure_ascii=False))
+        for rid in notes:
+            self.assertNotIn(rid, json.dumps(preview))
+        split = self.call("/api/people/split", self.split_intent(merged["event_id"], user="colleague"), "colleague")
+        self.assertEqual(split.status_code, 200, split.json)
+        self.assertEqual(self.get(f"/api/people/{first}/research-notes")["total"], 0)
+        for rid in notes:
+            current = self.get(f"/api/records/{rid}")
+            self.assertEqual({s["subject_id"]: s["status"] for s in current["research_subjects"]},
+                {first: "needs_review", third: "confirmed", institute: "confirmed", journal: "confirmed"})
+            for key in ["body_html", "author_id", "author_confirmed", "editors", "visibility"]:
+                self.assertEqual(current[key], before[rid][key])
+            self.assertEqual(next(s for s in current["research_subjects"] if s["subject_id"] == first)["identity_change"]["evidence"], "合成反证，恢复两个身份")
+            # Saving a normal editor payload cannot silently confirm an ambiguous edge.
+            saved = self.call(f"/api/records/{rid}", {"version": current["version"], "body_html": current["body_html"],
+                "research_subjects": current["research_subjects"]}, method="PUT")
+            self.assertEqual(saved.status_code, 200, saved.json)
+            self.assertEqual(next(s for s in self.get(f"/api/records/{rid}")["research_subjects"] if s["subject_id"] == first)["status"], "needs_review")
+        for user in ["colleague", "admin"]:
+            current = self.get(f"/api/records/{notes[0]}")
+            self.assertIn(self.call(f"/api/records/{notes[0]}/research-subjects", {"version": current["version"],
+                "research_subjects": []}, user, "PUT").status_code, [403, 404])
+        # Confirm original, choose the restored person, and remove are separate explicit author choices.
+        for rid, decision in zip(notes, ["original", "replace", "remove"]):
+            current = self.get(f"/api/records/{rid}")
+            subjects = current["research_subjects"]
+            if decision == "remove":
+                subjects = [s for s in subjects if s["subject_id"] != first]
+            else:
+                next(s for s in subjects if s["subject_id"] == first).update(confirm=True, subject_id=first if decision == "original" else second)
+            response = self.call(f"/api/records/{rid}/research-subjects", {"version": current["version"], "research_subjects": subjects}, method="PUT")
+            self.assertEqual(response.status_code, 200, response.json)
+            actual = self.get(f"/api/records/{rid}")["research_subjects"]
+            self.assertEqual(len(actual), 3 if decision == "remove" else 4)
+            self.assertTrue(all(s["status"] == "confirmed" for s in actual))
+        self.assertEqual(self.get(f"/api/records/{report}")["evidence_citations"][0]["snapshot"], citation)
+        self.assertNotIn("隐藏", json.dumps(self.get(f"/api/people/{first}/identity-history", "colleague"), ensure_ascii=False))
+
+    def test_new_works_and_employment_are_allocated_without_overwriting_later_employment_fields(self):
+        first, second, institute = self.person(), self.person("人物乙"), self.source()
+        original = self.call(f"/api/people/{second}/employments", {"version": 0, "change_note": "原任职",
+            "items": [{"institution_id": institute, "role": "研究员", "start_date": "2020", "end_date": "", "evidence": "原履历"}]}, method="PUT").json["items"][0]
+        merged = self.call("/api/people/merge", self.intent(self.compare(first, second))).json
+        jobs = self.get(f"/api/people/{first}/employments")
+        jobs["items"][0].update(role="后续补充的高级研究员", end_date="2024", evidence="新履历依据")
+        jobs["items"].append({"institution_id": institute, "role": "新增访问学者", "start_date": "2025", "end_date": "", "evidence": "合并后的新履历"})
+        saved = self.call(f"/api/people/{first}/employments", {**jobs, "change_note": "补充任职字段与新经历"}, method="PUT")
+        self.assertEqual(saved.status_code, 200, saved.json)
+        added_job = next(row for row in saved.json["items"] if row["id"] != original["id"])
+        work = self.record()
+        new_bylines = self.bylines(work, [first, first])["items"]
+        note = self.record(kind="research_note", research_subjects=[{"subject_type": "person", "subject_id": first}])
+        subject = self.get(f"/api/records/{note}")["research_subjects"][0]
+        preview = self.call(f"/api/people/identity-events/{merged['event_id']}/split-preview", user="colleague").json
+        self.assertEqual({r["id"]: r["classification"] for r in preview["changes"]["employments"]},
+                         {original["id"]: "transferred", added_job["id"]: "added"})
+        self.assertFalse(preview["changes"]["subjects"][0]["can_assign"])
+        payload = self.split_intent(merged["event_id"], user="colleague")
+        rejected = self.call("/api/people/split", payload, "colleague")
+        self.assertEqual(rejected.status_code, 400, rejected.json)
+        payload["allocations"] = {"employments": {added_job["id"]: "duplicate"}, "bylines": {new_bylines[0]["id"]: "duplicate"}}
+        for user in ["colleague", "admin"]:
+            forbidden = {**self.split_intent(merged["event_id"], key="forbidden-" + user, user=user),
+                "allocations": {**payload["allocations"], "subjects": {subject["id"]: "duplicate"}}}
+            self.assertEqual(self.call("/api/people/split", forbidden, user).status_code, 403)
+        result = self.call("/api/people/split", payload, "colleague")
+        self.assertEqual(result.status_code, 200, result.json)
+        second_jobs = self.get(f"/api/people/{second}/employments")["items"]
+        self.assertEqual({row["id"] for row in second_jobs}, {original["id"], added_job["id"]})
+        old_now = next(row for row in second_jobs if row["id"] == original["id"])
+        self.assertEqual((old_now["role"], old_now["end_date"], old_now["evidence"]), ("后续补充的高级研究员", "2024", "新履历依据"))
+        current = self.get(f"/api/records/{work}/bylines")["items"]
+        self.assertEqual([(r["target_id"], r["status"]) for r in current], [(second, "confirmed"), (first, "pending")])
+        self.assertEqual(self.get(f"/api/people/{first}/works")["total"], 0)
+        self.assertEqual(self.get(f"/api/people/{second}/works")["total"], 1)
+        self.assertEqual(self.get(f"/api/records/{note}")["research_subjects"][0]["status"], "needs_review")
+
+    def test_field_only_edits_do_not_disambiguate_added_employment_or_byline_identity(self):
+        first, second, institute = self.person(), self.person("人物乙"), self.source()
+        old_work = self.record()
+        self.bylines(old_work, [second])
+        merge = self.call("/api/people/merge", self.intent(self.compare(first, second))).json
+        jobs = self.call(f"/api/people/{first}/employments", {"version": 0, "change_note": "新增任职", "items": [
+            {"institution_id": institute, "role": "研究员", "start_date": "2024", "end_date": "", "evidence": "合成履历"}]}, method="PUT").json
+        job = jobs["items"][0]
+        job["role"] = "高级研究员"
+        self.assertEqual(self.call(f"/api/people/{first}/employments", {**jobs, "change_note": "只修正角色用词"}, method="PUT").status_code, 200)
+        added_work = self.record()
+        self.bylines(added_work, [first])
+        for rid in [old_work, added_work]:
+            current = self.get(f"/api/records/{rid}/bylines")
+            current["items"][0].update(raw_name="只补全署名片段", evidence="只完善作品页码依据")
+            self.assertEqual(self.call(f"/api/records/{rid}/bylines", {**current, "change_note": "只修订文字"}, method="PUT").status_code, 200)
+        preview = self.call(f"/api/people/identity-events/{merge['event_id']}/split-preview").json
+        self.assertEqual(preview["changes"]["employments"][0]["classification"], "added")
+        self.assertEqual(sorted(row["classification"] for row in preview["changes"]["bylines"]), ["added", "transferred"])
+        payload = self.split_intent(merge["event_id"])
+        self.assertEqual(self.call("/api/people/split", payload).status_code, 400)
+        payload["allocations"] = {"employments": {job["id"]: "duplicate"}}
+        self.assertEqual(self.call("/api/people/split", payload).status_code, 200)
+        self.assertEqual(self.get(f"/api/records/{old_work}/bylines")["items"][0]["target_id"], second)
+        self.assertEqual(self.get(f"/api/records/{added_work}/bylines")["items"][0]["status"], "pending")
+        self.assertEqual(self.get(f"/api/people/{second}/employments")["items"][0]["role"], "高级研究员")
+
+    def test_split_preview_protects_the_current_corrected_person_and_source_endpoints(self):
+        first, second, third = self.person(), self.person("人物乙"), self.person("人物丙")
+        institute = self.source()
+        work = self.record()
+        self.bylines(work, [second])
+        merged = self.call("/api/people/merge", self.intent(self.compare(first, second))).json
+        for kind, endpoint in [("person", third), ("institution", institute)]:
+            current = self.get(f"/api/records/{work}/bylines")
+            current["items"][0].update(target_type=kind, target_id=endpoint, evidence="更正到独立身份")
+            self.assertEqual(self.call(f"/api/records/{work}/bylines", {**current, "change_note": "更正归属"}, method="PUT").status_code, 200)
+            payload = self.split_intent(merged["event_id"], key="endpoint-" + kind)
+            path = f"/api/people/{endpoint}" if kind == "person" else f"/api/sources/{endpoint}"
+            profile = self.get(path)
+            result = self.call(path, {"version": profile["version"], "name": "更新后的" + kind, "change_note": "端点档案更新"}, method="PUT")
+            self.assertEqual(result.status_code, 200, result.json)
+            stale = self.call("/api/people/split", payload)
+            self.assertEqual(stale.status_code, 409, stale.json)
+        success = self.call("/api/people/split", self.split_intent(merged["event_id"], key="new-endpoint-preview"))
+        self.assertEqual(success.status_code, 200, success.json)
+        self.assertEqual(self.get(f"/api/records/{work}/bylines")["items"][0]["target_id"], institute)
+
+    def test_full_recovery_continues_inverse_splits_and_authorized_delayed_review_and_rejects_broken_review_provenance(self):
+        first, second, fourth = self.person(), self.person("人物乙"), self.person("人物丁")
+        early = self.call("/api/people/merge", self.intent(self.compare(first, second), key="recover-early")).json
+        private = self.record(kind="research_note", title="恢复后延后确认的私人笔记", visibility="restricted",
+                              research_subjects=[{"subject_type": "person", "subject_id": first}])
+        work = self.record()
+        byline = self.bylines(work, [first])["items"][0]
+        later = self.call("/api/people/merge", self.intent(self.compare(first, fourth), key="recover-later")).json
+        recovered = restore_backup(create_backup(self.data_dir), Path(self.temp.name) / "recovered-chain")
+        app = create_app(recovered, testing=True)
+        self.clients = {user: self.login(user, app) for user in self.clients}
+        for event, key in [(later, "recover-later-split"), (early, "recover-early-split")]:
+            payload = self.split_intent(event["event_id"], key=key, user="colleague")
+            if event == early:
+                payload["allocations"] = {"bylines": {byline["id"]: "duplicate"}}
+            result = self.call("/api/people/split", payload, "colleague")
+            self.assertEqual(result.status_code, 200, result.json)
+        self.assertEqual(self.get(f"/api/records/{private}")["research_subjects"][0]["status"], "needs_review")
+        archive = create_backup(recovered)
+        twice = restore_backup(archive, Path(self.temp.name) / "recovered-review")
+        self.clients = {user: self.login(user, create_app(twice, testing=True)) for user in self.clients}
+        current = self.get(f"/api/records/{private}")
+        grant = self.call(f"/api/records/{private}", {"version": current["version"], "editors": ["colleague"]}, method="PUT")
+        self.assertEqual(grant.status_code, 200, grant.json)
+        current = self.get(f"/api/records/{private}", "colleague")
+        current["research_subjects"][0].update(subject_id=second, confirm=True)
+        reviewed = self.call(f"/api/records/{private}/research-subjects", {"version": current["version"], "research_subjects": current["research_subjects"]}, "colleague", "PUT")
+        self.assertEqual(reviewed.status_code, 200, reviewed.json)
+        self.assertEqual(self.get(f"/api/people/{second}/research-notes", "colleague")["total"], 1)
+        with zipfile.ZipFile(archive) as bundle:
+            payloads = {name: bundle.read(name) for name in bundle.namelist()}
+        for index, sql in enumerate([
+            "UPDATE person_identity_events SET choices_json='{\"bylines\":{\"missing-row\":\"duplicate\"}}' WHERE event_type='split'",
+            "UPDATE research_subject_history SET identity_event_id=NULL WHERE action='person_split_review'",
+        ]):
+            snapshot = Path(self.temp.name) / f"broken-review-{index}.sqlite3"
+            snapshot.write_bytes(payloads["platform.sqlite3"])
+            with closing(sqlite3.connect(snapshot)) as db:
+                db.execute(sql)
+                db.commit()
+            damaged = dict(payloads)
+            damaged["platform.sqlite3"] = snapshot.read_bytes()
+            manifest = json.loads(damaged["manifest.json"])
+            manifest["files"]["platform.sqlite3"] = {"bytes": len(damaged["platform.sqlite3"]), "sha256": hashlib.sha256(damaged["platform.sqlite3"]).hexdigest()}
+            damaged["manifest.json"] = json.dumps(manifest).encode()
+            path = Path(self.temp.name) / f"broken-review-{index}.zip"
+            with zipfile.ZipFile(path, "w") as bundle:
+                for name, content in damaged.items():
+                    bundle.writestr(name, content)
+            with self.assertRaises(ValueError):
+                restore_backup(path, Path(self.temp.name) / f"broken-review-target-{index}")
+
+    def test_split_history_projects_allocations_using_current_note_and_work_visibility(self):
+        first, second = self.person(), self.person("人物乙")
+        merged = self.call("/api/people/merge", self.intent(self.compare(first, second))).json
+        private = self.record(kind="research_note", visibility="restricted", title="不能透露的分配笔记",
+                              research_subjects=[{"subject_type": "person", "subject_id": first}])
+        public = self.record(kind="research_note", title="可阅读的分配笔记",
+                             research_subjects=[{"subject_type": "person", "subject_id": first}])
+        hidden_subject = self.get(f"/api/records/{private}")["research_subjects"][0]["id"]
+        public_subject = self.get(f"/api/records/{public}")["research_subjects"][0]["id"]
+        work = self.record(visibility="restricted", title="不能透露的分配作品")
+        hidden_byline = self.bylines(work, [first])["items"][0]["id"]
+        payload = {**self.split_intent(merged["event_id"]), "allocations": {
+            "subjects": {hidden_subject: "duplicate", public_subject: "keep"}, "bylines": {hidden_byline: "duplicate"}}}
+        result = self.call("/api/people/split", payload)
+        self.assertEqual(result.status_code, 200, result.json)
+        event_id = result.json["event_id"]
+        for shared in [False, True, False]:
+            for rid in [private, work]:
+                current = self.get(f"/api/records/{rid}")
+                changed = self.call(f"/api/records/{rid}", {"version": current["version"], "visibility": "shared" if shared else "restricted"}, method="PUT")
+                self.assertEqual(changed.status_code, 200, changed.json)
+            history = self.get(f"/api/people/{first}/identity-history", "colleague")
+            event = next(row for row in history["items"] if row["id"] == event_id)
+            self.assertEqual(event["choices"].get("subjects"), {public_subject: "keep", **({hidden_subject: "duplicate"} if shared else {})})
+            self.assertEqual(event["choices"].get("bylines", {}), {hidden_byline: "duplicate"} if shared else {})
+            if not shared:
+                for hidden in [private, work, hidden_subject, hidden_byline]:
+                    self.assertNotIn(hidden, json.dumps(history))
+        author = next(row for row in self.get(f"/api/people/{first}/identity-history")["items"] if row["id"] == event_id)
+        self.assertEqual(author["choices"], payload["allocations"])
+
+    def test_complex_split_invalid_allocation_and_late_storage_failures_roll_back_all_changes_and_retry(self):
+        first, second, institute = self.person(), self.person("人物乙"), self.source()
+        merge = self.call("/api/people/merge", self.intent(self.compare(first, second))).json
+        private = self.record(kind="research_note", visibility="restricted", research_subjects=[{"subject_type": "person", "subject_id": first}])
+        subject = self.get(f"/api/records/{private}")["research_subjects"][0]
+        work = self.record()
+        byline = self.bylines(work, [first])["items"][0]
+        job = self.call(f"/api/people/{first}/employments", {"version": 0, "change_note": "新增经历", "items": [
+            {"institution_id": institute, "role": "新研究员", "start_date": "2024", "end_date": "", "evidence": "合成新主页"}]}, method="PUT").json["items"][0]
+        payload = {**self.split_intent(merge["event_id"]), "allocations": {"employments": {job["id"]: "duplicate"},
+            "bylines": {byline["id"]: "pending"}, "subjects": {subject["id"]: "duplicate"}}}
+        def observed():
+            paths = [f"/api/people/{pid}{suffix}" for pid in [first, second] for suffix in ["", "/history", "/identity-history", "/employments", "/employments/history", "/works", "/research-notes"]]
+            paths += [f"/api/records/{private}", f"/api/records/{private}/research-subjects/history", f"/api/records/{work}/bylines", f"/api/records/{work}/bylines/history"]
+            return {path: self.get(path) for path in paths}
+        before = observed()
+        invalid = {**payload, "allocations": {**payload["allocations"], "bylines": {byline["id"]: {"bad": "nested"}}}}
+        response = self.call("/api/people/split", invalid)
+        self.assertEqual(response.status_code, 400, response.json)
+        self.assertEqual(observed(), before)
+        for fault in ["late", "commit"]:
+            with closing(sqlite3.connect(self.data_dir / "platform.sqlite3")) as db:
+                if fault == "late":
+                    db.execute("CREATE TRIGGER synthetic_complex_fault BEFORE INSERT ON person_identity_requests BEGIN SELECT RAISE(ABORT,'synthetic end write'); END")
+                else:
+                    db.execute("CREATE TABLE synthetic_complex_commit(person_id TEXT REFERENCES people(id) DEFERRABLE INITIALLY DEFERRED)")
+                    db.execute("CREATE TRIGGER synthetic_complex_fault AFTER INSERT ON person_identity_requests BEGIN INSERT INTO synthetic_complex_commit VALUES ('missing-person'); END")
+                db.commit()
+            response = self.call("/api/people/split", payload)
+            self.assertEqual(response.status_code, 409, response.json)
+            self.assertEqual(observed(), before)
+            with closing(sqlite3.connect(self.data_dir / "platform.sqlite3")) as db:
+                db.execute("DROP TRIGGER synthetic_complex_fault")
+                if fault == "commit":
+                    db.execute("DROP TABLE synthetic_complex_commit")
+                db.commit()
+        success = self.call("/api/people/split", payload)
+        self.assertEqual(success.status_code, 200, success.json)
+        self.assertEqual(self.call("/api/people/split", payload).json, success.json)
+        self.assertEqual(self.get(f"/api/records/{private}")["research_subjects"][0]["subject_id"], second)
+        self.assertEqual(self.get(f"/api/records/{work}/bylines")["items"][0]["status"], "pending")
+        self.assertEqual(self.get(f"/api/people/{second}/employments")["items"][0]["id"], job["id"])
+
+    def test_explicit_author_allocation_in_a_later_split_remains_a_decision_in_the_earlier_split(self):
+        first, second, fourth = self.person(), self.person("人物乙"), self.person("人物丁")
+        early = self.call("/api/people/merge", self.intent(self.compare(first, second), key="author-early")).json
+        later = self.call("/api/people/merge", self.intent(self.compare(first, fourth), key="author-later")).json
+        note = self.record(kind="research_note", research_subjects=[{"subject_type": "person", "subject_id": first}])
+        subject = self.get(f"/api/records/{note}")["research_subjects"][0]
+        payload = {**self.split_intent(later["event_id"], key="author-split-later"), "allocations": {"subjects": {subject["id"]: "keep"}}}
+        self.assertEqual(self.call("/api/people/split", payload).status_code, 200)
+        preview = self.call(f"/api/people/identity-events/{early['event_id']}/split-preview").json
+        self.assertEqual(preview["changes"]["subjects"][0]["classification"], "corrected")
+        self.assertEqual(self.call("/api/people/split", self.split_intent(early["event_id"], key="author-split-earlier")).status_code, 200)
+        current = self.get(f"/api/records/{note}")["research_subjects"][0]
+        self.assertEqual((current["id"], current["subject_id"], current["status"]), (subject["id"], first, "confirmed"))
+
+    def test_private_corrected_endpoint_is_freshness_state_without_becoming_a_public_participant(self):
+        first, second, third = self.person(), self.person("人物乙"), self.person("私人关联的第三人")
+        merge = self.call("/api/people/merge", self.intent(self.compare(first, second))).json
+        note = self.record(kind="research_note", visibility="restricted", research_subjects=[{"subject_type": "person", "subject_id": first}])
+        current = self.get(f"/api/records/{note}")
+        current["research_subjects"][0].update(subject_id=third)
+        saved = self.call(f"/api/records/{note}/research-subjects", {"version": current["version"], "research_subjects": current["research_subjects"]}, method="PUT")
+        self.assertEqual(saved.status_code, 200, saved.json)
+        result = self.call("/api/people/split", self.split_intent(merge["event_id"], user="colleague"), "colleague")
+        self.assertEqual(result.status_code, 200, result.json)
+        public = self.get(f"/api/people/{first}/identity-history", "colleague")
+        self.assertNotIn(third, json.dumps(public))
+        self.assertNotIn(note, json.dumps(public))
+        self.assertEqual(self.get(f"/api/records/{note}")["research_subjects"][0]["subject_id"], third)
+
     def test_compare_select_information_follow_old_entry_and_split_an_unchanged_merge(self):
         first = self.person(introduction_html="<p>甲的介绍</p>", sources="合成出处甲")
         second = self.person("合成人物乙", introduction_html="<p>乙的介绍</p>", sources="合成出处乙")
@@ -286,9 +632,10 @@ class PersonIdentityTests(unittest.TestCase):
         self.assertEqual(self.call(f"/api/people/{first}", {"version": current["version"], "change_note": "合并后独立编辑", "name": "之后的姓名"}, method="PUT").status_code, 200)
         self.assertEqual(self.call("/api/people/split", split, "colleague").status_code, 409)
         new_preview = self.call(f"/api/people/identity-events/{merged.json['event_id']}/split-preview", user="colleague")
-        self.assertFalse(new_preview.json["allowed"])
-        self.assertEqual(self.call("/api/people/split", self.split_intent(merged.json["event_id"], key="changed-split", user="colleague"), "colleague").status_code, 409)
-        self.assertEqual(self.get(f"/api/people/{second}")["name"], "之后的姓名")
+        self.assertTrue(new_preview.json["allowed"])
+        self.assertEqual(self.call("/api/people/split", self.split_intent(merged.json["event_id"], key="changed-split", user="colleague"), "colleague").status_code, 200)
+        self.assertEqual(self.get(f"/api/people/{first}")["name"], "之后的姓名")
+        self.assertEqual(self.get(f"/api/people/{second}")["name"], "合成人物乙")
 
     def test_successful_merge_and_split_requests_are_persistent_and_actor_intent_bound(self):
         first, second = self.person(), self.person("合成人物乙")
@@ -483,11 +830,15 @@ class PersonIdentityTests(unittest.TestCase):
         subjects = self.get(f"/api/records/{note}")["research_subjects"]
         self.assertEqual({(row["subject_type"], row["subject_id"]) for row in subjects}, {("person", first), ("institution", other_institute)})
         preview = self.call(f"/api/people/identity-events/{person_merge.json['event_id']}/split-preview")
-        self.assertFalse(preview.json["allowed"])
+        self.assertTrue(preview.json["allowed"])
         recovered = restore_backup(create_backup(self.data_dir), Path(self.temp.name) / "old-operations-recovered")
         self.clients["researcher"] = self.login("researcher", create_app(recovered, testing=True))
         self.assertEqual(self.get(f"/api/records/{original}/bylines")["items"], current_bylines)
         self.assertEqual(self.get(f"/api/records/{original}/affiliations")["items"], current_units)
+        split = self.call("/api/people/split", self.split_intent(person_merge.json["event_id"], key="after-other-merges"))
+        self.assertEqual(split.status_code, 200, split.json)
+        self.assertEqual([r["target_id"] for r in self.get(f"/api/records/{original}/bylines")["items"]], [first, second])
+        self.assertEqual(self.get(f"/api/records/{original}/affiliations")["items"][0]["institution_id"], other_institute)
 
     def test_identity_preview_and_history_filter_private_original_note_provenance_after_note_merge(self):
         first, second = self.person(), self.person("合成人物乙")

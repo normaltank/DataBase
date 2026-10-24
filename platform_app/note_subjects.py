@@ -64,14 +64,22 @@ def snapshot(db, note_id):
         "SELECT * FROM research_subjects WHERE note_id=? AND status<>'removed' ORDER BY created_at,id", (note_id,))]
 
 
-def read(db, note_id):
+def read(db, note_id, visible=None):
     items = []
     for relation in snapshot(db, note_id):
         item = {**relation, "subject_name": target(db, relation["subject_type"], relation["subject_id"])["name"]}
-        last = db.execute("SELECT action,identity_event_id,created_at FROM research_subject_history WHERE relation_id=? ORDER BY id DESC LIMIT 1",
+        original_table = "people" if relation["original_subject_type"] == "person" else "sources"
+        original = db.execute(f"SELECT name FROM {original_table} WHERE id=?", (relation["original_subject_id"],)).fetchone()
+        item["original_subject_name"] = original["name"] if original else relation["original_subject_id"]
+        last = db.execute("""SELECT h.action,h.identity_event_id,h.created_at,e.evidence FROM research_subject_history h
+                          JOIN person_identity_events e ON e.id=h.identity_event_id
+                          WHERE relation_id=? ORDER BY h.id DESC LIMIT 1""",
                           (relation["id"],)).fetchone()
         if last and last["identity_event_id"]:
-            item["identity_change"] = {"event_id": last["identity_event_id"], "action": last["action"], "created_at": last["created_at"]}
+            item["identity_change"] = {"event_id": last["identity_event_id"], "action": last["action"], "created_at": last["created_at"], "evidence": last["evidence"]}
+        origin = db.execute("SELECT * FROM records WHERE id=?", (relation["original_note_id"],)).fetchone()
+        if visible and (not origin or not visible(origin)):
+            item.pop("original_note_id", None)
         items.append(item)
     return items
 
@@ -95,6 +103,8 @@ def save(db, note_id, kind, desired, actor_id):
     current = snapshot(db, note_id)
     retained, endpoints = set(), set()
     for item in desired:
+        if "confirm" in item and type(item["confirm"]) is not bool:
+            abort(400, "研究对象确认标记格式不正确。")
         subject_type, subject_id = item.get("subject_type"), item.get("subject_id")
         requested_subject_id = subject_id
         subject_id = target(db, subject_type, subject_id)["id"]
@@ -112,7 +122,7 @@ def save(db, note_id, kind, desired, actor_id):
             matching = [row] if item.get("id") else [r for r in current if (r["subject_type"], r["subject_id"]) == pair]
             for relation in matching:
                 retained.add(relation["id"])
-                if (relation["subject_type"], relation["subject_id"]) != pair or relation["status"] != "confirmed" or item.get("confirm") is True:
+                if (relation["subject_type"], relation["subject_id"]) != pair or item.get("confirm") is True:
                     db.execute("""UPDATE research_subjects SET subject_type=?,subject_id=?,status='confirmed',
                         version=version+1,manual_revision=manual_revision+1,updated_by=?,updated_at=? WHERE id=?""",
                                (subject_type, subject_id, actor_id, now(), relation["id"]))

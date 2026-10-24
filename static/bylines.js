@@ -98,7 +98,7 @@ function bylineHistoryValue(item) {
 
 async function bylineHistory(id) {
   const [current,history]=await Promise.all([api(`/api/records/${encodeURIComponent(id)}/bylines`),api(`/api/records/${encodeURIComponent(id)}/bylines/history`)]);
-  const labels={manual:'人工维护',record_merge:'资料合并转接',source_merge:'来源合并转接',order_adjustment:'署名顺序整理'};
+  const labels={manual:'人工维护',manual_confirmation:'明确确认署名身份',record_merge:'资料合并转接',source_merge:'来源合并转接',order_adjustment:'署名顺序整理',person_merge:'人物合并转接',person_split:'人物拆回转接',person_split_review:'人物拆回后署名待确认'};
   modal('作品署名历史',`<p class="notice">署名历史独立保留。恢复正文历史会保留当前公共署名；在这里可以明确恢复某一项署名。</p><div class="person-history">${history.items.map(item=>`<details class="person-history-item"><summary><strong>${esc(item.after.raw_name)}</strong> · ${esc(labels[item.change_kind]||item.change_kind)}<span>${esc(item.actor_name)} · ${dateTime(item.created_at)}</span></summary><div class="person-history-content"><p class="prose">维护说明：${esc(item.change_note)}</p><div class="comparison-grid"><section><h4>修改前</h4>${bylineHistoryValue(item.before)}</section><section><h4>修改后 · 关系版本 ${item.after.version}</h4>${bylineHistoryValue(item.after)}</section></div><details><summary>保留的原始整段署名</summary><p class="prose">${esc(item.after.original_authors)}</p></details><form data-form="byline-restore" data-record="${esc(id)}" data-revision="${item.id}" data-version="${current.version}"><div class="field"><label>恢复这一项至修改后状态的依据<textarea name="change_note" required></textarea></label></div><div class="form-error" role="alert"></div><div data-restore-conflict></div><button class="button" type="submit">恢复这一项署名</button></form></div></details>`).join('')||'<p class="muted">尚无署名维护历史。</p>'}</div>${linkButton('返回资料','byline-back',id)}`);
 }
 
