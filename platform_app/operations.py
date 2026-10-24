@@ -11,7 +11,7 @@ from pathlib import Path
 from flask import abort, jsonify, request, send_file, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from . import workflow, identity
+from . import workflow, identity, content_export, bylines, affiliations
 from .store import now, save_revision
 
 COLLECTION_FIELDS = ["name", "description", "visibility", "research_question", "comparison_html", "comparison_text", "stage_judgment"]
@@ -165,13 +165,21 @@ def register(app, ctx):
     @app.get("/api/export/content")
     def export_content():
         selected, _ = ctx.filtered_records(request.args)
+        people, associated = [], set()
+        if "person" in request.args:
+            person, selected_ids, associated = content_export.person_scope(ctx, request.args["person"])
+            people.append(person)
+            selected = [row for row in selected if row["id"] in selected_ids]
         # Include accessible referenced evidence and originals so local links remain useful.
-        records, pending = {}, [r["id"] for r in selected]
+        records, pending = {}, [r["id"] for r in selected] + sorted(associated)
         while pending:
             rid = pending.pop()
             if rid in records:
                 continue
-            item = ctx.record_detail(rid).get_json()
+            item = content_export.record_projection(db(), ctx.record_detail(rid).get_json(), ctx.visible)
+            if item["kind"] not in workflow.CONTENT_KINDS:
+                item["bylines"] = bylines.Bylines(db(), user(), ctx.records()).detail(item["id"])
+                item["affiliations"] = affiliations.ArticleAffiliations(db(), user(), ctx.records()).detail(item["id"])
             records[item["id"]] = item
             pending.extend(r["id"] for r in item["linked_records"] if r["id"] not in records)
             pending.extend(c["excerpt_id"] for c in item["evidence_citations"] if c["excerpt_id"] not in records)
@@ -188,9 +196,14 @@ def register(app, ctx):
             item["item_ids"] = [r[0] for r in db().execute("SELECT record_id FROM collection_items WHERE collection_id=?", (row["id"],)) if r[0] in records]
             if item["item_ids"] or request.args.get("collection") == row["id"]:
                 collections.append(item)
-        sources = [dict(r) for r in db().execute("SELECT * FROM sources WHERE merged_into IS NULL")]
+        relevant_sources = content_export.source_ids(people, records) if people else None
+        sources = [{key: value for key, value in dict(r).items() if key != "raw_json"}
+                   for r in db().execute("SELECT * FROM sources WHERE merged_into IS NULL")
+                   if relevant_sources is None or r["id"] in relevant_sources]
         paths = {rid: "records/" + hashlib.sha256(rid.encode()).hexdigest()[:20] + ".html" for rid in records}
         source_paths = {s["id"]: "sources/" + hashlib.sha256(s["id"].encode()).hexdigest()[:20] + ".html" for s in sources}
+        for rid, item in records.items():
+            item["path"] = paths[rid]
         attachments = {}
         for item in records.values():
             aids = [a["id"] for a in item["attachments"]]
@@ -204,9 +217,11 @@ def register(app, ctx):
                 if a:
                     original = identity.resolve(db(), "records", a["record_id"])
                     if original and ctx.visible(original):
-                        attachments[aid] = dict(a)
+                        attachments[aid] = {**dict(a), "path": "attachments/" + a["stored_name"]}
+        avatars = content_export.prepare_people(db(), people)
         payload = {"format": "research-content-v1", "exported_at": now(), "selected_ids": [r["id"] for r in selected],
-                   "records": list(records.values()), "sources": sources, "collections": collections, "attachments": list(attachments.values())}
+                   "records": list(records.values()), "sources": sources, "collections": collections, "attachments": list(attachments.values()),
+                   "people": people, "avatars": list(avatars.values())}
         output = io.BytesIO()
         style = "body{font:16px/1.7 system-ui,sans-serif;max-width:960px;margin:32px auto;padding:0 20px;color:#202f42}a{color:#234e78}pre{font:inherit;white-space:pre-wrap}section{margin:28px 0}"
         style += (Path(app.static_folder) / "reading.css").read_text(encoding="utf-8")
@@ -230,11 +245,15 @@ def register(app, ctx):
         with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             archive.writestr("content.json", json.dumps(payload, ensure_ascii=False, indent=2))
             index = "<p>包括当前可见正文、附件、来源、专题和引用时的证据快照。账户凭据不在此导出中；全部历史的系统恢复使用完整备份。</p><ul>"
+            for person in people:
+                index += '<li><a href="' + person["path"] + '">人物档案：' + html.escape(person["name"]) + '</a></li>'
+                archive.writestr(person["path"], page(person["name"], content_export.person_html(person, prose, paths, source_paths)))
             for item in records.values():
                 rid = item["id"]
                 index += '<li><a href="' + paths[rid] + '">' + html.escape(item["title"]) + "</a></li>"
                 content = '<p><a href="../index.html">返回目录</a></p>' + prose("身份与出处", f"编号：{rid}\n署名：{item['authors']}\n日期：{item['published_on']}\n版本：{item['version']}\n覆盖范围：{item['coverage']}\n原目录出处：{item['original_catalogue']}\n原文链接：{item['url']}")
                 content += prose("摘要与说明", item["abstract"]) + "<section><h2>正文</h2>" + item["body_html"] + "</section>"
+                content += content_export.record_relations_html(item, prose, source_paths, people)
                 for key, label in [("quote", "原文摘录"), ("translation", "译文"), ("interpretation", "研究员说明"), ("locator", "原文定位")]:
                     content += prose(label, item[key])
                 content += original_snapshot(item["evidence_snapshot"])
@@ -291,5 +310,11 @@ def register(app, ctx):
                 if not path.is_file():
                     abort(409, "附件文件缺失，无法完成完整内容导出。")
                 archive.write(path, "attachments/" + attachment["stored_name"])
+            for avatar in avatars.values():
+                path = ctx.data_dir / "avatars" / avatar["stored_name"]
+                if (not path.is_file() or path.stat().st_size != avatar["bytes"]
+                        or hashlib.sha256(path.read_bytes()).hexdigest() != avatar["sha256"]):
+                    abort(409, "头像文件缺失或与登记信息不一致，无法完成内容导出。")
+                archive.write(path, avatar["path"])
         output.seek(0)
         return send_file(output, mimetype="application/zip", as_attachment=True, download_name="research-content.zip")

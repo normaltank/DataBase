@@ -5,6 +5,8 @@ from pathlib import Path
 
 from werkzeug.security import generate_password_hash
 
+CURRENT_SCHEMA_VERSION = 10
+
 
 def now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -90,6 +92,16 @@ def initialize(data_dir):
     migrate_research(data_dir)
     from .workflow import migrate_operations
     migrate_operations(data_dir)
+    from .people import migrate as migrate_people
+    migrate_people(data_dir)
+    from .note_subjects import migrate as migrate_note_subjects
+    migrate_note_subjects(data_dir)
+    from .bylines import migrate as migrate_bylines
+    migrate_bylines(data_dir)
+    from .affiliations import migrate as migrate_affiliations
+    migrate_affiliations(data_dir)
+    from .person_identity import migrate as migrate_person_identity
+    migrate_person_identity(data_dir)
 
 
 def decoded(row):
@@ -101,7 +113,7 @@ def decoded(row):
 
 
 def save_revision(db, kind, row_id, action, actor):
-    table = {"record": "records", "source": "sources", "collection": "collections"}[kind]
+    table = {"record": "records", "source": "sources", "collection": "collections", "person": "people"}[kind]
     if kind == "record":
         from .record_revisions import snapshot as record_snapshot
         snapshot = record_snapshot(db, row_id)

@@ -15,7 +15,7 @@ from werkzeug.security import check_password_hash
 
 from .store import connect, decoded, initialize, now, save_revision
 from .record_revisions import RecordRevisions, validate_text, check_version
-from . import source_catalog, workflow, evidence, identity, operations, reading
+from . import source_catalog, workflow, evidence, identity, operations, reading, people, note_subjects, bylines, affiliations, person_identity
 
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE_FIELDS = ["name", "original_name", "kind", "classification", "location", "country", "research_scope",
@@ -187,6 +187,8 @@ def create_app(data_dir=None, testing=False):
         results = []
         selected_source = get_source(args["source"])["id"] if args.get("source") else None
         for r in rows:
+            if args.get("editable") == "1" and not editable(r):
+                continue
             if args.get("favorite") == "1" and r["id"] not in favorites:
                 continue
             if collection_ids is not None and r["id"] not in collection_ids:
@@ -210,6 +212,7 @@ def create_app(data_dir=None, testing=False):
                 continue
             if q:
                 hay = " ".join(str(r[k]) for k in ["title", "original_title", "authors", "abstract", "keywords", "publication_title", "doi", "id", "aliases", "body_text", "coverage", "original_catalogue", "quote", "translation", "interpretation", "locator"]) + " " + " ".join(source_names.get(sid, "") for sid in [r["source_id"], r["serial_id"], *associated])
+                hay += " " + bylines.Bylines(db(), user(), records()).search_text(r["id"])
                 if not all(word in hay.casefold() for word in q.split()):
                     continue
             results.append(r)
@@ -246,6 +249,8 @@ def create_app(data_dir=None, testing=False):
         obj["evidence_snapshot"] = json.loads(row["evidence_snapshot_json"])
         obj["evidence_file_url"] = f"/api/records/{rid}/evidence-file" if row["evidence_attachment_id"] else ""
         obj["previous_ids"] = [x for x in identity.origins(db(), "records", rid) if x != rid]
+        if row["kind"] == "research_note":
+            obj["research_subjects"] = note_subjects.read(db(), rid, visible)
         return jsonify(obj)
 
     @app.get("/api/records/<rid>/copy-text")
@@ -425,6 +430,8 @@ def create_app(data_dir=None, testing=False):
                     canonical_relations.append(relation)
                 data["relationships"] = canonical_relations
         values["scope_status"] = values["scope_status"] or "candidate"
+        if base:
+            note_subjects.validate_source_type(db(), base["id"], values["kind"])
         try:
             source_catalog.validate_metadata(db(), data, values, base)
         except (ValueError, TypeError) as error:
@@ -606,9 +613,14 @@ def create_app(data_dir=None, testing=False):
         return send_file(path, as_attachment=True, download_name=path.name, mimetype="application/zip")
 
     identity.register(app, db=db, body=body, records=records, validate_source=source_values)
+    people.register(app, SimpleNamespace(db=db, user=user, body=body, data_dir=data_dir))
+    person_identity.register(app, SimpleNamespace(db=db, user=user, body=body, data_dir=data_dir, records=records, record_summary=record_summary))
+    bylines.register(app, SimpleNamespace(db=db, user=user, body=body, records=records, record_summary=record_summary))
+    affiliations.register(app, SimpleNamespace(db=db, user=user, body=body, records=records, record_summary=record_summary))
+    note_subjects.register(app, SimpleNamespace(db=db, records=records, body=body, record_summary=record_summary))
     operations.register(app, SimpleNamespace(db=db, user=user, body=body, admin=admin, get_record=get_record,
                                             get_source=get_source, visible=visible, editable=editable,
                                             get_collection=get_collection, record_summary=record_summary,
                                             record_detail=record_detail, filtered_records=filtered_records,
-                                            check_version=check_version, data_dir=data_dir))
+                                            check_version=check_version, data_dir=data_dir, records=records))
     return app

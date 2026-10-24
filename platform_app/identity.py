@@ -37,6 +37,24 @@ def aliases(*values):
     return "\n".join(dict.fromkeys(line.strip() for value in values for line in str(value or "").splitlines() if line.strip()))
 
 
+def readable_record(db, item, visible):
+    """A shared current record does not publish a private merged record's aliases."""
+    result, hidden, public_ids = dict(item), set(), []
+    for rid in origins(db, "records", item["id"]):
+        if rid == item["id"]:
+            continue
+        old = db.execute("SELECT * FROM records WHERE id=?", (rid,)).fetchone()
+        if visible(old):
+            public_ids.append(rid)
+        else:
+            hidden.add(rid)
+            hidden.update(line.strip() for key in ["title", "original_title", "aliases"] for line in old[key].splitlines())
+    result["aliases"] = "\n".join(line for line in result.get("aliases", "").splitlines() if line not in hidden)
+    if "previous_ids" in result:
+        result["previous_ids"] = public_ids
+    return result
+
+
 def retained_aliases(db, table, rid, value):
     name, original = ("title", "original_title") if table == "records" else ("name", "original_name")
     values = [value]

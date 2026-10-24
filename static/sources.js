@@ -39,6 +39,11 @@ async function openSource(id){
   if(isInstitution(s)){
     fields=detailPair('机构类型',s.institution_types.map(t=>esc(institutionTypes[t])).join(' / '))+detailPair('机构所在地',esc(s.location))+detailPair('机构国家',esc(s.country));
     sections=`<section class="detail-section"><h3>机构国家依据</h3>${evidenceHtml(s.country_evidence)}</section>`+relationDetails(s);
+    sections+=await bylineWorksSection('institution',s.id);
+    sections+=await employmentSection(s.id,true);
+    sections+=await institutionAffiliationsSection(s.id);
+    sections+=await institutionPublishedSection(s.id);
+    if(state.bylineSourceReturn?.id===s.id)sections=linkButton('返回资料','byline-back',state.bylineSourceReturn.record)+sections;
   }else if(isPublication(s)){
     fields=detailPair('主办机构',sourceName(s.host_id))+detailPair('出版机构',sourceName(s.publisher_id))+detailPair('主办方国别',esc(countryText(s)))+detailPair('出版方国家（另记）',esc(s.publisher_countries.join(' / ')))+detailPair('ISSN',esc(s.issn));
     sections=`<section class="detail-section"><h3>主办国别的依据</h3><p class="small">${s.national_status==='recorded'?'根据下列既有登记归类；不等同中心已核对。':esc(s.country_gaps.join('；'))}</p>${evidenceHtml(s.host_evidence)}${s.country_basis.map(h=>`<div class="relation-detail">${sourceName(h.id)} · ${esc(h.countries.join(' / ')||'国家待确认')}${evidenceHtml(h.evidence)}</div>`).join('')}</section>`;
@@ -47,6 +52,10 @@ async function openSource(id){
   const publications=(s.related||[]).map(x=>linkButton(esc(x.name),'source-detail',x.id,'detail-link')).join('');
   modal('来源详情',`<div class="row wrap"><span class="badge blue">${sourceLabel(s)}</span>${badge(s.status)}<span class="small muted">版本 ${s.version}</span></div><h2 class="detail-title">${esc(s.name)}</h2>${s.original_name?.trim()&&s.original_name.trim()!==s.name.trim()?`<p class="original-title">${esc(s.original_name)}</p>`:""}<div class="detail-actions">${safeUrl(s.website)?externalLink(s.website,'官方网站'):''}${safeUrl(s.catalogue_url)?externalLink(s.catalogue_url,'资料目录'):''}${linkButton(icon('edit')+' 编辑来源','edit-source',s.id)}${linkButton(icon('clock')+' 历史','history','source:'+s.id)}${state.me.role==='admin'&&s.status!=='verified'?linkButton('标记已核对','verify','source:'+s.id,'button primary tiny'):''}</div><dl class="detail-grid">${fields}${common}</dl>${sections}${publications?`<section class="detail-section"><h3>主办或出版的刊物</h3>${publications}</section>`:''}<div class="detail-actions">${linkButton('查看关联资料','source-records',s.id,'button primary')}</div><details class="section-gap"><summary>原始分类、备注与上游核查信息</summary><dl>${detailPair('原始分类',esc(s.classification))}${detailPair('旧国别登记',esc(s.country))}</dl><p class="prose">${esc(s.notes||'无原始备注')}</p><p class="prose">${esc(s.upstream_status||'无上游核查状态')}</p><p class="small muted">中文工作译名未经审定；上游核验不等于中心已核对。</p></details>`);
   appendSourceWorkflow(s,contents);
+  if(isInstitution(s)||s.kind==='journal'){
+    const noteSection=await noteSubjectProfile(isInstitution(s)?'institution':'journal',s.id);
+    if(state.detail?.type==='source'&&state.detail.data.id===s.id)document.querySelector('.drawer-body')?.insertAdjacentHTML('beforeend',noteSection);
+  }
 }
 let relationRowCounter=0;
 function relationEditor(r={}){
