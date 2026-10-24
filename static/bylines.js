@@ -18,7 +18,7 @@ async function bylineSection(record) {
 }
 
 function bylineWorksMarkup(data,type,id,query='') {
-  return `<section class="person-section detail-section byline-works" data-byline-works data-type="${esc(type)}" data-id="${esc(id)}"><h2>${type==='institution'?'机构署名作品':'已确认作品'}</h2><form data-form="byline-work-search" class="byline-search"><input type="search" name="q" aria-label="搜索已确认作品" placeholder="在已确认作品中搜索" value="${esc(query)}"><button class="button tiny" type="submit">搜索</button></form><p class="small muted">${data.total} 份已确认作品${query?' · '+esc(query):''}</p>${data.items.map(record=>`<article class="byline-work"><h3>${linkButton(esc(record.title),'detail',record.id,'title-button')}</h3><p class="small muted">${esc([record.published_on,record.authors].filter(Boolean).join(' · '))}</p>${record.bylines.map(item=>`<p class="small">署名：${esc(item.raw_name)}${item.evidence?' · 依据：'+esc(item.evidence):''}</p>`).join('')}</article>`).join('')||`<p class="muted">${query?'没有符合条件的已确认作品。':'暂未关联已确认作品。这只表示当前档案的收录情况。'}</p>`}${data.total>data.size?`<div class="pagination">${data.page>1?linkButton('上一页','byline-work-page',String(data.page-1)):''}<span>第 ${data.page} / ${Math.ceil(data.total/data.size)} 页</span>${data.page*data.size<data.total?linkButton('下一页','byline-work-page',String(data.page+1)):''}</div>`:''}</section>`;
+  return `<section class="person-section detail-section byline-works" data-byline-works data-type="${esc(type)}" data-id="${esc(id)}"><h2>${type==='institution'?'机构署名作品':'已确认作品'}</h2><form data-form="byline-work-search" class="byline-search field"><input type="search" name="q" aria-label="搜索已确认作品" placeholder="在已确认作品中搜索" value="${esc(query)}"><button class="button" type="submit">搜索</button></form><p class="small muted">${data.total} 份已确认作品${query?' · '+esc(query):''}</p>${data.items.map(record=>`<article class="byline-work"><h3>${linkButton(esc(record.title),'detail',record.id,'title-button')}</h3><p class="small muted">${esc([record.published_on,record.authors].filter(Boolean).join(' · '))}</p>${record.bylines.map(item=>`<p class="small">署名：${esc(item.raw_name)}${item.evidence?' · 依据：'+esc(item.evidence):''}</p>`).join('')}</article>`).join('')||`<p class="muted">${query?'没有符合条件的已确认作品。':'暂未关联已确认作品。这只表示当前档案的收录情况。'}</p>`}${data.total>data.size?`<div class="pagination">${data.page>1?linkButton('上一页','byline-work-page',String(data.page-1)):''}<span>第 ${data.page} / ${Math.ceil(data.total/data.size)} 页</span>${data.page*data.size<data.total?linkButton('下一页','byline-work-page',String(data.page+1)):''}</div>`:''}</section>`;
 }
 
 async function bylineWorksSection(type,id,query='',page=1) {
@@ -87,7 +87,7 @@ async function submitBylineForm(form) {
   syncBylineForm(form);form._dirty=true;saveEditorDraft(form,true);form.dataset.saving='true';
   try {
     await api(`/api/records/${encodeURIComponent(form._editing.id)}/bylines`,{method:'PUT',body:{version:form._editing.version,record_version:form._editing.draftSpecific.record_version,items:collectBylines(form),change_note:form.elements.change_note.value}});
-    const id=form._editing.id;await clearEditorDraft(form);form.dataset.saving='false';closeModal();await openRecord(id);toast('署名已保存');
+    const id=form._editing.id;await clearEditorDraft(form);form.dataset.saving='false';closeModal();if(typeof uxRefreshBackground==='function')await uxRefreshBackground();await openRecord(id);toast('署名已保存');
   } finally {form.dataset.saving='false';}
 }
 
@@ -106,7 +106,7 @@ async function restoreBylineForm(form) {
   if(form.dataset.conflict==='true')throw new Error('请先对照最新署名，再确认恢复。');
   try {
     await api(`/api/records/${encodeURIComponent(form.dataset.record)}/bylines/history/${form.dataset.revision}/restore`,{method:'POST',body:{version:Number(form.dataset.version),change_note:form.elements.change_note.value}});
-    await openRecord(form.dataset.record);toast('已恢复这一项署名，历史继续保留');
+    if(typeof uxRefreshBackground==='function')await uxRefreshBackground();await openRecord(form.dataset.record);toast('已恢复这一项署名，历史继续保留');
   } catch(error) {
     if(error.status===409){const latest=await api(`/api/records/${encodeURIComponent(form.dataset.record)}/bylines`);form.dataset.conflict='true';form._restoreLatest=latest;form.querySelector('[data-restore-conflict]').innerHTML=`<div class="notice"><p>当前署名已变为版本 ${latest.version}，恢复说明已保留。</p>${bylineList(latest.items)}<button type="button" class="button" data-action="byline-review-restore">已对照，继续恢复所选署名</button></div>`;}
     throw error;

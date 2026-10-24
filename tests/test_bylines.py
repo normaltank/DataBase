@@ -10,6 +10,7 @@ from pathlib import Path
 
 from platform_app.web import create_app
 from platform_app.maintenance import restore_backup
+from platform_app.store import CURRENT_SCHEMA_VERSION
 
 
 class BylineTests(unittest.TestCase):
@@ -264,6 +265,10 @@ class BylineTests(unittest.TestCase):
         self.merge("record", keep, duplicate)
         current = self.bylines(keep)
         self.assertEqual(self.save(keep, current["items"][1:]).status_code, 200)
+        note = self.record(kind="research_note", title="两项能力一起恢复的研究笔记",
+                           research_subjects=[{"subject_type": "person", "subject_id": person}])
+        note_before = self.get("/api/records/" + note)
+        note_history = self.get("/api/records/" + note + "/research-subjects/history")
         before = self.bylines(keep)
         events = self.get("/api/records/" + keep + "/bylines/history")
         with self.call("/api/backup", user="admin") as response:
@@ -275,6 +280,8 @@ class BylineTests(unittest.TestCase):
         self.clients = {u: self.login(u, app) for u in self.clients}
         self.assertEqual(self.bylines(keep), before)
         self.assertEqual(self.get("/api/records/" + keep + "/bylines/history"), events)
+        self.assertEqual(self.get("/api/records/" + note), note_before)
+        self.assertEqual(self.get("/api/records/" + note + "/research-subjects/history"), note_history)
         item = before["items"][0]
         changed = self.save(keep, [{**item, **self.confirmed("Moved", second)}], user="colleague")
         self.assertEqual(changed.status_code, 200, changed.json)
@@ -406,6 +413,40 @@ class BylineTests(unittest.TestCase):
         for rid in before:
             self.assertEqual(self.bylines(rid), before[rid])
             self.assertEqual(self.get("/api/records/" + rid + "/bylines/history"), history[rid])
+
+    def test_intermediate_v6_and_v7_backups_upgrade_preserving_old_authors_without_matching(self):
+        fixtures = Path(__file__).parent / "fixtures"
+        expected = json.loads((fixtures / "people_v5.json").read_text(encoding="utf-8"))
+        legacy = Path(self.temp.name) / "legacy-v6"
+        (legacy / "uploads").mkdir(parents=True)
+        with closing(sqlite3.connect(legacy / "platform.sqlite3")) as db:
+            db.executescript((fixtures / "people_v5.sql").read_text(encoding="utf-8"))
+            db.executescript((fixtures / "note_subjects_v6.sql").read_text(encoding="utf-8"))
+        for filename, content in expected["files"].items():
+            (legacy / "uploads" / filename).write_text(content, encoding="utf-8", newline="")
+        upgraded = create_app(legacy, testing=True)
+        self.clients = {u: self.login(u, upgraded) for u in self.clients}
+        self.assertEqual(self.get("/health")["schema"], CURRENT_SCHEMA_VERSION)
+        backups = list((legacy / "backups").glob("*.zip"))
+        self.assertEqual(len(backups), 2)
+        rid = next(rid for rid, record in expected["records"].items() if record["kind"] == "report")
+        for index, archive in enumerate(backups):
+            recovered_dir = restore_backup(archive, Path(self.temp.name) / ("stage-" + str(index)))
+            app = create_app(recovered_dir, testing=True)
+            self.clients = {u: self.login(u, app) for u in self.clients}
+            self.assertEqual(self.get("/health")["schema"], CURRENT_SCHEMA_VERSION)
+            self.assertEqual(self.get("/api/records/" + rid), expected["records"][rid])
+            self.assertEqual(self.bylines(rid)["raw_authors"], expected["records"][rid]["authors"])
+            self.assertEqual(self.bylines(rid)["items"], [])
+            self.assertEqual(self.get("/api/people")["total"], 1)
+            changed = self.save(rid, [self.confirmed("Frozen author", "person-v6-fixture")])
+            self.assertEqual(changed.status_code, 200, changed.json)
+            before_restart = self.bylines(rid)
+            migration_backups = list((recovered_dir / "backups").glob("*.zip"))
+            restarted = create_app(recovered_dir, testing=True)
+            self.clients = {u: self.login(u, restarted) for u in self.clients}
+            self.assertEqual(self.bylines(rid), before_restart)
+            self.assertEqual(list((recovered_dir / "backups").glob("*.zip")), migration_backups)
 
 
 if __name__ == "__main__":
