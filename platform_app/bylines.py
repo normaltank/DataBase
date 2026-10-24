@@ -189,7 +189,7 @@ class Bylines:
         stamp = now()
         if before:
             values = {**values, "version": before["version"] + 1, "updated_at": stamp}
-            if kind == "manual":
+            if kind in {"manual", "manual_confirmation"}:
                 values["manual_revision"] = before["manual_revision"] + 1
             self.db.execute(f"UPDATE record_bylines SET {','.join(k+'=?' for k in values)} WHERE id=?",
                             [*values.values(), before["id"]])
@@ -263,7 +263,8 @@ class Bylines:
                     values["selected_target_type"] = before["selected_target_type"]
                     values["selected_target_id"] = before["selected_target_id"]
                 if not before or item.get("reconfirm") or any(values[key] != before[key] for key in FIELDS):
-                    self.change(before, values, record=record, note=note)
+                    self.change(before, values, record=record, note=note,
+                                kind="manual_confirmation" if item.get("reconfirm") else "manual")
                 if bid:
                     seen.add(bid)
             for bid, row in existing.items():
