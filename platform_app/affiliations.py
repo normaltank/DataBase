@@ -189,7 +189,7 @@ class Relations:
         return {"id": row["id"], "name": row["name"]}
 
     def person(self, pid):
-        row = self.db.execute("SELECT * FROM people WHERE id=?", (pid,)).fetchone()
+        row = identity.resolve(self.db, "people", pid)
         if not row:
             abort(404, "人物档案不存在。")
         return {"id": row["id"], "name": row["name"]}

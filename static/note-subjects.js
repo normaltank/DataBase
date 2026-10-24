@@ -9,7 +9,7 @@ function noteSubjectLink(subject){
 function noteSubjectDetail(record){
   if(record.kind!=='research_note')return '';
   const subjects=record.research_subjects||[];
-  return `<section class="detail-section note-subject-detail"><div class="between wrap"><h3>笔记研究对象</h3>${record.can_edit?linkButton('调整研究对象','edit-record',record.id):''}</div>${subjects.length?subjects.map(subject=>`<div class="row wrap">${noteSubjectLink(subject)}<span class="small muted">${noteSubjectLabels[subject.subject_type]}</span>${subject.status==='needs_review'?'<span class="badge pending">研究对象待复核</span>':''}</div>`).join(''):'<p class="muted">尚未明确选择研究对象。</p>'}${record.can_edit?linkButton('研究对象调整历史','note-subject-history',record.id):''}</section>`;
+  return `<section class="detail-section note-subject-detail"><div class="between wrap"><h3>笔记研究对象</h3>${record.can_edit?linkButton('调整研究对象','edit-record',record.id):''}</div>${subjects.length?subjects.map(subject=>`<div><div class="row wrap">${noteSubjectLink(subject)}<span class="small muted">${noteSubjectLabels[subject.subject_type]}</span>${subject.status==='needs_review'?'<span class="badge pending">研究对象待复核</span>':''}</div>${subject.identity_change?`<p class="notice">此人物身份${subject.identity_change.action==='person_merge'?'已合并':'已拆回'}，笔记正文与原有研究对象来历保留。${linkButton('查看身份说明','person-identity-history',subject.subject_id,'link-button')}</p>`:''}</div>`).join(''):'<p class="muted">尚未明确选择研究对象。</p>'}${record.can_edit?linkButton('研究对象调整历史','note-subject-history',record.id):''}</section>`;
 }
 async function noteSubjectProfile(type,id){
   const path=(type==='person'?'/api/people/':'/api/sources/')+encodeURIComponent(id)+'/research-notes';
@@ -58,7 +58,7 @@ document.addEventListener('click',async event=>{
       if(!choice)throw new Error('研究对象已改变，请重新打开档案。');choice.checked=true;form._dirty=true;saveEditorDraft(form,true);
     }else if(button.dataset.action==='note-subject-history'){
       const result=await api('/api/records/'+encodeURIComponent(id)+'/research-subjects/history');
-      const labels={created:'选择研究对象',manual:'人工调整',removed:'移除关联',source_merge:'来源合并转接',record_merge:'笔记合并转接'};
+      const labels={created:'选择研究对象',manual:'人工调整',removed:'移除关联',source_merge:'来源合并转接',record_merge:'笔记合并转接',person_merge:'人物合并转接',person_split:'人物拆回转接'};
       modal('研究对象调整历史',result.items.map(item=>`<article class="note-subject-card"><h3>${esc(labels[item.action]||item.action)} · ${esc(item.snapshot.subject_name||item.snapshot.subject_id)}</h3><p>${esc(item.actor_name)} · ${dateTime(item.created_at)}</p><p>${noteSubjectLabels[item.snapshot.subject_type]} · ${esc(item.snapshot.subject_name||item.snapshot.subject_id)} · 关系版本 ${item.snapshot.version}</p><p class="small muted">原对象：${noteSubjectLabels[item.snapshot.original_subject_type]} · ${esc(item.snapshot.original_subject_name||item.snapshot.original_subject_id)}</p><details><summary>追溯编号</summary><p>当前对象 ${esc(item.snapshot.subject_id)}<br>原对象 ${esc(item.snapshot.original_subject_id)}<br>原笔记 ${esc(item.snapshot.original_note_id)}</p></details></article>`).join('')||'<p class="muted">尚无调整记录。</p>');
     }
   }catch(error){toast(error.message);}

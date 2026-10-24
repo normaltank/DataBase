@@ -133,7 +133,7 @@ class Bylines:
         if not kind and not tid:
             return None
         if kind == "person":
-            row = self.db.execute("SELECT * FROM people WHERE id=?", (tid,)).fetchone()
+            row = identity.resolve(self.db, "people", tid)
         elif kind == "institution":
             row = identity.resolve(self.db, "sources", tid)
             if row and row["kind"] not in {"institution", "think_tank"}:
