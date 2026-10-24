@@ -27,6 +27,7 @@ async function personPage(person,works='') {
     ${state.params.get('work')?linkButton('返回资料','byline-back',state.params.get('work')):''}
     <header class="person-heading"><div>${personAvatar(person)}${person.avatar&&person.avatar_source?`<p class="person-avatar-source">头像来源：${esc(person.avatar_source)}</p>`:''}</div><div><p class="eyebrow">人物 Wiki</p><h1>${esc(person.name)}</h1>${names.length?`<p class="person-names">${esc(names.join(' · '))}</p>`:''}<p class="muted">版本 ${person.version}${person.last_modifier?' · '+esc(person.last_modifier.name)+' · '+dateTime(person.last_modifier.created_at):''}</p><div class="detail-actions">${person.can_edit?linkButton(icon('edit')+' 编辑档案','edit-person',person.id,'button primary'):''}${linkButton(icon('clock')+' 修改历史','person-history',person.id)}${linkButton('比较合并','person-merge-picker',person.id)}${linkButton('身份整理历史','person-identity-history',person.id)}</div></div></header>
     <section class="panel person-section"><h2>人物介绍</h2>${person.introduction_html?`<div class="rich-prose">${readRich(person.introduction_html)}</div>`:'<p class="muted">介绍待补充，可由中心成员共同维护。</p>'}${person.sources?`<section class="person-sources"><h3>参考出处</h3><p class="prose">${esc(person.sources)}</p></section>`:''}</section>
+    <div class="detail-actions"><button class="button" data-action="export-content" data-query="person=${encodeURIComponent(person.requested_id)}">${icon('down')} 导出人物档案</button></div>
     ${await employmentSection(person.id)}
     ${works}
     ${await noteSubjectProfile('person',person.id)}

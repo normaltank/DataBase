@@ -622,5 +622,5 @@ def create_app(data_dir=None, testing=False):
                                             get_source=get_source, visible=visible, editable=editable,
                                             get_collection=get_collection, record_summary=record_summary,
                                             record_detail=record_detail, filtered_records=filtered_records,
-                                            check_version=check_version, data_dir=data_dir))
+                                            check_version=check_version, data_dir=data_dir, records=records))
     return app

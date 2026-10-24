@@ -1,6 +1,6 @@
 # 项目文档目录
 
-整理日期：2026-10-23。本页按用途导航，不另建任务台账；待办与依赖以 [GitHub Issues](https://github.com/normaltank/DataBase/issues) 为准。文档职责与归档方法见 [写作约定](agents/documentation.md)。
+整理日期：2026-10-24。本页按用途导航，不另建任务台账；待办与依赖以 [GitHub Issues](https://github.com/normaltank/DataBase/issues) 为准。文档职责与归档方法见 [写作约定](agents/documentation.md)。
 
 ## 当前入口
 
@@ -17,9 +17,9 @@
 | 用户决定及历史答复 | [需求讨论记录](需求讨论记录.md) |
 | 长期研究方向与分期建议 | [长期愿景](长期研究愿景与演进路线.md) |
 
-## 已确认、尚待施工的规格
+## 人物 Wiki 首版：集成候选与验收
 
-截至本页整理时，[人物 Wiki 与研究对象关联](specs/作者档案与研究对象关联.md) 已形成规格并发布为 [父任务 #1](https://github.com/normaltank/DataBase/issues/1)。用户已确认七项完整流程的拆分，子任务 #6—#12 及原生依赖已发布，进入 `implement-spec`；确认与覆盖依据见[拆分发布记录](../work/人物Wiki任务拆分草案.md)。功能验收尚未完成，执行状态以 Issues 为准。
+[人物 Wiki 与研究对象关联](specs/作者档案与研究对象关联.md) v1.1 由 [父任务 #1](https://github.com/normaltank/DataBase/issues/1) 跟踪，七项流程的确认与覆盖依据见 [拆分发布记录](../work/人物Wiki任务拆分草案.md)。#6—#11 已集成，#12 的可读导出、完整恢复及整组开发验收已形成候选；统一 [验收记录](../work/人物Wiki首版开发验收.md) 区分开发结果、历史页面证据和待补的指挥方精确版本验收／审查／部署。执行状态仍以 Issues 为准。
 
 ## 历史档案
 
