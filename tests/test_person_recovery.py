@@ -134,6 +134,44 @@ class PersonRecoveryTests(unittest.TestCase):
         restore_backup(archive, Path(self.temp.name) / "valid-dependencies")
         self.rejects(archive, "omitted-dependency", lambda db: db.execute("UPDATE person_identity_events SET dependencies_json='[]' WHERE id=?", (later["event_id"],)))
 
+    def test_recovered_inverse_splits_use_event_provenance_when_history_display_labels_change(self):
+        first = self.person("原人物甲", introduction_html="<p>原介绍甲</p>")
+        second, third = self.person("原人物乙"), self.person("原人物丙")
+        choices = {"name": "duplicate", "original_name": "keep", "chinese_name": "keep", "introduction": "keep", "avatar": "keep"}
+        early = self.call("/api/people/merge", self.intent(self.compare(first, second), key="label-early-merge", choices=choices)).json
+        later = self.call("/api/people/merge", self.intent(self.compare(first, third), key="label-later-merge", choices=choices)).json
+        profile = self.get(f"/api/people/{first}")
+        saved = self.call(f"/api/people/{first}", {"version": profile["version"], "introduction_html": "<p>后来有据人工补充</p>",
+                         "change_note": "保持真实后续编辑"}, method="PUT")
+        self.assertEqual(saved.status_code, 200, saved.json)
+        manual_revision = self.get(f"/api/people/{first}/history")["items"][0]["id"]
+
+        def relabel(db):
+            # A portable old archive may use translated history labels. No event,
+            # person snapshot or relationship is changed by this presentation edit.
+            for event in [early, later]:
+                db.execute("UPDATE revisions SET action='Identity update' WHERE target_type='person' AND action LIKE ?", ("%" + event["event_id"],))
+            db.execute("UPDATE revisions SET action='人物合并后的人工补记' WHERE id=?", (manual_revision,))
+
+        archive = self.damaged_backup(create_backup(self.data_dir), "translated-history", relabel)
+        target = restore_backup(archive, Path(self.temp.name) / "translated-history-recovered")
+        self.clients = {who: self.login(who, create_app(target, testing=True)) for who in self.clients}
+        result = self.call("/api/people/split", self.split_intent(later["event_id"], key="label-split-later"))
+        self.assertEqual(result.status_code, 200, result.json)
+        self.assertEqual(self.get(f"/api/people/{first}")["name"], "原人物乙")
+        self.assertEqual(self.get(f"/api/people/{first}")["introduction_html"], "<p>后来有据人工补充</p>")
+        # Also recognize a completed split after a second backup/restart, while
+        # the next split has its own not-yet-complete event in the transaction.
+        split_event = result.json["event_id"]
+        archive = self.damaged_backup(create_backup(target), "translated-split-history", lambda db: db.execute(
+            "UPDATE revisions SET action='Restored identities' WHERE target_type='person' AND action LIKE ?", ("%" + split_event,)))
+        target = restore_backup(archive, Path(self.temp.name) / "translated-split-recovered")
+        self.clients = {who: self.login(who, create_app(target, testing=True)) for who in self.clients}
+        result = self.call("/api/people/split", self.split_intent(early["event_id"], key="label-split-early"))
+        self.assertEqual(result.status_code, 200, result.json)
+        self.assertEqual([self.get(f"/api/people/{pid}")["name"] for pid in [first, second, third]], ["原人物甲", "原人物乙", "原人物丙"])
+        self.assertEqual(self.get(f"/api/people/{first}")["introduction_html"], "<p>后来有据人工补充</p>")
+
     def test_fixed_real_v6_v7_v8_v9_histories_files_and_relations_restore_upgrade_restart_and_continue(self):
         fixtures = Path(__file__).parent / "fixtures"
         for version in [6, 7, 8, 9]:

@@ -10,12 +10,18 @@ function personNames(person) {
   return [...new Set([person.original_name,person.chinese_name,...(person.aliases||'').split('\n')].map(x=>x.trim()).filter(x=>x&&x!==person.name&&!/^person-[a-f0-9]{32}$/.test(x)))];
 }
 
+function personHint(person, limit=160) {
+  const introduction=(person.introduction_text||'').replace(/\s+/g,' ').slice(0,limit);
+  const institutions=(person.institution_hints||[]).map(item=>item.name).join('、');
+  return [introduction,institutions?'任职登记：'+institutions:''].filter(Boolean).join(' · ');
+}
+
 async function peoplePage() {
   if(state.params.get('id')){const id=state.params.get('id');return personPage(await api('/api/people/'+encodeURIComponent(id)),await bylineWorksSection('person',id));}
   const result=await api('/api/people?'+state.params),query=state.params.get('q')||'';
   return `<section class="people-page"><div class="page-heading between wrap"><div><h1>作者目录</h1><p>共同积累人物介绍与可查证的出处。</p></div>${linkButton(icon('plus')+' 建立人物档案','new-person','','button primary')}</div>
     <form data-form="people-search" class="toolbar"><div class="search-input">${icon('search')}<input name="q" type="search" aria-label="搜索作者" placeholder="原名、中文名或别名" value="${esc(query)}"></div><button class="button primary" type="submit">搜索</button>${query?linkButton('清除搜索','people-clear'):''}</form>
-    <div class="results-head"><p>${query?'“'+esc(query)+'” · ':''}共 ${result.total} 位人物</p></div><div class="people-grid">${result.items.map(p=>`<article class="panel person-card">${personAvatar(p,true)}<div><h2><a href="#people?${esc(parameters({id:p.id}))}">${esc(p.name)}</a></h2>${personNames(p).length?`<p class="person-names">${esc(personNames(p).join(' · '))}</p>`:''}<p>${esc(p.introduction_text.slice(0,160)||'介绍待补充')}</p><p class="small muted">版本 ${p.version} · ${dateTime(p.updated_at)}</p></div></article>`).join('')||empty(query?'未找到人物':'还没有人物档案',query?'可以换一种姓名写法，或核实后建立新档案。':'可以先建立档案，再逐步积累资料。','person')}</div>
+    <div class="results-head"><p>${query?'“'+esc(query)+'” · ':''}共 ${result.total} 位人物</p></div><div class="people-grid">${result.items.map(p=>`<article class="panel person-card">${personAvatar(p,true)}<div><h2><a href="#people?${esc(parameters({id:p.id}))}">${esc(p.name)}</a></h2>${personNames(p).length?`<p class="person-names">${esc(personNames(p).join(' · '))}</p>`:''}<p>${esc(personHint(p)||'介绍待补充')}</p><p class="small muted">版本 ${p.version} · ${dateTime(p.updated_at)}</p></div></article>`).join('')||empty(query?'未找到人物':'还没有人物档案',query?'可以换一种姓名写法，或核实后建立新档案。':'可以先建立档案，再逐步积累资料。','person')}</div>
     ${result.total>result.page_size?`<div class="pagination">${result.page>1?linkButton('上一页','page',String(result.page-1)):''}<span>第 ${result.page} / ${Math.ceil(result.total/result.page_size)} 页</span>${result.page*result.page_size<result.total?linkButton('下一页','page',String(result.page+1)):''}</div>`:''}</section>`;
 }
 

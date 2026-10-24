@@ -148,6 +148,9 @@ class PersonProfiles:
             WHERE target_type='person' AND target_id=? ORDER BY r.id DESC LIMIT 1""", (pid,)).fetchone()
         return {**dict(row), "requested_id": requested_id,
                 "previous_ids": [old for old in identity.origins(self.db, "people", pid) if old != pid],
+                "institution_hints": [dict(institution) for institution in self.db.execute(
+                    """SELECT DISTINCT s.id,s.name FROM person_employments e JOIN sources s ON s.id=e.institution_id
+                       WHERE e.person_id=? AND e.removed_at IS NULL ORDER BY s.name,s.id""", (pid,))],
                 "avatar": self.avatar(pid, row["avatar_id"]), "can_edit": True, "can_restore": True,
                 "last_modifier": dict(actor) if actor else None}
 
