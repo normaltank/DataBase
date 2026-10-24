@@ -17,9 +17,9 @@
 | 用户决定及历史答复 | [需求讨论记录](需求讨论记录.md) |
 | 长期研究方向与分期建议 | [长期愿景](长期研究愿景与演进路线.md) |
 
-## 人物 Wiki 首版：集成候选与验收
+## 人物 Wiki 首版：交付与验收
 
-[人物 Wiki 与研究对象关联](specs/作者档案与研究对象关联.md) v1.1 由 [父任务 #1](https://github.com/normaltank/DataBase/issues/1) 跟踪，七项流程的确认与覆盖依据见 [拆分发布记录](../work/人物Wiki任务拆分草案.md)。#6—#11 已集成，#12 的可读导出、完整恢复及整组开发验收已形成候选；统一 [验收记录](../work/人物Wiki首版开发验收.md) 区分开发结果、历史页面证据和待补的指挥方精确版本验收／审查／部署。执行状态仍以 Issues 为准。
+[人物 Wiki 与研究对象关联](specs/作者档案与研究对象关联.md) v1.1 由 [父任务 #1](https://github.com/normaltank/DataBase/issues/1) 跟踪，七项流程的确认与覆盖依据见 [拆分发布记录](../work/人物Wiki任务拆分草案.md)。#6—#12 已集成并完成整组验收；统一 [验收记录](../work/人物Wiki首版开发验收.md) 区分开发、历史页面、指挥方精确版本独立验证与 Standards／Spec 审查。交付入口为 [PR #13](https://github.com/normaltank/DataBase/pull/13)，合并、本机切换与执行状态仍以 Issues 为准。
 
 ## 历史档案
 

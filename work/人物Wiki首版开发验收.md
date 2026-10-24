@@ -1,6 +1,6 @@
 # 人物 Wiki 首版：开发验收与交付证据
 
-日期：2026-10-24。状态：七项流程的集成候选已实现，开发验收完成；指挥方精确版本独立验收、Standards／Spec 双轴审查、最终集成及部署尚待收尾。本记录集中维护本轮验收结果，任务状态仍以 GitHub Issues 为准。
+日期：2026-10-24。状态：七项流程已实现并集成，开发及指挥方独立验收完成；Standards 原 3 项 P3、Spec 原 1 项 P2 均已修复并分别复查关闭。本记录集中维护本轮验收结果，交付入口为 [PR #13](https://github.com/normaltank/DataBase/pull/13)，精确提交的 CI、合并与本机切换结果由 [父任务 #1](https://github.com/normaltank/DataBase/issues/1) 维护。
 
 范围依据：[父任务 #1](https://github.com/normaltank/DataBase/issues/1)、[最后一项 #12](https://github.com/normaltank/DataBase/issues/12)、[规格 v1.1 固定发布](https://github.com/normaltank/DataBase/blob/985b3d3cf857938e4eaed9f37051b278cb081a29/docs/specs/作者档案与研究对象关联.md)。业务场景与验收条件未改；[当前规格](../docs/specs/作者档案与研究对象关联.md) 只更新状态和证据入口。
 
@@ -96,9 +96,26 @@
 
 ## 指挥方独立验收与发布
 
-本节由指挥方在精确 #12 候选上补充最终独立导出／恢复、双轴审查、集成检查、CI 和部署证据。进行中源码的异源验收及旧真实库隔离预检由指挥方独立保留，尚未在本记录记为最终版本通过。规格 5.3 保留最终完成条件，开发交付不提前勾满或声称已部署。
+以下由指挥方直接执行，原始证据位于 `%TEMP%\wiki-root-acceptance-20261024`，**仅原环境可查**。与开发方的数据、备份和页面样本独立，未用开发自测代替独立验收。
 
-2026-10-24 指挥方通知：已用冻结的应用代码完成独立页面收尾，从其早前 UI 合成备份恢复新目录，实际修订介绍 v3→4、多对象笔记与正文／身份说明保留；UI 新导出核验 47 条相对链接，390／1366 离线阅读、8 个当前／历史头像引用及人物↔作品链接通过，页面日志本次无 warn／error。证据在其本机 `%TEMP%\wiki-root-acceptance-20261024` 的 `browser-final-results.json`、`browser-final-export-results.json`、`browser-final-source.json` 及已查看截图，**仅原环境可查**。该结果由指挥方提供，已保存应用文件指纹，尚待提交后绑定精确 SHA；不与本项开发证据混记。
+初次 #12 精确提交 `29ba608851eb51893f038c163359999a10648ab2`：三成员 82 份恢复后 HTTP 响应与既有独立基线完全一致，6 份不同成员／范围的可读导出通过，4 类主动损坏并重算清单的备份在目标发布前被拒绝。连续合并、后续独立纠正／解除、私人笔记延后复核、固定正文／引用和两次新目录恢复均通过。记录为 `phase12-independent-final12.json`、`phase11-result-delivery-final.json`。
+
+该版本实际页面验收从先前独立 UI 备份恢复新目录，修订人物介绍 v3→4，多对象笔记正文及身份说明保留；页面下载包的 47 条相对链接有效，390／1366 离线阅读、8 个当前／历史头像引用及人物↔作品链接通过。`browser-final-source.json` 的 42 个应用文件指纹与 `29ba608` 完全一致；`browser-final-results.json`、`browser-final-export-results.json` 与已查看截图记录实际操作。此次页面日志无 warn／error。初次集成 `ee586e4266644a94dd66879aecda3863abaf2dcb` 的 [Windows／Ubuntu CI](https://github.com/normaltank/DataBase/actions/runs/40082482141) 通过。
+
+双轴审查后，修复提交 `fced71a8411859be7a39ca0f347c49eaadc68c01` 合入 `fcf34174c2e836017f035df2b0cf896bbcb2cd6e`，两者 tree 都是 `b7aa5548b748cb377b887666a7daf63f6ccc1a04`。指挥方在干净的精确修复提交重新运行独立样本：
+
+- 旧基线 82 份响应的既有字段保持，唯一许可增量 `institution_hints` 的结构、去重及实际任职依据另行验证；随后将新响应完整备份恢复到新目录，三成员 82 份响应逐字段一致（含权限拒绝）。结果为 `phase12-independent-reviewed.json`，完整响应往返备份 SHA-256 为 `419c776614fa01cfcd5b516e135d8dad274363b12caeaa4270b11b430d6c1205`。
+- 6 份当前代码生成的权限导出、4 类损坏备份拒绝，以及恢复后继续编辑人物／笔记和处理待复核对象通过；不把“忽略新增字段后的旧基线比较”称为新 API 全字段比较。
+- `phase11-result-reviewed.json` 再次通过连续合并依赖、逆序拆回、第三人独立纠正／解除、隐藏私人改动使旧预览 409、作者延后确认及两次新目录恢复；正文、负责作者权限与固定引用保持。
+- 独立页面复验在 1366×900 和 390×844 搜索两份无简介的同名人物，用各自机构线索辨认；历史任职明确显示 2010—2014。页面保存人物草稿，工作台／我的草稿类型一致，继续编辑恢复原输入；研究对象候选保留机构线索，辅助文字实测 `rgb(82,97,116)`，390px 无横向溢出。`browser-reviewed-results.json` 与六张已查看截图记录结果，本次日志无 warn／error；`browser-reviewed-source.json` 将 42 个应用文件指纹绑定到 `fced71a`。自己的页面关闭、临时视口复原，8858 按完整进程命令核对后停止。
+
+最终应用的开发全量为 156 项，155 通过、1 项真实外部导入按条件跳过；精确集成 `fcf3417` 的 [Windows／Ubuntu CI](https://github.com/normaltank/DataBase/actions/runs/40084156656) 均通过。后续交付文档提交没有改应用；最终 PR head 的 CI 结果由 PR 与父任务同步，避免把旧提交检查写成新提交检查。
+
+真实 schema 5 一致备份分别在初次交付与 `fcf3417` 的全新隔离目录升级至 10；旧表全部原字段的行指纹及登记附件保持，重复初始化、升级后完整备份再恢复一致，16 张新增表均为空。原报告在本机 `%TEMP%\wiki-live-upgrade-20261024`，不上传真实内容。此处记录隔离预检；切换时另停旧进程、再做新备份和精确版本预检，之后核验本机实际库，最终执行结果以父任务 #1 为准。
+
+35 个用户场景与 A01—A20 的业务范围未变。首次升级不按姓名自动建档；人物与作品需有据人工关联。正式影响力评价、自动翻译、真实多人部署及外网公开仍在本轮范围之外。
+
+收尾同步 PRODUCT、README、文档目录、施工说明、长期路线、规格与本验收记录；另检查已有工作流文档，共 8 份 UTF-8 文档、158 处仓库内链接／锚点通过，`git diff --check` 通过。既有被忽略的历史本机 JSON 仍标为仅原环境可查，没有为补链接上传旧产物。记录为 `documents-release.json`。
 
 ## 整组审查修复：开发方补验（2026-10-24）
 
@@ -125,3 +142,59 @@
 另在实际页面建立人物、任职及署名三类本机草稿，经工作台和“全部草稿”两入口检查，均显示相同具体类型。没有把草稿提交到资料库。截图 `same-name-desktop.jpg`、`same-name-mobile.jpg`、`dashboard-draft-labels.jpg`、`my-draft-labels.jpg`、`subject-hints-mobile.jpg` 均实际查看；`browser-results.json` 保存界面文本、候选、颜色、尺寸和操作归属。页面日志捕获一条未复现的媒体 `NotSupportedError`，源码未发现音视频元素或播放调用，与 #11 已记的同类观察一致；不宣称控制台零错误，也不据此推断产品媒体功能故障。
 
 页面补验后临时视口已 reset，自己的测试页已关闭，8857 按命令及独占数据路径核对后停止。最终冻结应用代码的 `python -B scripts/check.py` 返回 **156 项，155 通过、1 外部导入跳过，158.796 秒，退出码 0**，日志 `full-regression.txt`；7 个修改的 JavaScript 文件语法、差异空白及本轮文档 153 处相对链接／锚点检查通过，历史本机 JSON 缺失边界与前述一致。合入最新集成返回 Already up to date。精确修复提交由本轮交付摘要绑定，指挥方仍将独立复验并集成。
+
+## 审查范围与报告归属
+
+固定审查基线为 `b7b6c69f83f6efe85d4418ccac547d95ce5a0a5b`，首次完整审查目标为 `ee586e4`，业务规格固定为 `985b3d3` 的 v1.1。Standards 使用新审查子 Agent；Spec 因任务线程数量限制复用仅做过集成、未编写本轮实现的子 Agent。两者均为 `gpt-6.1-sol` / `max`，分别自行取证。以下完整保留两轴初审与复查报告，只把本地源码链接改为相应固定提交的公开链接，本机证据改为明确的本地路径。
+
+## Standards
+
+### 初审报告
+
+审查版本：`ee586e4266644a94dd66879aecda3863abaf2dcb`。发现 **1 项规范偏离、2 项启发式问题，均为 P3，无阻塞项**。
+
+1. **规范偏离：未使用有效主题变量。** [note-subjects.css:2](https://github.com/normaltank/DataBase/blob/ee586e4266644a94dd66879aecda3863abaf2dcb/static/note-subjects.css#L2) 使用 `color:var(--muted)`，全仓库未定义此变量，辅助说明会继承普通文字颜色。违反 [施工说明:63](https://github.com/normaltank/DataBase/blob/ee586e4266644a94dd66879aecda3863abaf2dcb/docs/施工说明.md#L63)“颜色由 `static/styles.css` 的语义变量统一维护”。改为已有 `--text-muted` 即可。
+
+2. **possible Primitive Obsession：展示文案承担事件类型判断。** [person_identity.py:643](https://github.com/normaltank/DataBase/blob/ee586e4266644a94dd66879aecda3863abaf2dcb/platform_app/person_identity.py#L643) 用 `.startswith(("人物合并", "人物拆回"))` 判断系统修订。内存探针仅将动作文案从“人物合并”换成“合并人物”，同一系统修改便被判成后续独立编辑，会影响拆回时保留哪些字段。当前文案下未复现错误；建议依据身份事件中的人物及版本识别系统修订，展示文案仅用于呈现。
+
+3. **possible Repeated Switches：草稿类型标签已分叉。** [workflow.js:141](https://github.com/normaltank/DataBase/blob/ee586e4266644a94dd66879aecda3863abaf2dcb/static/workflow.js#L141) 新增 `d.type==='person'?'人物档案':…`，但 [ux.js:60](https://github.com/normaltank/DataBase/blob/ee586e4266644a94dd66879aecda3863abaf2dcb/static/ux.js#L60) 仍只有旧类型分支。同一人物、署名或任职草稿在工作台显示“内容”，在“我的草稿”显示具体类型。建议两处复用一个类型标签映射。
+
+依据为源码阅读、静态变量检查及最小内存探针；探针结果：`%TEMP%/wiki-standards-review-ad2c66dfe1bf43c1ac42d9b22c548e5d/probe-results.json`（仅原环境可查）。未重跑全量回归，未逐值复算迁移夹具。源码未修改，结束时 HEAD 与工作树状态保持不变。
+
+### 修复后定向复查
+
+精确版本 `fced71a8411859be7a39ca0f347c49eaadc68c01`，工作树干净。原三项 **全部关闭，未关闭 0 项**。
+
+1. **规范偏离已关闭。** [note-subjects.css:2](https://github.com/normaltank/DataBase/blob/fced71a8411859be7a39ca0f347c49eaadc68c01/static/note-subjects.css#L2) 改用既有 `--text-muted`；独立静态检查确认该样式文件没有未定义变量。
+
+2. **possible Primitive Obsession 已关闭。** [person_identity.py:639](https://github.com/normaltank/DataBase/blob/fced71a8411859be7a39ca0f347c49eaadc68c01/platform_app/person_identity.py#L639) 按已完成身份事件中的人物、版本及完整快照识别系统修订，不再读取展示文案。独立运行新增恢复 HTTP 场景通过：系统文案改名、人工补记使用旧系统前缀后，两次恢复及逆序拆回仍保留人工介绍并正确恢复姓名。
+
+3. **possible Repeated Switches 已关闭。** [workflow.js:5](https://github.com/normaltank/DataBase/blob/fced71a8411859be7a39ca0f347c49eaadc68c01/static/workflow.js#L5) 提供统一 `draftTypeLabel`，“我的草稿”与 [工作台](https://github.com/normaltank/DataBase/blob/fced71a8411859be7a39ca0f347c49eaadc68c01/static/ux.js#L60) 均调用它。独立执行两处真实渲染函数，8 种草稿类型的标签一致。
+
+定向复查证据：`%TEMP%/wiki-standards-recheck-473d2962537e486b80d7eb80a1d651ec/results.json`（仅原环境可查）。本轮未重跑全套、未修改仓库或服务；同名辨认修复留给 Spec 轴复查。
+
+## Spec
+
+### 初审报告
+
+已审 SHA：`ee586e4266644a94dd66879aecda3863abaf2dcb`。Spec 发现 **1 项 P2 部分实现**；未确认范围扩张或其他行为错误。
+
+**[P2] 同名搜索缺少已知机构辨认线索。** 规格 4.2 要求：“同名结果显示各自介绍或机构线索供辨认。”[people.py:254](https://github.com/normaltank/DataBase/blob/ee586e4266644a94dd66879aecda3863abaf2dcb/platform_app/people.py#L254) 未返回机构摘要，[people.js:18](https://github.com/normaltank/DataBase/blob/ee586e4266644a94dd66879aecda3863abaf2dcb/static/people.js#L18) 仅渲染姓名写法和简介。
+
+独立复现：创建两个同名、无简介但分别有已核实 Alpha／Beta 任职的作者；HTTP 搜索返回两项，原 `peoplePage()` 渲染均显示同名及“介绍待补充”，两家机构均未出现。用户必须逐项进入详情反查，搜索结果无法按已有事实辨认。最小修正：为目录摘要提供并展示有依据的机构线索，避免将未知结束日期解释为现任。证据位于自建 Temp 的 `wiki-spec-review-20261024-yd1n0uvy/same-name-response.json`、`same-name-render.html`。
+
+独立针对性检查通过：公共关系与正文权限隔离、隐藏关系过期拆回、后续纠正保留、私人笔记延后复核、固定引用、离线隐私过滤、当前备份恢复，以及合成 v5 备份恢复升级至 10 后的旧字段／历史／附件保全和重复启动。
+
+限制：未重跑完整 154 项及完整浏览器验收；上述页面复现使用原 JS 渲染。仓库保持只读、HEAD 未变，未访问真实数据。
+
+### 修复后定向复查
+
+合并 SHA：`fcf34174c2e836017f035df2b0cf896bbcb2cd6e`。无冲突，源／目标 tree 均为 `b7aa5548b748cb377b887666a7daf63f6ccc1a04`，两侧干净。
+
+**Spec 复查：原 P2 已解决，未发现新增规格问题或范围扩张。**
+
+独立重跑原反例，并验证历史／未知时段、多机构去重、机构改名、解除、合并旧入口及拆回后的线索均正确；发布作品不会被误作任职。原 JS 渲染确认目录及任职、合并、署名、笔记和延后复核候选均显示机构线索，“任职登记”未推定现任。
+
+公共正文权限、隐藏关系过期拆回、独立纠正、私人笔记延后复核、固定引用、离线隐私及备份恢复复查通过；另确认独立档案修改能跨连续合并／拆回保留。
+
+证据：独立复查记录：`%TEMP%/wiki-spec-recheck-20261024-n0zl84a8/findings.md`（仅原环境可查）。限制：本次使用自建合成 HTTP 数据及原 JS 渲染，未重跑完整 156 项或完整浏览器验收。未编辑实现、推送或操作真实数据与服务。
