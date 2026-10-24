@@ -414,7 +414,7 @@ class BylineTests(unittest.TestCase):
             self.assertEqual(self.bylines(rid), before[rid])
             self.assertEqual(self.get("/api/records/" + rid + "/bylines/history"), history[rid])
 
-    def test_intermediate_v6_and_v7_backups_upgrade_preserving_old_authors_without_matching(self):
+    def test_intermediate_v6_v7_v8_backups_upgrade_preserving_old_authors_without_matching(self):
         fixtures = Path(__file__).parent / "fixtures"
         expected = json.loads((fixtures / "people_v5.json").read_text(encoding="utf-8"))
         legacy = Path(self.temp.name) / "legacy-v6"
@@ -428,7 +428,7 @@ class BylineTests(unittest.TestCase):
         self.clients = {u: self.login(u, upgraded) for u in self.clients}
         self.assertEqual(self.get("/health")["schema"], CURRENT_SCHEMA_VERSION)
         backups = list((legacy / "backups").glob("*.zip"))
-        self.assertEqual(len(backups), 2)
+        self.assertEqual(len(backups), CURRENT_SCHEMA_VERSION - 6)
         rid = next(rid for rid, record in expected["records"].items() if record["kind"] == "report")
         for index, archive in enumerate(backups):
             recovered_dir = restore_backup(archive, Path(self.temp.name) / ("stage-" + str(index)))

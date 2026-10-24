@@ -5,7 +5,7 @@ from pathlib import Path
 
 from werkzeug.security import generate_password_hash
 
-CURRENT_SCHEMA_VERSION = 8
+CURRENT_SCHEMA_VERSION = 9
 
 
 def now():
@@ -98,6 +98,8 @@ def initialize(data_dir):
     migrate_note_subjects(data_dir)
     from .bylines import migrate as migrate_bylines
     migrate_bylines(data_dir)
+    from .affiliations import migrate as migrate_affiliations
+    migrate_affiliations(data_dir)
 
 
 def decoded(row):
