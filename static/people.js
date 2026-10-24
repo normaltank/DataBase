@@ -19,7 +19,7 @@ async function peoplePage() {
     ${result.total>result.page_size?`<div class="pagination">${result.page>1?linkButton('上一页','page',String(result.page-1)):''}<span>第 ${result.page} / ${Math.ceil(result.total/result.page_size)} 页</span>${result.page*result.page_size<result.total?linkButton('下一页','page',String(result.page+1)):''}</div>`:''}</section>`;
 }
 
-function personPage(person,works='') {
+async function personPage(person,works='') {
   state.detail={type:'person',data:person};
   const names=personNames(person);
   return `<article class="person-page"><a class="back-link" href="#people?${esc(parameters({id:''}))}">← 返回作者目录</a>
@@ -27,6 +27,7 @@ function personPage(person,works='') {
     <header class="person-heading"><div>${personAvatar(person)}${person.avatar&&person.avatar_source?`<p class="person-avatar-source">头像来源：${esc(person.avatar_source)}</p>`:''}</div><div><p class="eyebrow">人物 Wiki</p><h1>${esc(person.name)}</h1>${names.length?`<p class="person-names">${esc(names.join(' · '))}</p>`:''}<p class="muted">版本 ${person.version}${person.last_modifier?' · '+esc(person.last_modifier.name)+' · '+dateTime(person.last_modifier.created_at):''}</p><div class="detail-actions">${person.can_edit?linkButton(icon('edit')+' 编辑档案','edit-person',person.id,'button primary'):''}${linkButton(icon('clock')+' 修改历史','person-history',person.id)}</div></div></header>
     <section class="panel person-section"><h2>人物介绍</h2>${person.introduction_html?`<div class="rich-prose">${readRich(person.introduction_html)}</div>`:'<p class="muted">介绍待补充，可由中心成员共同维护。</p>'}${person.sources?`<section class="person-sources"><h3>参考出处</h3><p class="prose">${esc(person.sources)}</p></section>`:''}</section>
     ${works}
+    ${await noteSubjectProfile('person',person.id)}
     <details class="person-identity"><summary>档案信息</summary><dl><dt>稳定编号</dt><dd>${esc(person.id)}</dd><dt>最近维护依据 / 说明</dt><dd>${esc(person.change_note)}</dd></dl></details></article>`;
 }
 

@@ -154,7 +154,7 @@ function updateRecordFormMode(form) {
   form.querySelector('#reference-section').hidden=!isResearchContent(kind);
   form.querySelector('[data-signature-label]').textContent=directory?'编译者 *':personal?'作者 / 编译者署名':'原文作者';
   form.querySelector('[data-proxy-note]').textContent=proxy?'保存后等待负责作者本人确认；确认前不开放正文修订。':'本人提交直接生效。';
-  if(typeof updateEvidenceMode==='function')updateEvidenceMode(form);if(form.dataset.readingNote){form.querySelector('[data-evidence-editor]')?.setAttribute('hidden','');form.querySelector('[data-evidence-picker]')?.setAttribute('hidden','');form.querySelector('#reference-section').hidden=true;}
+  if(typeof updateNoteSubjectMode==='function')updateNoteSubjectMode(form);if(typeof updateEvidenceMode==='function')updateEvidenceMode(form);if(form.dataset.readingNote){form.querySelector('[data-evidence-editor]')?.setAttribute('hidden','');form.querySelector('[data-evidence-picker]')?.setAttribute('hidden','');form.querySelector('#reference-section').hidden=true;}
 }
 async function workflowRecordForm(id='',kind='report',sourceId='',draftKey='',evidenceId='',initial={}) {
   const r=id?await api('/api/records/'+encodeURIComponent(id)):{kind,visibility:'shared',editors:[],related_source_ids:state.sources.some(s=>s.id===sourceId)?[sourceId]:[],linked_records:[],author_id:state.me.id,...initial};
@@ -178,7 +178,7 @@ async function workflowRecordForm(id='',kind='report',sourceId='',draftKey='',ev
   const form=document.querySelector('[data-form=record]');form._editing=state.editing;if(sourceId.startsWith('collection:'))form.dataset.collectionId=sourceId.slice(11);
   if(id&&isResearchContent(r.kind))form.elements.kind.disabled=true;
   renderSelectedLinks();updateRecordFormMode(form);form.inert=true;
-  try{if(state.schema>=4&&typeof enhanceEvidenceForm==='function')await enhanceEvidenceForm(form,r,evidenceId);await enableEditorDraft(form,form._editing,sourceId,draftKey);if(typeof uxPrepareReadingForm==='function')uxPrepareReadingForm(form,sourceId);}
+  try{if(state.schema>=4&&typeof enhanceEvidenceForm==='function')await enhanceEvidenceForm(form,r,evidenceId);await prepareNoteSubjectForm(form,r);await enableEditorDraft(form,form._editing,sourceId,draftKey);if(typeof uxPrepareReadingForm==='function')uxPrepareReadingForm(form,sourceId);}
   catch(error){form._evidenceLoadFailed=true;if(!form.dataset.draftKey)await enableEditorDraft(form,form._editing,sourceId,draftKey);form.querySelector('.form-error').textContent='关联证据未能读取，请关闭后重新打开。已有草稿仍保留。';form.querySelector('[type=submit]').disabled=true;throw error;}
   finally{form.inert=false;}
 }
@@ -190,6 +190,7 @@ async function workflowSubmitRecord(form,data) {
   if(values.kind==='directory_translation'){values.visibility='shared';values.editors=[];}
   if(!personalKinds.has(values.kind)||edit.id)delete values.author_id;
   values.linked_ids=isResearchContent(values.kind)?state.links.map(r=>r.id):[];values.related_source_ids=data.getAll('related_source_ids');values.sharing_confirmed=data.get('sharing_confirmed')==='on';values.version=edit.version;
+  if(values.kind==='research_note')values.research_subjects=noteSubjectValues(form);delete values.research_subject_choices;
   values.evidence_ids=['compilation','research_report'].includes(values.kind)?data.getAll('evidence_ids'):[];values.refresh_evidence=data.get('refresh_evidence')==='on';values.refresh_citations=data.get('refresh_citations')==='on';
   if(values.kind!=='research_note')for(const key of ['evidence_record_id','evidence_attachment_id','evidence_url','quote','translation','interpretation','locator'])delete values[key];
   if(form._conflictPending)throw new Error('请先对照最新版本，再继续保存。');
@@ -237,7 +238,7 @@ async function showSaveConflict(form) {
   const labels={title:'题名',name:'名称',kind:'类型',authors:'作者 / 编译者',coverage:'覆盖范围',original_catalogue:'原文出处',aliases:'其他题名',original_title:'原题名',original_name:'原名称',published_on:'日期',language:'语言',abstract:'摘要',notes:'备注',url:'链接',website:'官网',catalogue_url:'目录入口',keywords:'关键词',countries:'研究对象',location:'所在地',country:'机构国家',country_evidence:'国家依据',host_id:'主办方',publisher_id:'出版方',host_evidence:'主办依据',international_status:'国际定位',international_evidence:'国际依据',related_source_ids:'关联来源',visibility:'可见范围',editors:'编辑授权'};
   const differences=Object.entries(labels).filter(([key])=>values[key]!==undefined&&JSON.stringify(values[key])!==JSON.stringify(latest[key]??''));
   const display=(key,value)=>['related_source_ids','editors'].includes(key)?(Array.isArray(value)?value:[]).map(id=>state.sources.find(s=>s.id===id)?.name||state.users.find(u=>u.id===id)?.name||id).join('；'):Array.isArray(value)?value.join('；'):String(value??'');
-  panel.innerHTML='<h3>新版本已保存，你的输入仍保留</h3><p>当前编辑基于版本 '+esc(edit.version)+'，服务器为版本 '+latest.version+'。对照后可以继续整理，再保存为新修订。</p><details open><summary>对照最新版本</summary><div class="comparison-grid"><section><h4>你的正文草稿</h4><div class="rich-prose">'+readRich(values[richName])+'</div></section><section><h4>最新正文 · 版本 '+latest.version+'</h4><div class="rich-prose">'+readRich(latest[richName])+'</div></section></div><div class="table-scroll"><table class="comparison-table"><thead><tr><th>项目</th><th>你的输入</th><th>最新内容</th></tr></thead><tbody>'+differences.map(([key,label])=>'<tr><th>'+label+'</th><td>'+esc(display(key,values[key]))+'</td><td>'+esc(display(key,latest[key]))+'</td></tr>').join('')+'</tbody></table></div>'+(latest.attachments?'<p>最新附件：'+esc(latest.attachments.map(a=>a.name).join('；')||'无')+'</p>':'')+'</details>'+(edit.type==='record'&&!latest.can_edit?'<p class="error-text">当前账号已无编辑权限。草稿保留在“我的草稿”，不能提交。</p>':'<button type="button" class="button primary" data-action="accept-latest-version">我已对照，以新版本继续编辑</button>');
+  panel.innerHTML='<h3>新版本已保存，你的输入仍保留</h3><p>当前编辑基于版本 '+esc(edit.version)+'，服务器为版本 '+latest.version+'。对照后可以继续整理，再保存为新修订。</p><details open><summary>对照最新版本</summary><div class="comparison-grid"><section><h4>你的正文草稿</h4><div class="rich-prose">'+readRich(values[richName])+'</div></section><section><h4>最新正文 · 版本 '+latest.version+'</h4><div class="rich-prose">'+readRich(latest[richName])+'</div></section></div><div class="table-scroll"><table class="comparison-table"><thead><tr><th>项目</th><th>你的输入</th><th>最新内容</th></tr></thead><tbody>'+differences.map(([key,label])=>'<tr><th>'+label+'</th><td>'+esc(display(key,values[key]))+'</td><td>'+esc(display(key,latest[key]))+'</td></tr>').join('')+'</tbody></table></div>'+(latest.attachments?'<p>最新附件：'+esc(latest.attachments.map(a=>a.name).join('；')||'无')+'</p>':'')+'</details>'+(edit.type==='record'?noteSubjectConflict(form,latest):'')+(edit.type==='record'&&!latest.can_edit?'<p class="error-text">当前账号已无编辑权限。草稿保留在“我的草稿”，不能提交。</p>':'<button type="button" class="button primary" data-action="accept-latest-version">我已对照，以新版本继续编辑</button>');
   panel._latest=latest;form.querySelector('.form-actions').before(panel);panel.scrollIntoView({block:'nearest'});
 }
 function appendSourceWorkflow(s,records) {

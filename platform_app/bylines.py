@@ -9,7 +9,7 @@ from . import identity, workflow
 from .store import connect, now
 
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 FIELDS = ["raw_name", "position", "status", "target_type", "target_id", "selected_target_type",
           "selected_target_id", "evidence"]
 
