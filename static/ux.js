@@ -90,6 +90,7 @@ async function uxRefreshBackground() {
   let html;
   if(state.page==='dashboard')html=await dashboard();
   else if(state.page==='sources')html=await sourcesPage();
+  else if(state.page==='people')html=await peoplePage();
   else if(state.page==='collections')html=await collectionsPage();
   else if(state.page==='system')html=await systemPage();
   else if(state.page==='drafts')html=await draftsPage();
@@ -126,6 +127,7 @@ async function uxReadRecord(record) {
     +(!record.body_html&&!record.abstract&&!uxReadingActions(record)?'<p class="ux-empty-line">此条目目前仅保存题录。</p>':'')+uxFiles(record)
     +(record.original_catalogue?'<section class="detail-section"><h3>原目录 / 原文出处</h3><p class="prose">'+esc(record.original_catalogue)+'</p></section>':'')
     +uxReadingNotes(record)
+    +noteSubjectDetail(record)
     +(hasEvidence&&typeof evidenceDetail==='function'?evidenceDetail(record):'')
     +(!research&&typeof evidenceDetail==='function'?evidenceDetail(record):'')
     +(research&&references.length?'<section class="detail-section"><h3>'+(hasEvidence?'其他关联资料':'关联原始资料')+'</h3>'+references.map(r=>linkButton(esc(r.title),'detail',r.id,'detail-link')).join('')+'</section>':'')

@@ -5,6 +5,8 @@ from pathlib import Path
 
 from werkzeug.security import generate_password_hash
 
+CURRENT_SCHEMA_VERSION = 7
+
 
 def now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -92,6 +94,8 @@ def initialize(data_dir):
     migrate_operations(data_dir)
     from .people import migrate as migrate_people
     migrate_people(data_dir)
+    from .note_subjects import migrate as migrate_note_subjects
+    migrate_note_subjects(data_dir)
 
 
 def decoded(row):

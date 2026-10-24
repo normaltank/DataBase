@@ -12,6 +12,7 @@ from PIL import Image
 
 from platform_app.web import create_app
 from platform_app.maintenance import restore_backup
+from platform_app.store import CURRENT_SCHEMA_VERSION
 
 
 class PeopleTests(unittest.TestCase):
@@ -193,29 +194,39 @@ class PeopleTests(unittest.TestCase):
             (legacy / "uploads" / filename).write_text(content, encoding="utf-8", newline="")
         upgraded = create_app(legacy, testing=True)
         self.clients = {name: self.login(name, upgraded) for name in self.clients}
-        self.assertEqual(self.clients["researcher"].get("/health").json["schema"], 6)
+        self.assertEqual(self.clients["researcher"].get("/health").json["schema"], CURRENT_SCHEMA_VERSION)
         self.assertEqual(self.clients["researcher"].get("/api/people").json["total"], 0)
         for rid, before in expected["records"].items():
-            self.assertEqual(self.clients["researcher"].get("/api/records/" + rid).json, before)
+            new_defaults = {"research_subjects": []} if before["kind"] == "research_note" else {}
+            self.assertEqual(self.clients["researcher"].get("/api/records/" + rid).json, {**before, **new_defaults})
             self.assertEqual(self.clients["researcher"].get("/api/history/record/" + rid).json, expected["history"][rid])
             for attachment in before["attachments"]:
                 self.assertEqual(self.download("/api/attachments/" + attachment["id"]), b"Synthetic legacy attachment.\n")
         self.assertEqual(self.clients["researcher"].get("/api/sources/" + expected["source"]["id"]).json, expected["source"])
         self.assertEqual(self.clients["researcher"].get("/api/collections/" + expected["collection"]["id"]).json, expected["collection"])
         backups = list((legacy / "backups").glob("*.zip"))
-        self.assertEqual(len(backups), 1)
+        self.assertEqual(len(backups), CURRENT_SCHEMA_VERSION - 5)
+        archived_versions = {}
+        for index, archive in enumerate(backups):
+            with zipfile.ZipFile(archive) as bundle:
+                snapshot = Path(self.temp.name) / f"upgrade-{index}.sqlite3"
+                snapshot.write_bytes(bundle.read("platform.sqlite3"))
+            with closing(sqlite3.connect(snapshot)) as db:
+                archived_versions[int(db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0])] = archive
+        self.assertEqual(set(archived_versions), set(range(5, CURRENT_SCHEMA_VERSION)))
         pid = self.person(name="升级后建立的人物")
         restarted = create_app(legacy, testing=True)
         self.clients = {name: self.login(name, restarted) for name in self.clients}
         self.assertEqual(self.clients["researcher"].get("/api/people").json["total"], 1)
         self.assertEqual(self.detail(pid)["version"], 1)
         self.assertEqual(list((legacy / "backups").glob("*.zip")), backups)
-        restored = restore_backup(backups[0], Path(self.temp.name) / "before-upgrade")
+        restored = restore_backup(archived_versions[5], Path(self.temp.name) / "before-upgrade")
         recovered = create_app(restored, testing=True)
         self.clients = {name: self.login(name, recovered) for name in self.clients}
         self.assertEqual(self.clients["researcher"].get("/api/people").json["total"], 0)
         for rid, before in expected["records"].items():
-            self.assertEqual(self.clients["researcher"].get("/api/records/" + rid).json, before)
+            new_defaults = {"research_subjects": []} if before["kind"] == "research_note" else {}
+            self.assertEqual(self.clients["researcher"].get("/api/records/" + rid).json, {**before, **new_defaults})
         self.assertEqual(self.call("/api/records/" + next(iter(expected["records"])),
             {"version": 2, "title": "恢复旧版备份后继续修订"}, method="PUT").status_code, 200)
 
