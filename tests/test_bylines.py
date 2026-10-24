@@ -372,6 +372,41 @@ class BylineTests(unittest.TestCase):
         self.assertEqual([item["id"] for item in restored.json["items"]], [first["id"], second["id"]])
         self.assertEqual([item["position"] for item in restored.json["items"]], [1, 2])
 
+    def test_public_byline_correction_keeps_personal_note_report_and_adopted_evidence_unchanged(self):
+        first, second, rid = self.person(), self.person("纠正后的身份"), self.record()
+        note = self.record(kind="research_note", title="有负责作者的摘录", evidence_record_id=rid,
+                           quote="Original fixed quotation", locator="page 2", interpretation="Author's interpretation")
+        report = self.record(kind="research_report", title="采用摘录的研究报告", evidence_ids=[note],
+                             body_html="<p>Responsible author's conclusion.</p>")
+        original, note_before, report_before = [self.get("/api/records/" + value) for value in [rid, note, report]]
+        relation = self.save(rid, [self.confirmed("A. Smith", first)], user="colleague")
+        self.assertEqual(relation.status_code, 200)
+        corrected = self.save(rid, [{**relation.json["items"][0], **self.confirmed("A. Smith", second)}], user="colleague")
+        self.assertEqual(corrected.status_code, 200, corrected.json)
+        self.assertEqual(self.get("/api/records/" + rid), original)
+        self.assertEqual(self.get("/api/records/" + note), note_before)
+        self.assertEqual(self.get("/api/records/" + report), report_before)
+
+    def test_late_legacy_merge_failure_rolls_back_byline_transfers_and_their_history(self):
+        person = self.person()
+        keep, duplicate = self.record(authors="Kept"), self.record(authors="Moved")
+        self.assertEqual(self.save(keep, [self.confirmed("Keep", person)]).status_code, 200)
+        self.assertEqual(self.save(duplicate, [self.confirmed("Move", person)]).status_code, 200)
+        before = {rid: self.bylines(rid) for rid in [keep, duplicate]}
+        history = {rid: self.get("/api/records/" + rid + "/bylines/history") for rid in before}
+        preview = self.call("/api/merge/preview", {"type": "record", "keep_id": keep, "duplicate_id": duplicate}, user="admin")
+        self.assertEqual(preview.status_code, 200)
+        with closing(sqlite3.connect(self.data_dir / "platform.sqlite3")) as db:
+            db.execute("CREATE TRIGGER fail_after_byline_move BEFORE INSERT ON merge_events BEGIN SELECT RAISE(ABORT,'synthetic late merge fault'); END")
+            db.commit()
+        failed = self.call("/api/merge", {"type": "record", "keep_id": keep, "duplicate_id": duplicate,
+            "keep_version": preview.json["keep"]["version"], "duplicate_version": preview.json["duplicate"]["version"],
+            "confirmed": True}, user="admin")
+        self.assertEqual(failed.status_code, 409, failed.json)
+        for rid in before:
+            self.assertEqual(self.bylines(rid), before[rid])
+            self.assertEqual(self.get("/api/records/" + rid + "/bylines/history"), history[rid])
+
 
 if __name__ == "__main__":
     unittest.main()
