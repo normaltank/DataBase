@@ -29,6 +29,8 @@ def create_backup(data_dir):
         snapshot_db = connect(snapshot)
         try:
             uploaded = [r[0] for r in snapshot_db.execute("SELECT stored_name FROM attachments")]
+            avatars = ([dict(r) for r in snapshot_db.execute("SELECT stored_name,sha256,bytes FROM person_avatars")]
+                       if snapshot_db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='person_avatars'").fetchone() else [])
             setting = snapshot_db.execute("SELECT value FROM settings WHERE key='thinktank_import_v1'").fetchone()
         finally:
             snapshot_db.close()
@@ -40,6 +42,14 @@ def create_backup(data_dir):
             if not re.fullmatch(r"[a-f0-9]{32}\.(pdf|docx|txt|md)", name):
                 raise ValueError("Unexpected attachment name")
             payloads["uploads/" + name] = (data_dir / "uploads" / name).read_bytes()
+        for avatar in avatars:
+            name = avatar["stored_name"]
+            if not re.fullmatch(r"[a-f0-9]{32}\.(jpg|png|webp)", name):
+                raise ValueError("Unexpected avatar name")
+            content = (data_dir / "avatars" / name).read_bytes()
+            if len(content) != avatar["bytes"] or hashlib.sha256(content).hexdigest() != avatar["sha256"]:
+                raise ValueError("头像文件与登记信息不一致。")
+            payloads["avatars/" + name] = content
         for name, content in payloads.items():
             manifest["files"][name] = {"sha256": hashlib.sha256(content).hexdigest(), "bytes": len(content)}
         partial = destination.with_suffix(".tmp")
@@ -70,7 +80,9 @@ def restore_backup(archive_path, target_dir):
             if any(info.file_size > 1024 * 1024 * 1024 for info in entries) or sum(info.file_size for info in entries) > 4 * 1024 * 1024 * 1024:
                 raise ValueError("备份超出本地恢复工具大小限制。")
             for name in names:
-                if name not in ["platform.sqlite3", "manifest.json", "import-report.json"] and not re.fullmatch(r"uploads/[a-f0-9]{32}\.(pdf|docx|txt|md)", name):
+                if (name not in ["platform.sqlite3", "manifest.json", "import-report.json"]
+                        and not re.fullmatch(r"uploads/[a-f0-9]{32}\.(pdf|docx|txt|md)", name)
+                        and not re.fullmatch(r"avatars/[a-f0-9]{32}\.(jpg|png|webp)", name)):
                     raise ValueError("备份包含未允许的文件路径。")
             manifest = json.loads(archive.read("manifest.json"))
             if manifest.get("format") != "research-commons-v1" or set(names) != set(manifest["files"]) | {"manifest.json"} or "platform.sqlite3" not in names:
@@ -86,12 +98,19 @@ def restore_backup(archive_path, target_dir):
         try:
             if db.execute("PRAGMA integrity_check").fetchone()[0] != "ok" or db.execute("PRAGMA foreign_key_check").fetchall():
                 raise ValueError("数据库完整性检查失败。")
-            if db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0] not in {"1", "2", "3", "4", "5"}:
+            version = db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0]
+            if version not in {"1", "2", "3", "4", "5", "6"}:
                 raise ValueError("数据库版本不匹配。")
             for row in db.execute("SELECT stored_name,sha256 FROM attachments"):
                 name = "uploads/" + row["stored_name"]
                 if name not in manifest["files"] or manifest["files"][name]["sha256"] != row["sha256"]:
                     raise ValueError("附件与数据库不一致。")
+            if int(version) >= 6:
+                for row in db.execute("SELECT stored_name,sha256,bytes FROM person_avatars"):
+                    name = "avatars/" + row["stored_name"]
+                    if (name not in manifest["files"] or manifest["files"][name]["sha256"] != row["sha256"]
+                            or manifest["files"][name]["bytes"] != row["bytes"]):
+                        raise ValueError("头像与数据库不一致。")
         finally:
             db.close()
         (stage / "uploads").mkdir(exist_ok=True)
