@@ -17,7 +17,7 @@ from urllib.parse import urlsplit
 
 from flask import abort
 
-from . import evidence, identity, source_catalog, workflow, note_subjects
+from . import evidence, identity, source_catalog, workflow, note_subjects, bylines
 from .store import now, save_revision
 
 RECORD_FIELDS = ["kind", "title", "original_title", "authors", "source_id", "serial_id", "publication_title",
@@ -190,6 +190,7 @@ class RecordRevisions:
             except ValueError:
                 abort(400, "日期不存在，请检查年月日。")
         if base and values["kind"] in workflow.CONTENT_KINDS and base["kind"] not in workflow.CONTENT_KINDS:
+            bylines.validate_record_kind(self.db, base["id"], values["kind"])
             if self.db.execute("SELECT 1 FROM record_links WHERE original_id=?", (base["id"],)).fetchone() or self.db.execute("SELECT 1 FROM records WHERE evidence_record_id=?", (base["id"],)).fetchone():
                 abort(409, "此资料已被成果或摘录作为原文引用，不能改成研究内容类型。")
         for field in ["source_id", "serial_id"]:
@@ -359,6 +360,7 @@ class RecordRevisions:
             if old["kind"] in workflow.CONTENT_KINDS and (self.db.execute("SELECT 1 FROM record_links WHERE original_id=?", (rid,)).fetchone() or self.db.execute("SELECT 1 FROM records WHERE evidence_record_id=?", (rid,)).fetchone()):
                 abort(409, "此资料现已被成果或摘录引用，不能恢复为研究内容类型。")
             values = {k: old[k] for k in RECORD_FIELDS + ["attachment_ids", "evidence_version", "evidence_snapshot_json"] if k in old}
+            bylines.validate_record_kind(self.db, rid, values["kind"])
             # Current permissions and responsible author are never restored from old content.
             values["visibility"] = current["visibility"]
             values["aliases"] = identity.retained_aliases(self.db, "records", rid, values.get("aliases", current["aliases"]))
@@ -470,6 +472,7 @@ class RecordRevisions:
         if len(names) > 4000:
             abort(409, "合并后的别名过长，请先人工整理别名。")
         self.db.execute("UPDATE records SET attachment_ids=?,aliases=? WHERE id=?", (json.dumps(attachments), names, kid))
+        bylines.Bylines(self.db, self.actor, self).merge_records(kid, did)
 
     def preview_merge(self, data):
         kind, table, keep, duplicate = self._merge_pair(data)
@@ -486,6 +489,7 @@ class RecordRevisions:
             self.db.execute(f"UPDATE records SET {field}=? WHERE {field}=?", (keep_id, duplicate_id))
         self.db.execute("INSERT OR IGNORE INTO record_sources(record_id,source_id) SELECT record_id,? FROM record_sources WHERE source_id=?", (keep_id, duplicate_id))
         self.db.execute("DELETE FROM record_sources WHERE source_id=?", (duplicate_id,))
+        bylines.Bylines(self.db, self.actor, self).merge_sources(keep_id, duplicate_id)
 
     def merge(self, data, validate_source):
         with self._transaction():
@@ -508,6 +512,7 @@ class RecordRevisions:
             else:
                 affected_records.update(r[0] for r in self.db.execute("SELECT id FROM records WHERE source_id=? OR serial_id=?", (did, did)))
                 affected_records.update(r[0] for r in self.db.execute("SELECT record_id FROM record_sources WHERE source_id=?", (did,)))
+                affected_records.update(bylines.source_records(self.db, did))
                 affected_records.update(r[0] for r in self.db.execute("SELECT note_id FROM research_subjects WHERE subject_id=? AND subject_type<>'person'", (did,)))
                 affected_sources = identity.source_merge_dependents(self.db, did) - {kid, did}
             records_before = {rid: self.db.execute("SELECT * FROM records WHERE id=?", (rid,)).fetchone() for rid in affected_records}

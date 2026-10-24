@@ -11,7 +11,7 @@ function personNames(person) {
 }
 
 async function peoplePage() {
-  if(state.params.get('id'))return personPage(await api('/api/people/'+encodeURIComponent(state.params.get('id'))));
+  if(state.params.get('id')){const id=state.params.get('id');return personPage(await api('/api/people/'+encodeURIComponent(id)),await bylineWorksSection('person',id));}
   const result=await api('/api/people?'+state.params),query=state.params.get('q')||'';
   return `<section class="people-page"><div class="page-heading between wrap"><div><h1>作者目录</h1><p>共同积累人物介绍与可查证的出处。</p></div>${linkButton(icon('plus')+' 建立人物档案','new-person','','button primary')}</div>
     <form data-form="people-search" class="toolbar"><div class="search-input">${icon('search')}<input name="q" type="search" aria-label="搜索作者" placeholder="原名、中文名或别名" value="${esc(query)}"></div><button class="button primary" type="submit">搜索</button>${query?linkButton('清除搜索','people-clear'):''}</form>
@@ -19,13 +19,14 @@ async function peoplePage() {
     ${result.total>result.page_size?`<div class="pagination">${result.page>1?linkButton('上一页','page',String(result.page-1)):''}<span>第 ${result.page} / ${Math.ceil(result.total/result.page_size)} 页</span>${result.page*result.page_size<result.total?linkButton('下一页','page',String(result.page+1)):''}</div>`:''}</section>`;
 }
 
-async function personPage(person) {
+async function personPage(person,works='') {
   state.detail={type:'person',data:person};
   const names=personNames(person);
   return `<article class="person-page"><a class="back-link" href="#people?${esc(parameters({id:''}))}">← 返回作者目录</a>
+    ${state.params.get('work')?linkButton('返回资料','byline-back',state.params.get('work')):''}
     <header class="person-heading"><div>${personAvatar(person)}${person.avatar&&person.avatar_source?`<p class="person-avatar-source">头像来源：${esc(person.avatar_source)}</p>`:''}</div><div><p class="eyebrow">人物 Wiki</p><h1>${esc(person.name)}</h1>${names.length?`<p class="person-names">${esc(names.join(' · '))}</p>`:''}<p class="muted">版本 ${person.version}${person.last_modifier?' · '+esc(person.last_modifier.name)+' · '+dateTime(person.last_modifier.created_at):''}</p><div class="detail-actions">${person.can_edit?linkButton(icon('edit')+' 编辑档案','edit-person',person.id,'button primary'):''}${linkButton(icon('clock')+' 修改历史','person-history',person.id)}</div></div></header>
     <section class="panel person-section"><h2>人物介绍</h2>${person.introduction_html?`<div class="rich-prose">${readRich(person.introduction_html)}</div>`:'<p class="muted">介绍待补充，可由中心成员共同维护。</p>'}${person.sources?`<section class="person-sources"><h3>参考出处</h3><p class="prose">${esc(person.sources)}</p></section>`:''}</section>
-    <section class="person-section person-work-empty"><h2>作品</h2><p>暂未关联作品。</p><p class="muted">这只表示当前档案的收录情况。</p></section>
+    ${works}
     ${await noteSubjectProfile('person',person.id)}
     <details class="person-identity"><summary>档案信息</summary><dl><dt>稳定编号</dt><dd>${esc(person.id)}</dd><dt>最近维护依据 / 说明</dt><dd>${esc(person.change_note)}</dd></dl></details></article>`;
 }

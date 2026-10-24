@@ -39,6 +39,8 @@ async function openSource(id){
   if(isInstitution(s)){
     fields=detailPair('机构类型',s.institution_types.map(t=>esc(institutionTypes[t])).join(' / '))+detailPair('机构所在地',esc(s.location))+detailPair('机构国家',esc(s.country));
     sections=`<section class="detail-section"><h3>机构国家依据</h3>${evidenceHtml(s.country_evidence)}</section>`+relationDetails(s);
+    sections+=await bylineWorksSection('institution',s.id);
+    if(state.bylineSourceReturn?.id===s.id)sections=linkButton('返回资料','byline-back',state.bylineSourceReturn.record)+sections;
   }else if(isPublication(s)){
     fields=detailPair('主办机构',sourceName(s.host_id))+detailPair('出版机构',sourceName(s.publisher_id))+detailPair('主办方国别',esc(countryText(s)))+detailPair('出版方国家（另记）',esc(s.publisher_countries.join(' / ')))+detailPair('ISSN',esc(s.issn));
     sections=`<section class="detail-section"><h3>主办国别的依据</h3><p class="small">${s.national_status==='recorded'?'根据下列既有登记归类；不等同中心已核对。':esc(s.country_gaps.join('；'))}</p>${evidenceHtml(s.host_evidence)}${s.country_basis.map(h=>`<div class="relation-detail">${sourceName(h.id)} · ${esc(h.countries.join(' / ')||'国家待确认')}${evidenceHtml(h.evidence)}</div>`).join('')}</section>`;

@@ -99,7 +99,7 @@ def restore_backup(archive_path, target_dir):
             if db.execute("PRAGMA integrity_check").fetchone()[0] != "ok" or db.execute("PRAGMA foreign_key_check").fetchall():
                 raise ValueError("数据库完整性检查失败。")
             version = db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0]
-            if version not in {"1", "2", "3", "4", "5", "6", "7"}:
+            if version not in {"1", "2", "3", "4", "5", "6", "7", "8"}:
                 raise ValueError("数据库版本不匹配。")
             for row in db.execute("SELECT stored_name,sha256 FROM attachments"):
                 name = "uploads/" + row["stored_name"]
@@ -114,6 +114,9 @@ def restore_backup(archive_path, target_dir):
             if int(version) >= 7:
                 from .note_subjects import validate_backup
                 validate_backup(db)
+            from . import bylines
+            if int(version) >= bylines.SCHEMA_VERSION:
+                bylines.validate_backup(db)
         finally:
             db.close()
         (stage / "uploads").mkdir(exist_ok=True)
