@@ -120,7 +120,7 @@ async function searchBylineIdentity(input) {
   if(!row.isConnected||input.value.trim()!==query||row.querySelector('[data-byline=target_type]').value!==kind)return;
   const items=result.items.filter(item=>kind==='person'||isInstitution(item)),select=row.querySelector('[data-byline=target_id]'),chosen=select.selectedOptions[0];
   const retained=chosen?.value&&!items.some(item=>item.id===chosen.value)?chosen.outerHTML:'';
-  select.innerHTML='<option value="">保留待确认</option>'+retained+items.map(item=>`<option value="${esc(item.id)}" ${item.id===chosen?.value?'selected':''}>${esc(item.name)}${item.original_name&&item.original_name!==item.name?' · '+esc(item.original_name):''}${item.introduction_text?' · '+esc(item.introduction_text.replace(/\s+/g,' ').slice(0,65)):''} · ${esc(item.id.slice(-8))}</option>`).join('');
+  select.innerHTML='<option value="">保留待确认</option>'+retained+items.map(item=>`<option value="${esc(item.id)}" ${item.id===chosen?.value?'selected':''}>${esc(item.name)}${item.original_name&&item.original_name!==item.name?' · '+esc(item.original_name):''}${personHint(item,65)?' · '+esc(personHint(item,65)):''} · ${esc(item.id.slice(-8))}</option>`).join('');
   status.textContent=items.length?'找到 '+items.length+' 项，请核实后选择。'+(result.total>items.length?'可以补充姓名缩小范围。':''):'没有找到档案；可先保留待确认，再核实建档。';
 }
 

@@ -20,7 +20,7 @@ async function prepareNoteSubjectForm(form,record){
   const people=[];let page=1,total=1;
   while(people.length<total){const result=await api('/api/people?page_size=100&page='+page++);people.push(...result.items);total=result.total;if(!result.items.length)break;}
   if(!form.isConnected)return;
-  const choices=[...people.map(p=>({subject_type:'person',subject_id:p.id,name:p.name,hint:personNames(p).join(' · ')||p.introduction_text.slice(0,70)})),
+  const choices=[...people.map(p=>({subject_type:'person',subject_id:p.id,name:p.name,hint:[personNames(p).join(' · '),personHint(p,70)].filter(Boolean).join(' · ')})),
     ...state.sources.filter(s=>isInstitution(s)||s.kind==='journal').map(s=>({subject_type:isInstitution(s)?'institution':'journal',subject_id:s.id,name:s.name,hint:s.original_name||''}))];
   form._subjectChoices=choices;
   const checked=new Set((record.research_subjects||[]).map(noteSubjectKey));
@@ -46,7 +46,7 @@ async function reviewNoteSubject(noteId,relationId,selected=''){
   if(!record.can_edit||!subject||subject.status!=='needs_review')throw new Error('研究对象状态或编辑授权已改变，请重新打开笔记。');
   const people=[];let page=1,total=1;
   while(people.length<total){const result=await api('/api/people?page_size=100&page='+page++);people.push(...result.items);total=result.total;if(!result.items.length)break;}
-  const choices=[...people.map(person=>({key:'person:'+person.id,name:person.name,type:'人物'})),...state.sources.filter(source=>isInstitution(source)||source.kind==='journal').map(source=>({key:(isInstitution(source)?'institution:':'journal:')+source.id,name:source.name,type:isInstitution(source)?'机构':'期刊'}))];
+  const choices=[...people.map(person=>({key:'person:'+person.id,name:person.name+(personHint(person,70)?' · '+personHint(person,70):''),type:'人物'})),...state.sources.filter(source=>isInstitution(source)||source.kind==='journal').map(source=>({key:(isInstitution(source)?'institution:':'journal:')+source.id,name:source.name,type:isInstitution(source)?'机构':'期刊'}))];
   const original=subject.original_subject_type+':'+subject.original_subject_id,value=selected||original;
   modal('复核笔记研究对象',`<form data-form="note-subject-review"><h3>${esc(record.title)}</h3><p class="notice">身份更正依据：${esc(subject.identity_change?.evidence||'请查看人物身份整理历史')}</p><p>原对象：${esc(subject.original_subject_name||subject.original_subject_id)}</p><p class="form-help">明确确认原对象、改选或移除这条关联。笔记正文、作者授权和报告采用的引用保持。</p><label class="field"><span>处理这条研究对象关联</span><select name="selection" required>${choices.map(choice=>`<option value="${esc(choice.key)}" ${choice.key===value?'selected':''}>${esc(choice.name)} · ${choice.type}${choice.key===original?'（原对象）':''}</option>`).join('')}<option value="remove" ${value==='remove'?'selected':''}>移除此关联，保留笔记</option></select></label><p class="form-error" role="alert"></p><div data-review-conflict></div><div class="form-actions"><button type="button" class="button" data-action="close">关闭</button><button type="submit" class="button primary">确认研究对象处理</button></div></form>`);
   const form=document.querySelector('[data-form=note-subject-review]');form._review={record,subject};

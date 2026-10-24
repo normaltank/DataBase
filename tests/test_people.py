@@ -74,6 +74,32 @@ class PeopleTests(unittest.TestCase):
         self.assertEqual(self.clients["researcher"].get("/api/records").json["total"], 0)
         self.assertNotIn(first, [u["id"] for u in self.clients["researcher"].get("/api/users").json["items"]])
 
+    def test_same_name_people_without_introductions_have_all_registered_institution_hints(self):
+        first, second = self.person(name="同名待辨认作者"), self.person(name="同名待辨认作者")
+        institutions = []
+        for name in ["Alpha 合成机构", "Beta 合成机构", "Gamma 历史机构", "已移除的机构"]:
+            response = self.call("/api/sources", {"name": name, "kind": "institution"})
+            self.assertEqual(response.status_code, 201, response.json)
+            institutions.append(response.json["id"])
+        for pid, selected in [(first, [0, 2, 3]), (second, [1])]:
+            current = self.clients["researcher"].get(f"/api/people/{pid}/employments").json
+            response = self.call(f"/api/people/{pid}/employments", {**current, "change_note": "合成机构履历",
+                "items": [{"institution_id": institutions[index], "role": "有据研究任职", "start_date": "2001" if index == 2 else "",
+                           "end_date": "2010" if index == 2 else "", "evidence": "合成履历原页"} for index in selected]}, method="PUT")
+            self.assertEqual(response.status_code, 200, response.json)
+        current = self.clients["researcher"].get(f"/api/people/{first}/employments").json
+        response = self.call(f"/api/people/{first}/employments", {**current, "items": current["items"][:2], "change_note": "移除误登机构"}, method="PUT")
+        self.assertEqual(response.status_code, 200, response.json)
+        expected = {first: [{"id": institutions[0], "name": "Alpha 合成机构"}, {"id": institutions[2], "name": "Gamma 历史机构"}],
+                    second: [{"id": institutions[1], "name": "Beta 合成机构"}]}
+        for who in self.clients:
+            results = self.clients[who].get("/api/people", query_string={"q": "同名待辨认作者"}).json
+            self.assertEqual(results["total"], 2)
+            for person in results["items"]:
+                self.assertEqual(person["introduction_text"], "")
+                self.assertEqual(person["institution_hints"], expected[person["id"]])
+                self.assertEqual(self.detail(person["id"], who)["institution_hints"], expected[person["id"]])
+
     def test_members_edit_safe_introduction_reject_stale_save_and_restore_history(self):
         pid = self.person(sources="第一版出处")
         response = self.call("/api/people/" + pid, {"version": 1, "name": "共同修订姓名",

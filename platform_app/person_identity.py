@@ -637,10 +637,17 @@ class PersonIdentity:
                               for key in ["bylines", "employments", "subjects"]])
 
     def edited_profile_fields(self, pid, version):
+        system_revisions = {}
+        for event in self.db.execute("SELECT after_json FROM person_identity_events WHERE keep_id=? OR duplicate_id=?", (pid, pid)):
+            # Completed event snapshots identify the system-written person version.
+            # The current transaction's event still has {} until both people save.
+            for person in json.loads(event["after_json"]).get("people", []):
+                if person["id"] == pid:
+                    system_revisions[person["version"]] = person
         edited, previous = set(), None
-        for revision in self.db.execute("SELECT action,snapshot_json FROM revisions WHERE target_type='person' AND target_id=? ORDER BY id", (pid,)):
+        for revision in self.db.execute("SELECT snapshot_json FROM revisions WHERE target_type='person' AND target_id=? ORDER BY id", (pid,)):
             current = json.loads(revision["snapshot_json"])
-            if current["version"] > version and previous and not revision["action"].startswith(("人物合并", "人物拆回")):
+            if current["version"] > version and previous and current != system_revisions.get(current["version"]):
                 edited.update(key for key in current if current[key] != previous.get(key))
             previous = current
         return edited
