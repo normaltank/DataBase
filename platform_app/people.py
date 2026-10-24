@@ -2,6 +2,7 @@
 import hashlib
 import io
 import json
+import sqlite3
 import uuid
 import warnings
 from contextlib import contextmanager
@@ -17,6 +18,29 @@ from .record_revisions import check_version
 
 FIELDS = ["name", "original_name", "chinese_name", "aliases", "introduction_html", "sources", "change_note", "avatar_source"]
 AVATAR_TYPES = {"JPEG": ("jpg", "image/jpeg"), "PNG": ("png", "image/png"), "WEBP": ("webp", "image/webp")}
+
+
+def validate_backup(db):
+    """All schema-6+ profile revisions must retain readable avatar references."""
+    required = {"people", "person_avatars"}
+    if not required <= {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}:
+        raise ValueError("备份缺少人物档案或头像登记。")
+
+    def check(profile, pid):
+        if (profile["id"] != pid or not db.execute("SELECT 1 FROM people WHERE id=?", (pid,)).fetchone()
+                or type(profile["version"]) is not int or profile["version"] < 1
+                or any(not isinstance(profile[key], str) for key in FIELDS)):
+            raise ValueError("人物档案历史对象或版本不完整。")
+        if profile.get("avatar_id") and not db.execute("SELECT 1 FROM person_avatars WHERE id=?", (profile["avatar_id"],)).fetchone():
+            raise ValueError("人物历史头像引用不完整。")
+
+    try:
+        for row in db.execute("SELECT * FROM people"):
+            check(dict(row), row["id"])
+        for row in db.execute("SELECT target_id,snapshot_json FROM revisions WHERE target_type='person'"):
+            check(json.loads(row["snapshot_json"]), row["target_id"])
+    except (KeyError, TypeError, AttributeError, sqlite3.DatabaseError) as error:
+        raise ValueError("人物档案或历史头像格式不完整。") from error
 
 
 def migrate(data_dir):

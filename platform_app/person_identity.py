@@ -97,6 +97,73 @@ def validate_backup(db):
             person_snapshot(person)
         events = {row["id"]: dict(row) for row in db.execute("SELECT rowid AS sequence,* FROM person_identity_events")}
         states = {row["event_id"]: dict(row) for row in db.execute("SELECT * FROM person_merge_state")}
+        relation_history = {}
+        for key, table, query in [
+                ("bylines", "record_bylines", "SELECT byline_id AS relation_id,identity_event_id,before_json,after_json FROM byline_changes ORDER BY id"),
+                ("employments", "person_employments", "SELECT relation_id,identity_event_id,before_json,after_json FROM affiliation_changes WHERE relation_type='employment' ORDER BY id"),
+                ("affiliations", "record_affiliations", "SELECT relation_id,identity_event_id,before_json,after_json FROM affiliation_changes WHERE relation_type='article_affiliation' ORDER BY id"),
+                ("subjects", "research_subjects", "SELECT relation_id,identity_event_id,NULL AS before_json,snapshot_json AS after_json FROM research_subject_history ORDER BY id")]:
+            columns = {row[1] for row in db.execute(f"PRAGMA table_info({table})")}
+            histories = {}
+            for change in db.execute(query):
+                after = json.loads(change["after_json"])
+                history = histories.setdefault(change["relation_id"], {})
+                previous = history.get(after["version"] - 1)
+                history[after["version"]] = {
+                    "after": {name: after[name] for name in columns},
+                    "before": ({name: json.loads(change["before_json"])[name] for name in columns} if change["before_json"]
+                               else previous["after"] if previous else None), "event_id": change["identity_event_id"]}
+            relation_history[key] = histories
+
+        def complete_relations(event_id, before, after):
+            for key, histories in relation_history.items():
+                prior = {row["id"]: row for row in before[key]}
+                following = {row["id"]: row for row in after[key]}
+                if len(prior) != len(before[key]) or len(following) != len(after[key]) or set(prior) != set(following):
+                    raise ValueError("身份操作前后关系集合不完整。")
+                changed = {}
+                for rid, history in histories.items():
+                    own = [entry for entry in history.values() if entry["event_id"] == event_id]
+                    if own:
+                        changed[rid] = own
+                        if rid not in prior or prior[rid] != own[0]["before"] or following[rid] != own[-1]["after"]:
+                            raise ValueError("身份操作缺少关系转接前后依据。")
+                for rid in prior:
+                    for snapshot in [prior[rid], following[rid]]:
+                        entry = histories.get(rid, {}).get(snapshot["version"])
+                        if not entry or entry["after"] != snapshot:
+                            raise ValueError("身份操作关系快照与修改历史不一致。")
+                    if prior[rid] != following[rid] and rid not in changed:
+                        raise ValueError("身份操作的关系变化缺少历史。")
+
+        def complete_events(event, state, inclusive=False):
+            profiles = {person["id"]: person for person in state["people"]}
+            participants = {event["keep_id"], event["duplicate_id"]}
+            members = set()
+            for pid in profiles:
+                seen, current = set(), pid
+                while current in profiles and current not in participants and current not in seen:
+                    seen.add(current)
+                    current = profiles[current].get("merged_into")
+                if current in participants:
+                    members.add(pid)
+            prior = {rid: row for rid, row in events.items() if
+                     (row["sequence"] < event["sequence"] or inclusive and row["sequence"] == event["sequence"])}
+            expected = {rid for rid, row in prior.items() if row["keep_id"] in members or row["duplicate_id"] in members}
+            if {row["id"] for row in state["events"]} != expected or len(state["events"]) != len(expected):
+                raise ValueError("人物身份事件上下文不完整。")
+            for snapshot in state["events"]:
+                original = prior[snapshot["id"]]
+                if any(snapshot[key] != original[key] for key in ["id", "event_type", "merge_event_id", "keep_id", "duplicate_id", "dependencies_json"]):
+                    raise ValueError("人物身份事件历史与原操作不一致。")
+                splits = [row for row in prior.values() if row["event_type"] == "split" and row["merge_event_id"] == original["id"]]
+                if len(splits) > 1:
+                    raise ValueError("同一次人物合并存在重复拆回。")
+                status = ("split" if splits else "active") if original["event_type"] == "merge" else None
+                version = (2 if splits else 1) if original["event_type"] == "merge" else None
+                if (snapshot["status"] != status or snapshot["version"] != version
+                        or snapshot["split_event_id"] != (splits[0]["id"] if splits else None)):
+                    raise ValueError("人物身份事件历史状态不一致。")
 
         def state_snapshot(value):
             state = json.loads(value)
@@ -154,6 +221,9 @@ def validate_backup(db):
             exists("people", event["keep_id"])
             exists("people", event["duplicate_id"])
             before, after = state_snapshot(event["before_json"]), state_snapshot(event["after_json"])
+            complete_relations(event["id"], before, after)
+            complete_events(event, before)
+            complete_events(event, after, inclusive=True)
             if not {event["keep_id"], event["duplicate_id"]} <= {row["id"] for row in before["people"]}:
                 raise ValueError("身份参与档案不完整。")
             if event["id"] not in {row["id"] for row in after["events"]}:
@@ -161,6 +231,8 @@ def validate_backup(db):
             dependencies = json.loads(event["dependencies_json"])
             if not isinstance(dependencies, list) or len(dependencies) != len(set(dependencies)):
                 raise ValueError("人物合并依赖不完整。")
+            if set(dependencies) != {row["id"] for row in before["events"] if row["status"] == "active"}:
+                raise ValueError("人物合并依赖与当时身份状态不一致。")
             for dependency in dependencies:
                 prior = events.get(dependency)
                 if not prior or prior["event_type"] != "merge" or prior["sequence"] >= event["sequence"]:
@@ -219,7 +291,7 @@ def validate_backup(db):
         for request in db.execute("SELECT * FROM person_identity_requests"):
             event = events[request["event_id"]]
             result = json.loads(request["result_json"])
-            if (result["event_id"] != event["id"] or result["action"] != event["event_type"] or
+            if (result != {"event_id": event["id"], "action": event["event_type"], "keep_id": event["keep_id"], "duplicate_id": event["duplicate_id"]} or
                     request["action"] != event["event_type"] or request["actor_id"] != event["actor_id"]):
                 raise ValueError("身份操作重试结果不完整。")
     except (KeyError, TypeError, IndexError, AttributeError, sqlite3.DatabaseError) as error:
@@ -302,14 +374,7 @@ class PersonIdentity:
             return record if record and self.access.visible(record) else None
 
         def public_summary(record):
-            result, private_names = self.summary(record), set()
-            for original_id in identity.origins(self.db, "records", record["id"]):
-                original = self.db.execute("SELECT * FROM records WHERE id=?", (original_id,)).fetchone()
-                if not self.access.visible(original):
-                    private_names.add(original_id)
-                    private_names.update(line.strip() for key in ["title", "original_title", "aliases"] for line in original[key].splitlines())
-            result["aliases"] = "\n".join(line for line in result["aliases"].splitlines() if line not in private_names)
-            return result
+            return identity.readable_record(self.db, self.summary(record), self.access.visible)
 
         for row in state["bylines"]:
             record = readable(row["record_id"])

@@ -38,8 +38,9 @@ def validate_backup(db):
         raise ValueError("备份缺少署名关系或历史数据。")
 
     def check(snapshot, active=False):
-        if not db.execute("SELECT 1 FROM records WHERE id=?", (snapshot["origin_record_id"],)).fetchone():
-            raise ValueError("署名原始资料引用不完整。")
+        for key in ["record_id", "origin_record_id"]:
+            if not db.execute("SELECT 1 FROM records WHERE id=?", (snapshot[key],)).fetchone():
+                raise ValueError("署名原始资料引用不完整。")
         for prefix in ["original_target", "selected_target", "target"]:
             kind, tid = snapshot[prefix + "_type"], snapshot[prefix + "_id"]
             if not kind and not tid:
@@ -64,18 +65,24 @@ def validate_backup(db):
             changes = db.execute("SELECT * FROM byline_changes WHERE byline_id=? ORDER BY id", (row["id"],)).fetchall()
             if not changes or len(changes) != row["version"]:
                 raise ValueError("署名修改历史不完整。")
+            previous = None
+            columns = set(current)
+            immutable = ["origin_record_id", "original_authors", "original_target_type", "original_target_id", "created_at"]
             for index, change in enumerate(changes, 1):
                 after = json.loads(change["after_json"])
-                if after["id"] != row["id"] or after["version"] != index:
+                before = json.loads(change["before_json"]) if change["before_json"] else None
+                if (set(after) != columns or after["id"] != row["id"] or after["version"] != index or before != previous
+                        or any(after[key] != current[key] for key in immutable)
+                        or after["manual_revision"] != (1 if previous is None else previous["manual_revision"] + (change["change_kind"] in {"manual", "manual_confirmation"}))):
                     raise ValueError("署名历史版本不连续。")
                 check(after)
-                if change["before_json"]:
-                    before = json.loads(change["before_json"])
+                if before:
                     check(before)
                     if before["id"] != row["id"] or before["version"] != index - 1:
                         raise ValueError("署名修改前版本不一致。")
                 elif index != 1:
                     raise ValueError("署名修改前历史缺失。")
+                previous = after
             if json.loads(changes[-1]["after_json"]) != current:
                 raise ValueError("署名当前状态与最后历史不一致。")
     except (KeyError, TypeError, json.JSONDecodeError) as error:

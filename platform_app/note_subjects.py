@@ -1,5 +1,6 @@
 """Explicit subjects of one research note, separate from citations and sources."""
 import json
+import sqlite3
 import uuid
 from pathlib import Path
 
@@ -170,27 +171,57 @@ def rewire(db, old_id, new_id, actor_id, *, record=False):
 
 
 def validate_backup(db):
-    """Polymorphic subject references need the same restore check as SQL foreign keys."""
+    """Check polymorphic endpoints and the complete history, including tombstones."""
     tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     if not {"research_subjects", "research_subject_history"} <= tables:
         raise ValueError("备份缺少笔记研究对象关系或历史。")
-    for relation in db.execute("SELECT * FROM research_subjects"):
-        note = db.execute("SELECT kind FROM records WHERE id=?", (relation["note_id"],)).fetchone()
-        table = "people" if relation["subject_type"] == "person" else "sources"
-        subject = db.execute(f"SELECT * FROM {table} WHERE id=?", (relation["subject_id"],)).fetchone()
-        original_table = "people" if relation["original_subject_type"] == "person" else "sources"
-        original = db.execute(f"SELECT 1 FROM {original_table} WHERE id=?", (relation["original_subject_id"],)).fetchone()
-        allowed = ({"institution", "think_tank"} if relation["subject_type"] == "institution" else {"journal"})
-        if (not note or note["kind"] != "research_note" or not subject or not original or
-                (relation["status"] != "removed" and table == "sources" and subject["kind"] not in allowed)):
-            raise ValueError("笔记研究对象不存在或类型不适用。")
-    for revision in db.execute("SELECT relation_id,snapshot_json FROM research_subject_history"):
-        try:
-            state = json.loads(revision["snapshot_json"])
-            if state["id"] != revision["relation_id"] or state["subject_type"] not in SUBJECT_TYPES:
-                raise ValueError()
-        except (ValueError, KeyError, TypeError):
-            raise ValueError("笔记研究对象历史不完整。") from None
+    columns = {row[1] for row in db.execute("PRAGMA table_info(research_subjects)")}
+
+    def check(state, active=False):
+        if (not columns <= set(state) or state["subject_type"] not in SUBJECT_TYPES or state["original_subject_type"] not in SUBJECT_TYPES
+                or state["status"] not in {"confirmed", "needs_review", "removed"}
+                or any(type(state[key]) is not int or state[key] < 1 for key in ["version", "manual_revision"])):
+            raise ValueError("笔记研究对象状态或历史字段不完整。")
+        for key in ["note_id", "original_note_id"]:
+            note = db.execute("SELECT kind FROM records WHERE id=?", (state[key],)).fetchone()
+            if not note or note["kind"] != "research_note":
+                raise ValueError("笔记研究对象历史引用的笔记不存在或类型不适用。")
+        for key in ["created_by", "updated_by"]:
+            if not db.execute("SELECT 1 FROM users WHERE id=?", (state[key],)).fetchone():
+                raise ValueError("笔记研究对象历史责任人不存在。")
+        for prefix in ["", "original_"]:
+            kind = state[prefix + "subject_type"]
+            table = "people" if kind == "person" else "sources"
+            subject = db.execute(f"SELECT * FROM {table} WHERE id=?", (state[prefix + "subject_id"],)).fetchone()
+            if not subject or (active and not prefix and kind != "person" and subject["kind"] not in
+                               ({"institution", "think_tank"} if kind == "institution" else {"journal"})):
+                raise ValueError("笔记研究对象不存在或当前类型不适用。")
+
+    try:
+        seen = set()
+        for relation in db.execute("SELECT * FROM research_subjects"):
+            current = dict(relation)
+            check(current, current["status"] != "removed")
+            history = db.execute("SELECT * FROM research_subject_history WHERE relation_id=? ORDER BY id", (current["id"],)).fetchall()
+            if len(history) != current["version"]:
+                raise ValueError("笔记研究对象历史版本不连续。")
+            previous = None
+            immutable = ["id", "original_note_id", "original_subject_type", "original_subject_id", "created_by", "created_at"]
+            for version, revision in enumerate(history, 1):
+                state = json.loads(revision["snapshot_json"])
+                check(state)
+                if (state["version"] != version or any(state[key] != current[key] for key in immutable)
+                        or state["manual_revision"] != (1 if previous is None else previous["manual_revision"] +
+                            (revision["action"] in {"manual", "removed"} or (revision["action"] == "person_split_review" and state["status"] == "confirmed")))):
+                    raise ValueError("笔记研究对象的原始来历或人工修订不连续。")
+                previous = {key: state[key] for key in columns}
+                seen.add(revision["id"])
+            if previous != current:
+                raise ValueError("笔记研究对象当前状态与最后历史不一致。")
+        if seen != {row[0] for row in db.execute("SELECT id FROM research_subject_history")}:
+            raise ValueError("笔记研究对象存在无对应关系的历史。")
+    except (KeyError, TypeError, AttributeError, sqlite3.DatabaseError) as error:
+        raise ValueError("笔记研究对象历史不完整。") from error
 
 
 def register(app, ctx):

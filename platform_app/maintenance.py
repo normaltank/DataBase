@@ -111,6 +111,8 @@ def restore_backup(archive_path, target_dir):
                     if (name not in manifest["files"] or manifest["files"][name]["sha256"] != row["sha256"]
                             or manifest["files"][name]["bytes"] != row["bytes"]):
                         raise ValueError("头像与数据库不一致。")
+                from . import people
+                people.validate_backup(db)
             if int(version) >= 7:
                 from .note_subjects import validate_backup
                 validate_backup(db)
