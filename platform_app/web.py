@@ -15,7 +15,7 @@ from werkzeug.security import check_password_hash
 
 from .store import connect, decoded, initialize, now, save_revision
 from .record_revisions import RecordRevisions, validate_text, check_version
-from . import source_catalog, workflow, evidence, identity, operations, reading, people
+from . import source_catalog, workflow, evidence, identity, operations, reading, people, bylines
 
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE_FIELDS = ["name", "original_name", "kind", "classification", "location", "country", "research_scope",
@@ -210,6 +210,7 @@ def create_app(data_dir=None, testing=False):
                 continue
             if q:
                 hay = " ".join(str(r[k]) for k in ["title", "original_title", "authors", "abstract", "keywords", "publication_title", "doi", "id", "aliases", "body_text", "coverage", "original_catalogue", "quote", "translation", "interpretation", "locator"]) + " " + " ".join(source_names.get(sid, "") for sid in [r["source_id"], r["serial_id"], *associated])
+                hay += " " + bylines.Bylines(db(), user(), records()).search_text(r["id"])
                 if not all(word in hay.casefold() for word in q.split()):
                     continue
             results.append(r)
@@ -607,6 +608,7 @@ def create_app(data_dir=None, testing=False):
 
     identity.register(app, db=db, body=body, records=records, validate_source=source_values)
     people.register(app, SimpleNamespace(db=db, user=user, body=body, data_dir=data_dir))
+    bylines.register(app, SimpleNamespace(db=db, user=user, body=body, records=records, record_summary=record_summary))
     operations.register(app, SimpleNamespace(db=db, user=user, body=body, admin=admin, get_record=get_record,
                                             get_source=get_source, visible=visible, editable=editable,
                                             get_collection=get_collection, record_summary=record_summary,

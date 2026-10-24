@@ -92,6 +92,8 @@ def initialize(data_dir):
     migrate_operations(data_dir)
     from .people import migrate as migrate_people
     migrate_people(data_dir)
+    from .bylines import migrate as migrate_bylines
+    migrate_bylines(data_dir)
 
 
 def decoded(row):
