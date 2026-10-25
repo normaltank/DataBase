@@ -39,6 +39,7 @@ function uxRecordCard(record) {
   return '<article class="record-card ux-record-card"><div class="record-body"><div class="ux-card-top"><div class="row wrap">'+typeBadge(record.kind)+badge(record.status)+(record.visibility==='restricted'?'<span class="badge neutral">'+icon('lock')+'限授权成员</span>':'')+'</div><div class="card-actions"><button type="button" class="icon-button '+(record.favorite?'saved':'')+'" data-action="favorite" data-id="'+esc(record.id)+'" data-saved="'+!!record.favorite+'" aria-pressed="'+!!record.favorite+'" aria-label="'+(record.favorite?'取消收藏':'收藏')+'">'+icon('star')+'</button><button type="button" class="icon-button" data-action="add-to-collection" data-id="'+esc(record.id)+'" aria-label="加入专题">'+icon('folder')+'</button></div></div>'
     +'<h2 class="record-title">'+linkButton(esc(record.title),'detail',record.id,'title-button')+'</h2><div class="record-meta">'+metadata.map(value=>'<span>'+esc(value)+'</span>').join('')+'</div>'
     +(text?'<p class="'+(record.search_snippet?'search-snippet':'abstract')+'">'+esc(text)+'</p>':'')
+    +(typeof attachmentMatchSection==='function'?attachmentMatchSection(record):'')
     +(sources.length?'<div class="record-meta ux-card-sources">'+sources.map(value=>'<span>'+esc(value)+'</span>').join('')+'</div>':'')
     +'<div class="ux-reading-actions">'+(reading||(record.reading_access?'<span class="ux-record-state">题录记录 · 暂无正文或可用原文链接</span>':linkButton('查看详情与阅读入口','detail',record.id,'ux-read-link')))+'</div>'
     +(state.params.has('collection')?linkButton('移出当前专题','remove-from-collection',record.id,'ux-read-link'):'')+'</div></article>';
@@ -131,6 +132,7 @@ async function uxReadRecord(record,target=null) {
     +(!record.body_html&&!record.abstract&&!uxReadingActions(record)?'<p class="ux-empty-line">此条目目前仅保存题录。</p>':'')+uxFiles(record)
     +(target&&identities?'<details class="ux-identities"><summary>作品署名与文章单位</summary>'+identities+'</details>':'')
     +(record.original_catalogue?'<section class="detail-section"><h3>原目录 / 原文出处</h3><p class="prose">'+esc(record.original_catalogue)+'</p></section>':'')
+    +(typeof attachmentIndexSection==='function'?attachmentIndexSection(record):'')
     +uxReadingNotes(record)
     +noteSubjectDetail(record)
     +(hasEvidence&&typeof evidenceDetail==='function'?evidenceDetail(record):'')
