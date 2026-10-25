@@ -42,7 +42,12 @@ function memberForm(id='') {
   if(!id)document.querySelector('[name=username]').required=true;
 }
 function ownPasswordForm(){modal('修改我的密码','<form data-form="own-password"><div class="stack"><div class="field"><label for="old-password">当前密码</label><input id="old-password" type="password" name="old_password" required autocomplete="current-password"></div><div class="field"><label for="new-password">新密码（至少12个字符）</label><input id="new-password" type="password" name="new_password" required minlength="12" maxlength="200" autocomplete="new-password"></div><div class="field"><label for="repeat-password">再次输入新密码</label><input id="repeat-password" type="password" name="repeat_password" required autocomplete="new-password"></div></div><div class="form-error" role="alert"></div><div class="form-actions"><button class="button primary" type="submit">更新密码</button></div></form>',true);}
-function operationsSystemCards(){return '<section class="system-card section-gap"><h3>成员与账号</h3><div class="detail-actions">'+(state.me.role==='admin'?linkButton('管理本机成员','manage-members','','button primary'):'')+linkButton('修改我的密码','own-password')+'</div></section><section class="system-card section-gap"><h3>可阅读的内容导出</h3><p>导出当前账号可读取的正文、附件、专题与引用证据，可解压后打开目录阅读。</p>'+linkButton(icon('down')+' 导出可见内容','export-content','','button primary')+'</section>';}
+function operationsSystemCards(){
+  const admin=state.me.role==='admin';
+  return '<section class="system-card workspace-account" aria-labelledby="account-heading"><h2 id="account-heading">账号与成员</h2><p>'+esc(state.me.name)+' · '+(admin?'资料管理员':'中心成员')+'</p><div class="detail-actions">'+(admin?linkButton('管理本机成员','manage-members','','button primary'):'')+linkButton('修改我的密码','own-password')+'</div>'+(!admin?'<p class="small muted">成员账号由资料管理员维护。</p>':'')+'</section>'
+    +'<section class="system-card workspace-exports" aria-labelledby="exports-heading"><h2 id="exports-heading">导出与备份</h2><h3>可阅读的内容导出</h3><p>导出当前账号可读取的正文、附件、专题与引用证据，解压后可打开目录阅读。</p>'+linkButton(icon('down')+' 导出可见内容','export-content','','button')
+    +'<section class="workspace-backup"><h3>完整数据备份</h3><p>包含所有平台资料、来源、关联、专题、收藏、账号、修订历史，以及在本平台上传的附件。</p><div class="notice">备份含所有账号的个人与受限资料，请由管理员保管。恢复到新目录后，可验证数据再切换使用。</div><div class="section-gap">'+(admin?linkButton(icon('down')+' 下载完整备份','backup','','button primary'):'<p class="small muted">请由资料管理员进行完整备份。</p>')+'</div></section></section>';
+}
 
 document.addEventListener('click',async event=>{
   const b=event.target.closest('[data-action]');if(!b)return;const a=b.dataset.action,id=b.dataset.id;
