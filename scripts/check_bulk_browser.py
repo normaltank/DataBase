@@ -18,7 +18,15 @@ import urllib.request
 from playwright.sync_api import sync_playwright, expect
 
 ROOT = Path(__file__).resolve().parents[1]
-URL = "http://127.0.0.1:8863"
+PORT = int(os.environ.get("DATABASE_BROWSER_PORT", "8863"))
+URL = f"http://127.0.0.1:{PORT}"
+
+
+def navigate(page, title):
+    toggle = page.get_by_role("button", name="打开导航", exact=True)
+    if toggle.is_visible():
+        toggle.click()
+    page.get_by_title(title, exact=True).click()
 
 
 class BulkBrowserTests(unittest.TestCase):
@@ -26,10 +34,10 @@ class BulkBrowserTests(unittest.TestCase):
     def setUpClass(cls):
         cls.evidence = Path(tempfile.mkdtemp(prefix="database-bulk-browser-"))
         with socket.socket() as probe:
-            if probe.connect_ex(("127.0.0.1", 8863)) == 0:
+            if probe.connect_ex(("127.0.0.1", PORT)) == 0:
                 raise RuntimeError("8863 occupied; refusing to reuse another service")
         cls.output = (cls.evidence / "server.log").open("w", encoding="utf-8")
-        cls.server = subprocess.Popen([sys.executable, str(ROOT / "app.py"), "--no-import", "--port", "8863", "--data-dir", str(cls.evidence / "data")], cwd=ROOT, stdout=cls.output, stderr=subprocess.STDOUT, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+        cls.server = subprocess.Popen([sys.executable, str(ROOT / "app.py"), "--no-import", "--port", str(PORT), "--data-dir", str(cls.evidence / "data")], cwd=ROOT, stdout=cls.output, stderr=subprocess.STDOUT, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
         for _ in range(100):
             try:
                 urllib.request.urlopen(URL + "/health", timeout=1).close()
@@ -69,7 +77,7 @@ class BulkBrowserTests(unittest.TestCase):
         self.page.set_default_timeout(5000)
         self.page.goto(URL)
         self.page.get_by_role("button", name="研究员", exact=True).click()
-        self.page.get_by_title("资料库", exact=True).click()
+        navigate(self.page, "资料库")
         expect(self.page.get_by_role("heading", name="资料库", exact=True)).to_be_visible()
 
     def tearDown(self):
@@ -142,11 +150,11 @@ class BulkBrowserTests(unittest.TestCase):
         page.route('**/api/library/bulk/favorites', lambda route: waiting.append(route))
         page.get_by_role('button', name='收藏选中', exact=True).click()
         expect(page.locator('[data-library-batch-status]')).to_contain_text('正在收藏')
-        page.get_by_title('专题资料夹', exact=True).click()
+        navigate(page, '专题资料夹')
         expect(page.get_by_role('heading', name='专题资料夹', exact=True)).to_be_visible()
         self.assertEqual(len(waiting), 1)
         waiting.pop().fulfill(json={'selected': 1, 'added': 1, 'existing': 0})
-        page.get_by_title('资料库', exact=True).click()
+        navigate(page, '资料库')
         expect(page.locator('[data-library-selection-count]')).to_have_text('已选 0 条')
         expect(page.locator('[data-library-batch-status]')).to_have_text('')
         page.locator('[data-library-select]').first.check()

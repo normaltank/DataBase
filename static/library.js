@@ -3,6 +3,7 @@
 // Library workspace: list/card presentation and explicitly selected stable IDs.
 const libraryWorkspace={view:'list',items:[],page:1,total:0,size:12,readerId:null,readerRecord:null,readerEpoch:0,returnFocus:null,returnY:0,account:null,context:null,selected:new Set()};
 const librarySelectionLimit=100;
+const libraryReaderMedia=matchMedia('(max-width:1199px)');
 window.librarySelection=Object.freeze({ids:()=>[...libraryWorkspace.selected],count:()=>libraryWorkspace.selected.size,clear:message=>libraryClearSelection(message),limit:librarySelectionLimit});
 document.addEventListener('records:favorite-change',event=>{
   const ids=new Set(event.detail.ids),saved=event.detail.saved;
@@ -14,10 +15,13 @@ function librarySelectionChanged() {
   document.querySelectorAll('[data-library-select]').forEach(input=>{input.checked=selected.has(input.dataset.librarySelect);});
   document.querySelectorAll('[data-library-selection-count]').forEach(element=>{element.textContent='已选 '+selected.size+' 条';});
   document.querySelectorAll('[data-action="library-clear-selection"]').forEach(button=>{button.disabled=!selected.size;});
+  document.querySelector('.library-workspace')?.classList.toggle('has-selection',!!selected.size);
+  document.querySelectorAll('[data-library-selection-scope],[data-action="library-clear-selection"]').forEach(element=>{element.hidden=!selected.size;});
   document.dispatchEvent(new CustomEvent('library:selection-change',{detail:{ids:[...selected],count:selected.size,limit:librarySelectionLimit}}));
 }
 function libraryClearSelection(message='') {
-  const count=libraryWorkspace.selected.size;libraryWorkspace.selected.clear();librarySelectionChanged();
+  const count=libraryWorkspace.selected.size,restore=document.activeElement?.dataset.action==='library-clear-selection';libraryWorkspace.selected.clear();librarySelectionChanged();
+  if(restore)document.querySelector('[data-action="library-select-page"]')?.focus({preventScroll:true});
   if(count&&message)toast(message);
 }
 function libraryRouteContext() {
@@ -56,8 +60,10 @@ async function libraryWorkspacePage() {
   const views=document.createElement('div');views.className='library-views';views.setAttribute('aria-label','资料显示方式');
   views.innerHTML=['list','cards'].map(view=>'<button class="button tiny" type="button" data-action="library-view" data-view="'+view+'" aria-pressed="'+(libraryWorkspace.view===view)+'">'+(view==='list'?'紧凑列表':'卡片视图')+'</button>').join('');
   library.querySelector('.results-head').append(views);
+  const resultControls=document.createElement('div');resultControls.className='library-result-controls';
+  const sort=library.querySelector('#sort-select');sort.before(resultControls);resultControls.append(sort,views);
   const selection=document.createElement('section');selection.className='library-selection';selection.setAttribute('aria-label','选择资料');
-  selection.innerHTML='<strong data-library-selection-count>已选 '+libraryWorkspace.selected.size+' 条</strong><button class="button tiny" type="button" data-action="library-select-page" '+(!data.items.length?'disabled':'')+'>选择当前页</button><button class="button tiny" type="button" data-action="library-clear-selection" '+(!libraryWorkspace.selected.size?'disabled':'')+'>清空选择</button><span class="small muted">仅勾选的资料 · 最多 '+librarySelectionLimit+' 条</span><div data-library-batch-actions></div>';
+  selection.innerHTML='<strong data-library-selection-count>已选 '+libraryWorkspace.selected.size+' 条</strong><button class="button tiny" type="button" data-action="library-select-page" '+(!data.items.length?'disabled':'')+'>选择当前页</button><button class="button tiny" type="button" data-action="library-clear-selection" '+(!libraryWorkspace.selected.size?'disabled':'')+'>清空选择</button><span class="small muted" data-library-selection-scope>仅勾选的资料 · 最多 '+librarySelectionLimit+' 条</span><div data-library-batch-actions></div>';
   library.querySelector('.record-list').before(selection);
   library.querySelector('.record-list').innerHTML=libraryResultsHTML();
   const workspace=document.createElement('div');workspace.className='library-results-workspace';
@@ -72,6 +78,7 @@ function libraryCloseReader(restore=true) {
   document.querySelector('.library-workspace .record-list')?.removeAttribute('inert');
   document.querySelectorAll('.library-current').forEach(row=>row.classList.remove('library-current'));
   document.body.classList.remove('library-narrow-reading');
+  libraryReaderBackground(false);
   if(restore){let focus=libraryWorkspace.returnFocus;if(!focus?.isConnected)focus=[...document.querySelectorAll('.record-list [data-action]')].find(button=>button.dataset.id===libraryWorkspace.returnFocus?.dataset.id&&button.dataset.action===libraryWorkspace.returnFocus?.dataset.action);focus?.focus({preventScroll:true});window.scrollTo(0,libraryWorkspace.returnY);}
 }
 function libraryAfterRender() {
@@ -80,6 +87,14 @@ function libraryAfterRender() {
   document.dispatchEvent(new CustomEvent('library:rendered',{detail:{root:document.querySelector('.library-workspace'),items:libraryWorkspace.items}}));
 }
 let libraryPermissionCheck=false;
+function libraryReaderBackground(blocked){
+  const sidebar=document.querySelector('.sidebar');
+  sidebar?.toggleAttribute('inert',blocked||navigationMedia.matches);
+  if(blocked)sidebar?.setAttribute('aria-hidden','true');else sidebar?.removeAttribute('aria-hidden');
+  document.querySelector('.topbar')?.toggleAttribute('inert',blocked);
+  const root=document.querySelector('.library-workspace');
+  if(root)for(const child of root.children)if(!child.classList.contains('library-results-workspace'))child.inert=blocked;
+}
 async function libraryCheckPermissions() {
   if(libraryPermissionCheck||!state.me||!document.querySelector('.library-workspace')||document.querySelector('#modal-root .overlay'))return;
   libraryPermissionCheck=true;
@@ -112,11 +127,13 @@ window.addEventListener('focus',()=>{libraryCheckPermissions().catch(error=>toas
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)libraryCheckPermissions().catch(error=>toast(error.message));});
 function libraryReaderSemantics() {
   const panel=document.querySelector('.library-reader');if(!panel||panel.hidden)return;
-  const narrow=matchMedia('(max-width:900px)').matches;
+  const narrow=libraryReaderMedia.matches;
   panel.setAttribute('role',narrow?'dialog':'region');
   if(narrow)panel.setAttribute('aria-modal','true');else panel.removeAttribute('aria-modal');
   document.querySelector('.library-workspace .record-list').inert=narrow;
   document.body.classList.toggle('library-narrow-reading',narrow);
+  libraryReaderBackground(narrow);
+  if(narrow&&!panel.contains(document.activeElement))panel.querySelector('[data-action="library-reader-close"]')?.focus({preventScroll:true});
 }
 async function libraryOpenReader(id,origin=null,section='') {
   const panel=document.querySelector('.library-reader');if(!panel)return;
@@ -135,7 +152,7 @@ async function libraryOpenReader(id,origin=null,section='') {
     const body=panel.querySelector('.library-reader-body');await uxReadRecord(record,body);
     if(epoch!==libraryWorkspace.readerEpoch||account!==state.me?.id||!panel.isConnected){body.replaceChildren();return;}
     panel.scrollTop=0;body.scrollTop=0;
-    if(firstOpen&&!matchMedia('(max-width:900px)').matches){const workspace=panel.closest('.library-results-workspace');window.scrollTo(0,Math.max(0,window.scrollY+workspace.getBoundingClientRect().top-16));}
+    if(firstOpen&&!libraryReaderMedia.matches){const workspace=panel.closest('.library-results-workspace');window.scrollTo(0,Math.max(0,window.scrollY+workspace.getBoundingClientRect().top-16));}
     libraryWorkspace.readerRecord=record;
     const focus=section?body.querySelector(section):body.querySelector('.detail-title');
     if(focus){focus.tabIndex=-1;focus.focus({preventScroll:true});if(section)focus.scrollIntoView({block:'start'});}
@@ -164,7 +181,7 @@ document.addEventListener('keydown',event=>{
     else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}
   }
 });
-matchMedia('(max-width:900px)').addEventListener('change',libraryReaderSemantics);
+libraryReaderMedia.addEventListener('change',libraryReaderSemantics);
 document.addEventListener('click',event=>{
   const selection=event.target.closest('[data-action="library-select-page"],[data-action="library-clear-selection"]');
   if(selection){

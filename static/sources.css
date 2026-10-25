@@ -1,0 +1,27 @@
+.sources-page{min-width:0}
+.sources-page .source-search .toolbar{margin-bottom:12px}
+.sources-page .source-search .search-input{flex:1;min-width:0}
+.sources-page .source-filter-options{background:var(--surface);margin-bottom:12px}
+.sources-page .source-filters{margin:16px 0 2px;gap:16px}
+.sources-page .source-filters label{min-width:0;flex:1 1 165px}
+.sources-page .source-filters select{width:100%;max-width:none}
+.source-applied{display:flex;align-items:center;flex-wrap:wrap;gap:8px 10px;margin:16px 0;font-size:14px;min-width:0}
+.source-applied>span{color:var(--text-muted)}
+.sources-page .directory-help{margin-bottom:22px;background:transparent;border:0;padding:4px 0}
+.source-card h2{font-size:19px;font-weight:600;line-height:1.7;overflow-wrap:anywhere}
+.source-card .source-english{font-size:14px;line-height:1.8;font-family:inherit;overflow-wrap:anywhere}
+.source-card .source-status{gap:7px}
+.source-card .source-foot{flex-wrap:wrap;align-items:center}
+.source-profile{overflow-wrap:anywhere}
+.source-profile .detail-title{font-size:28px;line-height:1.6;margin:14px 0 8px}
+.source-profile .original-title{font-size:16px;line-height:1.8;color:var(--text-muted)}
+.source-profile-group{margin:32px 0;padding-top:25px;border-top:1px solid var(--border);min-width:0}
+.source-profile>section>h3,.source-profile>.note-subject-profile>.between>h3{font-size:21px;line-height:1.6;margin:0 0 18px}
+.source-profile .source-introduction .rich-prose{font-size:17px;line-height:1.9}
+.source-profile-relations .detail-section{margin:22px 0;padding:0}
+.source-profile-relations h2,.source-profile-relations h3,.source-profile-evidence h4{font-size:18px;margin:0 0 14px}
+.source-profile .source-content-list article{padding:18px 0}
+.source-profile .relation-detail{margin:14px 0;padding:16px;background:var(--surface-muted);border-radius:6px;min-width:0}
+.source-profile .relation-detail>.between{flex-wrap:wrap}
+@media(max-width:560px){.sources-page .toolbar{flex-wrap:wrap}.sources-page .source-filters label{flex-basis:100%}.source-card{padding:18px}.source-card h2{font-size:18px}}
+@media(max-width:560px){.source-profile .detail-title{font-size:24px}.source-profile .source-introduction .rich-prose{font-size:16px}.source-profile-group{margin:26px 0;padding-top:22px}.source-profile .detail-grid{grid-template-columns:minmax(0,1fr)}.source-profile .relation-detail{padding:13px}}

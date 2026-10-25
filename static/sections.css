@@ -1,0 +1,8 @@
+.section-navigation{margin:22px 0;padding:15px 18px;border:1px solid var(--border);border-radius:7px;background:var(--surface);min-width:0}
+.section-navigation>span{display:block;font-size:14px;color:var(--text-muted);margin-bottom:7px}
+.section-navigation>div{display:flex;flex-wrap:wrap;gap:6px 10px}
+.section-navigation button{background:transparent;color:var(--primary);font-size:14px;line-height:1.7;padding:7px 9px;text-align:left;white-space:normal;overflow-wrap:anywhere;border-radius:4px}
+.section-navigation button:hover{background:var(--surface-selected);text-decoration:underline}
+.section-target{scroll-margin-top:20px}
+.section-target:focus{outline:3px solid var(--focus);outline-offset:5px}
+@media(max-width:560px){.section-navigation{padding:12px;margin:18px 0}.section-navigation>div{gap:3px 6px}}

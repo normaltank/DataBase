@@ -4,6 +4,7 @@
 const libraryBulk={busy:false,message:'',epoch:0,selection:''};
 function libraryBulkRender() {
   const mount=document.querySelector('[data-library-batch-actions]');if(!mount)return;
+  mount.hidden=!window.librarySelection.count();
   if(!mount.firstElementChild)mount.innerHTML='<button class="button tiny" type="button" data-action="bulk-favorite">收藏选中</button><button class="button tiny" type="button" data-action="bulk-collection">加入专题</button><button class="button tiny" type="button" data-action="bulk-export">导出选中 CSV</button><p class="small" data-library-batch-status role="status" aria-live="polite"></p>';
   mount.querySelectorAll('button').forEach(button=>{button.disabled=libraryBulk.busy||!window.librarySelection.count();});
   mount.querySelector('[data-library-batch-status]').textContent=libraryBulk.message;

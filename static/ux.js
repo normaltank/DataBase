@@ -59,11 +59,11 @@ async function uxDashboard() {
   const topics=state.collections.slice().sort((a,b)=>String(b.updated_at||b.created_at||'').localeCompare(String(a.updated_at||a.created_at||''))).slice(0,3);
   const work=Array.isArray(data.my_work)?data.my_work:[];
   const draftRows=drafts.items.slice(0,3).map(draft=>'<article class="ux-work-item"><h3>'+esc(draft.title)+'</h3><p class="ux-time">'+esc(draftTypeLabel(draft))+' · 保存于 '+dateTime(draft.updated_at)+(draft.file?' · 含附件':'')+'</p><button class="ux-read-link" type="button" data-action="open-draft" data-key="'+esc(draft.key)+'">继续草稿'+icon('arrow')+'</button></article>').join('');
-  return '<div class="ux-dashboard"><section class="hero ux-search-hero"><h1>查找研究资料</h1><form data-form="hero-search" class="hero-search"><label class="sr-only" for="work-search">搜索资料</label>'+icon('search')+'<input id="work-search" name="q" placeholder="搜索题名、作者、关键词或正文"><button class="button primary" type="submit">搜索</button></form></section>'
+  return '<div class="ux-dashboard"><section class="panel workspace-search" aria-label="资料检索"><h1>查找研究资料</h1><form data-form="hero-search" class="hero-search"><label class="sr-only" for="work-search">搜索资料</label>'+icon('search')+'<input id="work-search" name="q" placeholder="搜索题名、作者、关键词或正文"><button class="button primary" type="submit">搜索</button></form></section>'
     +'<section class="ux-continue"><div class="between wrap ux-section-head"><h2>继续研究</h2>'+linkButton(icon('plus')+'新建内容','new-record','','button tiny')+'</div><div class="ux-work-grid">'
-    +'<section class="panel"><div class="panel-head"><h3>本机草稿</h3>'+linkButton('全部草稿','nav','drafts','ux-read-link')+'</div><div class="ux-work-items">'+(draftRows||'<div class="ux-empty"><p>'+(drafts.available?'暂无未提交草稿。':'暂时无法读取本机草稿。')+'</p>'+linkButton('开始一份内容','new-record','','ux-read-link')+'</div>')+'</div></section>'
-    +'<section class="panel"><div class="panel-head"><h3>近期专题</h3>'+linkButton('全部专题','nav','collections','ux-read-link')+'</div><div class="ux-work-items">'+(topics.map(topic=>'<article class="ux-work-item"><h3>'+linkButton(esc(topic.name),'open-collection',topic.id,'title-button')+'</h3><p class="ux-time">'+(topic.updated_at?'更新于 '+dateTime(topic.updated_at):topic.created_at?'创建于 '+dateTime(topic.created_at):'')+'</p><p>'+topic.count+' 份资料</p></article>').join('')||'<div class="ux-empty"><p>尚无可继续的专题。</p>'+linkButton('创建研究专题','new-collection','','ux-read-link')+'</div>')+'</div></section>'
-    +'<section class="panel"><div class="panel-head"><h3>本人近期成果</h3></div><div class="ux-work-items">'+(work.map(uxWorkRow).join('')||'<div class="ux-empty"><p>'+(Array.isArray(data.my_work)?'尚无本人负责的内容。':'本人近期内容将在此显示。')+'</p>'+linkButton('编写研究报告','new-record','research_report','ux-read-link')+'</div>')+'</div></section></div></section>'
+    +'<section class="panel"><div class="panel-head"><h3>本机草稿</h3>'+linkButton('全部草稿','nav','drafts','ux-read-link')+'</div><div class="ux-work-items">'+(draftRows||'<p class="ux-empty">'+(drafts.available?'暂无未提交草稿。':'暂时无法读取本机草稿。')+'</p>')+'</div></section>'
+    +'<section class="panel"><div class="panel-head"><h3>近期专题</h3>'+linkButton('全部专题','nav','collections','ux-read-link')+'</div><div class="ux-work-items">'+(topics.map(topic=>'<article class="ux-work-item"><h3>'+linkButton(esc(topic.name),'open-collection',topic.id,'title-button')+'</h3><p class="ux-time">'+topic.count+' 份资料'+(topic.updated_at?' · 更新于 '+dateTime(topic.updated_at):topic.created_at?' · 创建于 '+dateTime(topic.created_at):'')+'</p></article>').join('')||'<div class="ux-empty">'+linkButton('新建研究专题','new-collection','','ux-read-link')+'</div>')+'</div></section>'
+    +'<section class="panel"><div class="panel-head"><h3>本人近期成果</h3></div><div class="ux-work-items">'+(work.map(uxWorkRow).join('')||'<p class="ux-empty">'+(Array.isArray(data.my_work)?'暂无本人负责的成果。':'暂时无法读取本人成果。')+'</p>')+'</div></section></div></section>'
     +'<section class="panel ux-latest"><div class="panel-head"><h2>最近入库</h2>'+linkButton('资料库'+icon('arrow'),'nav','library','ux-read-link')+'</div>'+(data.latest.map(recentRow).join('')||'<div class="ux-empty">暂无入库内容。</div>')+'</section>'
     +'<div class="ux-dashboard-summary" aria-label="资料概况"><span>资料 '+data.stats.records+'</span><span>来源 '+data.stats.source_entries+'</span><span>收藏 '+data.stats.favorites+'</span></div></div>';
 }
@@ -80,10 +80,18 @@ async function uxLibraryPage(data=null) {
     root.querySelector('.results-head').before(bar);
   }
   const toolbar=root.querySelector('.toolbar');
+  const filters=root.querySelector('[data-form="filters"]');
+  if(filters){
+    const details=document.createElement('details');details.className='ux-filters';
+    details.innerHTML='<summary>筛选条件</summary>';
+    filters.before(details);details.append(filters);
+  }
   if(toolbar){
     const secondary=[...toolbar.children].filter(el=>el.matches('a,[data-action="duplicates"],[data-action="export-content"]'));
     if(secondary.length){const details=document.createElement('details');details.className='ux-list-tools';details.innerHTML='<summary>整理与导出</summary><div class="row wrap"></div>';secondary.forEach(el=>details.lastElementChild.append(el));toolbar.append(details);}
   }
+  const filterDisclosure=root.querySelector('.ux-filters');
+  if(filterDisclosure){const options=document.createElement('div');options.className='ux-query-options';filterDisclosure.before(options);options.append(filterDisclosure);const tools=root.querySelector('.ux-list-tools');if(tools)options.append(tools);}
   root.className='ux-library';return root.outerHTML;
 }
 async function uxRefreshBackground() {

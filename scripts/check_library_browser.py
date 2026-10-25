@@ -20,6 +20,13 @@ ROOT = Path(__file__).resolve().parents[1]
 URL = "http://127.0.0.1:8861"
 
 
+def navigate(page, title):
+    toggle = page.get_by_role("button", name="打开导航", exact=True)
+    if toggle.is_visible():
+        toggle.click()
+    page.get_by_title(title, exact=True).click()
+
+
 class LibraryBrowserTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -76,7 +83,7 @@ class LibraryBrowserTests(unittest.TestCase):
         self.page.set_default_timeout(5000)
         self.page.goto(URL)
         self.page.get_by_role("button", name="研究员", exact=True).click()
-        self.page.get_by_title("资料库", exact=True).click()
+        navigate(self.page, "资料库")
         expect(self.page.get_by_role("heading", name="资料库", exact=True)).to_be_visible()
 
     def tearDown(self):
@@ -183,6 +190,7 @@ class LibraryBrowserTests(unittest.TestCase):
     def test_single_result_desktop_read_reveals_body_and_restores_list_position(self):
         page = self.page
         page.set_viewport_size({'width': 1440, 'height': 960})
+        page.get_by_text('筛选条件', exact=True).click()
         page.get_by_label('发布日期起', exact=True).fill('2026-10-01')
         page.get_by_label('发布日期止', exact=True).fill('2026-10-01')
         page.get_by_role('button', name='应用筛选', exact=True).click()
@@ -255,8 +263,8 @@ class LibraryBrowserTests(unittest.TestCase):
 
         expect(page.locator('#toast')).to_contain_text('已清空选择')
         page.get_by_role('button', name='选择当前页', exact=True).click()
-        page.get_by_title('来源目录', exact=True).click()
-        page.get_by_title('资料库', exact=True).click()
+        navigate(page, '来源目录')
+        navigate(page, '资料库')
         expect(page.get_by_text('已选 0 条', exact=True)).to_be_visible()
         page.get_by_role('checkbox', name='选择资料：').first.check()
         page.get_by_role('button', name='退出登录', exact=True).last.click()
