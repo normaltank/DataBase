@@ -1,7 +1,7 @@
 'use strict';
 
 // Batch actions consume only the library's explicit, account-scoped selection.
-const libraryBulk={busy:false,message:'',epoch:0,selection:'',items:[]};
+const libraryBulk={busy:false,message:'',epoch:0,selection:''};
 function libraryBulkRender() {
   const mount=document.querySelector('[data-library-batch-actions]');if(!mount)return;
   if(!mount.firstElementChild)mount.innerHTML='<button class="button tiny" type="button" data-action="bulk-favorite">收藏选中</button><button class="button tiny" type="button" data-action="bulk-collection">加入专题</button><button class="button tiny" type="button" data-action="bulk-export">导出选中 CSV</button><p class="small" data-library-batch-status role="status" aria-live="polite"></p>';
@@ -24,9 +24,7 @@ async function libraryBulkFavorite() {
   try{
     const result=await api('/api/library/bulk/favorites',{method:'POST',body:{ids:job.ids}});
     if(!job.current())return;
-    document.querySelectorAll('[data-action="favorite"]').forEach(button=>{if(job.ids.includes(button.dataset.id)){button.dataset.saved='true';button.classList.add('saved');button.setAttribute('aria-pressed','true');button.title='取消收藏';button.setAttribute('aria-label','取消收藏');if(button.classList.contains('button'))button.innerHTML=icon('star')+' 取消收藏';}});
-    // Keep the current set available for the next organizing action.
-    for(const record of libraryBulk.items)if(job.ids.includes(record.id))record.favorite=true;
+    syncFavoriteState(job.ids,true);
     libraryBulkMessage(libraryBulkResult(result,'收藏'));
   }catch(error){if(job.current())libraryBulkMessage('批量收藏未完成，已保留选择。'+error.message);}
   finally{if(job.current())libraryBulkBusy(false);}
@@ -72,7 +70,7 @@ async function libraryBulkExport() {
   }catch(error){if(job.current())libraryBulkMessage('选中导出未完成，已保留选择。'+error.message);}
   finally{if(job.current())libraryBulkBusy(false);}
 }
-document.addEventListener('library:rendered',event=>{libraryBulk.items=event.detail.items;libraryBulk.epoch++;libraryBulk.busy=false;libraryBulk.message='';libraryBulkRender();});
+document.addEventListener('library:rendered',()=>{libraryBulk.epoch++;libraryBulk.busy=false;libraryBulk.message='';libraryBulkRender();});
 document.addEventListener('library:selection-change',event=>{
   const selection=JSON.stringify(event.detail.ids);
   if(selection!==libraryBulk.selection){libraryBulk.selection=selection;libraryBulk.message='';}

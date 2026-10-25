@@ -45,7 +45,7 @@ class LibraryBrowserTests(unittest.TestCase):
             cls.server.terminate()
             raise RuntimeError("Test service did not start")
         cls.playwright = sync_playwright().start()
-        cls.browser = cls.playwright.chromium.launch()
+        cls.browser = cls.playwright.chromium.launch(channel=os.environ.get("DATABASE_BROWSER_CHANNEL") or None)
         request = cls.playwright.request.new_context(base_url=URL)
         token = request.get("/api/session").json()["csrf"]
         response = request.post("/api/login", data={"username": "researcher", "password": "LocalDemo2026!"}, headers={"X-CSRF-Token": token})
@@ -71,7 +71,7 @@ class LibraryBrowserTests(unittest.TestCase):
         cls.output.close()
 
     def setUp(self):
-        self.context = self.browser.new_context(viewport={"width": 1366, "height": 900})
+        self.context = self.browser.new_context(viewport={"width": 1366, "height": 900}, has_touch=True)
         self.page = self.context.new_page()
         self.page.set_default_timeout(5000)
         self.page.goto(URL)
@@ -95,6 +95,90 @@ class LibraryBrowserTests(unittest.TestCase):
         page.get_by_role("button", name="紧凑列表", exact=True).click()
         self.assertEqual(page.locator(".record-list .record-title").all_text_contents(), titles)
         page.screenshot(path=str(self.evidence / "desktop-list.png"), full_page=True)
+
+    def test_favorite_changes_survive_views_and_match_reader_and_server(self):
+        page = self.page
+        page.get_by_role('button', name='卡片视图', exact=True).click()
+        first = page.locator('[data-library-record]').first
+        rid = first.get_attribute('data-library-record')
+        star = first.locator('[data-action="favorite"]')
+        star.click()
+        expect(star).to_have_attribute('data-saved', 'true')
+        self.assertTrue(self.context.request.get(URL + '/api/records/' + rid).json()['favorite'])
+        page.get_by_role('button', name='紧凑列表', exact=True).click()
+        page.get_by_role('button', name='卡片视图', exact=True).click()
+        expect(star).to_have_attribute('data-saved', 'true')
+        expect(star).to_have_attribute('aria-pressed', 'true')
+        star.click()
+        expect(star).to_have_attribute('data-saved', 'false')
+        self.assertFalse(self.context.request.get(URL + '/api/records/' + rid).json()['favorite'])
+        first.locator('.record-title button').click()
+        reader = page.get_by_role('region', name='连续阅读')
+        reader.locator('.ux-maintenance summary').click()
+        reader_star = reader.locator('[data-action="favorite"]')
+        expect(reader_star).to_have_attribute('data-saved', 'false')
+        first.locator('[data-library-select]').check()
+        page.get_by_role('button', name='收藏选中', exact=True).click()
+        expect(page.locator('[data-library-batch-status]')).to_contain_text('已处理 1 条')
+        expect(reader_star).to_have_attribute('data-saved', 'true')
+        page.get_by_role('button', name='紧凑列表', exact=True).click()
+        page.get_by_role('button', name='卡片视图', exact=True).click()
+        expect(star).to_have_attribute('data-saved', 'true')
+        reader_star.click()
+        expect(reader_star).to_have_attribute('data-saved', 'false')
+        page.get_by_role('button', name='紧凑列表', exact=True).click()
+        page.get_by_role('button', name='卡片视图', exact=True).click()
+        expect(star).to_have_attribute('data-saved', 'false')
+        self.assertFalse(self.context.request.get(URL + '/api/records/' + rid).json()['favorite'])
+        page.screenshot(path=str(self.evidence / 'favorite-view-reader-consistency.png'), full_page=True)
+
+    def test_narrow_loading_reader_has_touch_return_and_ignores_late_response(self):
+        page = self.page
+        page.set_viewport_size({'width': 390, 'height': 844})
+        origin = page.locator('.record-list .record-title button').first
+        rid = origin.get_attribute('data-id')
+        waiting = []
+        def hold_detail(route):
+            waiting.append((route, route.fetch()))
+        page.route('**/api/records/' + rid, hold_detail)
+        origin.click()
+        reader = page.get_by_role('dialog', name='连续阅读')
+        expect(reader.get_by_text('正在读取资料…', exact=True)).to_be_visible()
+        back = reader.get_by_role('button', name='返回列表', exact=True)
+        expect(back).to_be_visible()
+        page.screenshot(path=str(self.evidence / 'narrow-loading-return.png'))
+        back.tap()
+        expect(reader).not_to_be_visible()
+        expect(origin).to_be_focused()
+        self.assertEqual(len(waiting), 1)
+        route, response = waiting.pop()
+        route.fulfill(response=response)
+        page.wait_for_load_state('networkidle')
+        expect(reader).not_to_be_visible()
+        expect(origin).to_be_enabled()
+        self.assertIsNone(page.locator('.record-list').get_attribute('inert'))
+        page.screenshot(path=str(self.evidence / 'narrow-return-after-late-detail.png'))
+
+    def test_first_desktop_read_reveals_body_and_return_restores_list_position(self):
+        page = self.page
+        page.set_viewport_size({'width': 1440, 'height': 960})
+        origin = page.locator('.record-list .record-title button').first
+        before = page.evaluate('window.scrollY')
+        origin.click()
+        reader = page.get_by_role('region', name='连续阅读')
+        paragraph = reader.locator('#ux-body p').first
+        expect(paragraph).to_be_visible()
+        box = paragraph.bounding_box()
+        self.assertGreaterEqual(box['y'], 0)
+        self.assertLess(box['y'] + box['height'], 960)
+        reading_scroll = page.evaluate('window.scrollY')
+        page.screenshot(path=str(self.evidence / 'desktop-first-reader-viewport.png'))
+        reader.get_by_role('button', name='下一条', exact=True).click()
+        expect(reader.get_by_text('本页第 2 / 12 条', exact=True)).to_be_visible()
+        self.assertAlmostEqual(page.evaluate('window.scrollY'), reading_scroll, delta=2)
+        reader.get_by_role('button', name='返回列表', exact=True).click()
+        self.assertAlmostEqual(page.evaluate('window.scrollY'), before, delta=2)
+        expect(origin).to_be_focused()
 
     def test_continuous_reader_returns_to_list_on_desktop_and_narrow_screen(self):
         page = self.page

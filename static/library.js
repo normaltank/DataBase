@@ -4,6 +4,11 @@
 const libraryWorkspace={view:'list',items:[],page:1,total:0,size:12,readerId:null,readerRecord:null,readerEpoch:0,returnFocus:null,returnY:0,account:null,context:null,selected:new Set()};
 const librarySelectionLimit=100;
 window.librarySelection=Object.freeze({ids:()=>[...libraryWorkspace.selected],count:()=>libraryWorkspace.selected.size,clear:message=>libraryClearSelection(message),limit:librarySelectionLimit});
+document.addEventListener('records:favorite-change',event=>{
+  const ids=new Set(event.detail.ids),saved=event.detail.saved;
+  for(const record of libraryWorkspace.items)if(ids.has(record.id))record.favorite=saved;
+  if(libraryWorkspace.readerRecord&&ids.has(libraryWorkspace.readerRecord.id))libraryWorkspace.readerRecord.favorite=saved;
+});
 function librarySelectionChanged() {
   const selected=libraryWorkspace.selected;
   document.querySelectorAll('[data-library-select]').forEach(input=>{input.checked=selected.has(input.dataset.librarySelect);});
@@ -116,10 +121,13 @@ function libraryReaderSemantics() {
 async function libraryOpenReader(id,origin=null,section='') {
   const panel=document.querySelector('.library-reader');if(!panel)return;
   const epoch=++libraryWorkspace.readerEpoch,account=state.me?.id,hash=location.hash;
-  if(!libraryWorkspace.readerId){libraryWorkspace.returnFocus=origin||document.activeElement;libraryWorkspace.returnY=window.scrollY;}
+  const firstOpen=!libraryWorkspace.readerId;
+  if(firstOpen){libraryWorkspace.returnFocus=origin||document.activeElement;libraryWorkspace.returnY=window.scrollY;}
   libraryWorkspace.readerId=id;panel.hidden=false;
   panel.closest('.library-workspace').classList.add('library-reading');
-  panel.innerHTML='<p class="library-loading" role="status">正在读取资料…</p>';libraryReaderSemantics();
+  panel.innerHTML='<header class="library-reader-head"><button class="button tiny" type="button" data-action="library-reader-close">返回列表</button></header><p class="library-loading" role="status">正在读取资料…</p>';libraryReaderSemantics();
+  panel.querySelector('[data-action="library-reader-close"]').focus({preventScroll:true});
+  if(firstOpen&&!matchMedia('(max-width:900px)').matches){const workspace=panel.closest('.library-results-workspace');window.scrollTo(0,Math.max(0,window.scrollY+workspace.getBoundingClientRect().top-16));}
   try{
     const record=await api('/api/records/'+encodeURIComponent(id));
     if(epoch!==libraryWorkspace.readerEpoch||account!==state.me?.id||hash!==location.hash||!panel.isConnected)return;

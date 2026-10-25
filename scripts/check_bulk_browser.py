@@ -40,7 +40,7 @@ class BulkBrowserTests(unittest.TestCase):
             cls.server.terminate()
             raise RuntimeError("Synthetic test service did not start")
         cls.playwright = sync_playwright().start()
-        cls.browser = cls.playwright.chromium.launch()
+        cls.browser = cls.playwright.chromium.launch(channel=os.environ.get("DATABASE_BROWSER_CHANNEL") or None)
         request = cls.playwright.request.new_context(base_url=URL)
         token = request.get("/api/session").json()["csrf"]
         response = request.post("/api/login", data={"username": "researcher", "password": "LocalDemo2026!"}, headers={"X-CSRF-Token": token})
