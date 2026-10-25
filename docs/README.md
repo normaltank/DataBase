@@ -1,6 +1,6 @@
 # 项目文档目录
 
-整理日期：2026-10-24。本页按用途导航，不另建任务台账；待办与依赖以 [GitHub Issues](https://github.com/normaltank/DataBase/issues) 为准。文档职责与归档方法见 [写作约定](agents/documentation.md)。
+整理日期：2026-10-25。本页按用途导航，不另建任务台账；待办与依赖以 [GitHub Issues](https://github.com/normaltank/DataBase/issues) 为准。文档职责与归档方法见 [写作约定](agents/documentation.md)。
 
 ## 当前入口
 
@@ -16,6 +16,10 @@
 | 当前实现及尚缺能力 | [施工说明](施工说明.md) |
 | 用户决定及历史答复 | [需求讨论记录](需求讨论记录.md) |
 | 长期研究方向与分期建议 | [长期愿景](长期研究愿景与演进路线.md) |
+
+## 基础资料管理第一批
+
+[施工规格 1.0](specs/基础资料管理第一批.md) 定义资料库紧凑列表与连续阅读、批量整理和选中导出、本地附件全文检索。授权出处见 [R012](需求讨论记录.md#r012基础资料管理第一批开工)，发布与交付由 [父任务 #14](https://github.com/normaltank/DataBase/issues/14) 及子任务 #15—#17 维护；来源文章采集另列后续批次。
 
 ## 人物 Wiki 首版：交付与验收
 
