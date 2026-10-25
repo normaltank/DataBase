@@ -109,6 +109,7 @@ class LibraryBrowserTests(unittest.TestCase):
         expect(reader.get_by_role('heading', name=text, exact=True)).not_to_be_visible()
         expect(reader.get_by_text('本页第 3 / 12 条', exact=True)).to_be_visible()
         reader.scroll_into_view_if_needed()
+        expect(reader.locator('#ux-body .rich-prose')).to_be_in_viewport()
         page.screenshot(path=str(self.evidence / 'desktop-reader.png'))
         reader.get_by_role('button', name='返回列表', exact=True).click()
         expect(reader).not_to_be_visible()
@@ -190,6 +191,7 @@ class LibraryBrowserTests(unittest.TestCase):
         page = self.page
         page.locator('.record-list .record-title button').first.click()
         reader = page.get_by_role('region', name='连续阅读')
+        reader.get_by_text('作品署名与文章单位', exact=True).click()
         reader.get_by_role('button', name='整理署名', exact=True).click()
         expect(page.get_by_role('dialog')).to_be_visible()
         page.get_by_role('button', name='关闭', exact=True).click()
@@ -209,4 +211,3 @@ class LibraryBrowserTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
-

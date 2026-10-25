@@ -114,6 +114,9 @@ function uxReadingNotes(record) {
 }
 async function uxReadRecord(record,target=null) {
   const bylines=typeof bylineSection==='function'?await bylineSection(record):'';
+  const identities=bylines+await articleAffiliationSection(record);
+  const abstractSection=record.abstract?'<section class="detail-section ux-abstract"><h3>摘要</h3><p class="prose">'+esc(record.abstract)+'</p></section>':'';
+  const bodySection=record.body_html?'<section class="detail-section ux-main-body" id="ux-body"><h3>正文</h3><div class="rich-prose">'+readRich(record.body_html)+'</div></section>':'';
   const research=isResearchContent(record.kind),access=uxAccess(record),references=record.linked_records||[],hasEvidence=!!record.evidence_record_id||!!record.evidence_citations?.length;
   const meta=[record.authors,record.published_on,languageLabel(record.language)].filter(Boolean),sources=recordSourceLabels(record).filter(label=>!label.startsWith('关联来源：'));
   const maintenance=(record.can_edit?linkButton('编辑内容','edit-record',record.id)+linkButton('修改历史','history','record:'+record.id):'')+linkButton('加入专题','add-to-collection',record.id)+linkButton(record.favorite?'取消收藏':'收藏资料','favorite',record.id)
@@ -122,12 +125,11 @@ async function uxReadRecord(record,target=null) {
     +'<h2 class="detail-title">'+esc(record.title)+'</h2>'+(record.original_title&&record.original_title!==record.title?'<p class="original-title">'+esc(record.original_title)+'</p>':'')
     +'<div class="ux-bibliography">'+(meta.length?'<p>'+meta.map(esc).join(' · ')+'</p>':'')+(sources.length?'<p>'+sources.map(esc).join(' · ')+'</p>':'')+(record.coverage?'<p>'+esc(record.coverage)+'</p>':'')+((record.related_source_ids||[]).length?'<p>关联来源：'+record.related_source_ids.map(sourceName).join(' / ')+'</p>':'')+'</div>'
     +'<div class="ux-reading-actions ux-reading-toolbar">'+uxReadingActions(record)+'<button class="button tiny" type="button" data-action="ux-copy" data-id="'+esc(record.id)+'">'+uxCopyLabel(record)+'</button></div><div data-copy-region></div>'
-    +bylines
-    +await articleAffiliationSection(record)
+    +(target?'':identities)
     +(personalKinds.has(record.kind)&&!record.author_confirmed?authorPanel(record):personalKinds.has(record.kind)?'<p class="ux-author">负责作者：'+esc(record.author_name||recordAuthorLabel(record))+' · 已由本人确认</p>':'')
-    +(record.abstract?'<section class="detail-section ux-abstract"><h3>摘要</h3><p class="prose">'+esc(record.abstract)+'</p></section>':'')
-    +(record.body_html?'<section class="detail-section ux-main-body" id="ux-body"><h3>正文</h3><div class="rich-prose">'+readRich(record.body_html)+'</div></section>':'')
+    +(target?bodySection+abstractSection:abstractSection+bodySection)
     +(!record.body_html&&!record.abstract&&!uxReadingActions(record)?'<p class="ux-empty-line">此条目目前仅保存题录。</p>':'')+uxFiles(record)
+    +(target&&identities?'<details class="ux-identities"><summary>作品署名与文章单位</summary>'+identities+'</details>':'')
     +(record.original_catalogue?'<section class="detail-section"><h3>原目录 / 原文出处</h3><p class="prose">'+esc(record.original_catalogue)+'</p></section>':'')
     +uxReadingNotes(record)
     +noteSubjectDetail(record)

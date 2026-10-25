@@ -26,6 +26,8 @@
 .library-reader-head p{flex-basis:100%;font-size:13px;color:var(--text-muted);margin:0}
 .library-reader .library-reader-body{padding:22px;overflow:visible}
 .library-reader .detail-title{font-size:24px;line-height:1.6;overflow-wrap:anywhere}
+.library-reader .ux-identities{margin:22px 0;border-top:1px solid var(--border);padding-top:16px}
+.library-reader .ux-identities>summary{font-size:15px;color:var(--primary);cursor:pointer}
 .library-current{border-color:var(--primary);background:var(--surface-selected)}
 .library-loading{padding:25px}
 @media(max-width:900px){
