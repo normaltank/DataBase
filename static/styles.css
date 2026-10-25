@@ -325,7 +325,7 @@ textarea:disabled{opacity:1;background:var(--disabled-bg);color:var(--disabled-t
 .detail-grid{grid-template-columns:minmax(0,1fr);}
 .login-shell{padding:18px;}
 .login-box{grid-template-columns:1fr;}
-.login-story{padding:24px;}
+.login-story{padding:24px;min-height:0;}
 .login-story h1{font-size:24px;margin:22px 0 8px;}
 .login-form{padding:26px 22px;}
 .login-form h2{font-size:21px;}

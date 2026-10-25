@@ -5,6 +5,7 @@ Run with --baseline to retain before screenshots without running assertions.
 """
 import json
 import os
+from contextlib import ExitStack
 from pathlib import Path
 import socket
 import subprocess
@@ -25,15 +26,29 @@ if BASELINE:
 
 
 class LayoutBrowserTests(unittest.TestCase):
+    @staticmethod
+    def stop_server(server):
+        if server.poll() is None:
+            server.terminate()
+            try:
+                server.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                server.kill()
+                server.wait(timeout=10)
+
     @classmethod
     def setUpClass(cls):
+        cls.resources = ExitStack()
+        cls.addClassCleanup(cls.resources.close)
         cls.evidence = Path(os.environ.get("DATABASE_LAYOUT_EVIDENCE") or tempfile.mkdtemp(prefix="database-ui-shell-"))
         cls.evidence.mkdir(parents=True, exist_ok=True)
         with socket.socket() as probe:
             if probe.connect_ex(("127.0.0.1", PORT)) == 0:
                 raise RuntimeError(f"{PORT} occupied; refusing to reuse an unknown service")
         cls.output = (cls.evidence / "server.log").open("a", encoding="utf-8")
+        cls.resources.callback(cls.output.close)
         cls.server = subprocess.Popen([sys.executable, str(ROOT / "app.py"), "--no-import", "--port", str(PORT), "--data-dir", str(cls.evidence / "data")], cwd=ROOT, stdout=cls.output, stderr=subprocess.STDOUT, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+        cls.resources.callback(cls.stop_server, cls.server)
         for _ in range(100):
             try:
                 urllib.request.urlopen(URL + "/health", timeout=1).close()
@@ -41,11 +56,15 @@ class LayoutBrowserTests(unittest.TestCase):
             except OSError:
                 time.sleep(.1)
         else:
-            cls.server.terminate()
             raise RuntimeError("Synthetic service did not start")
         cls.playwright = sync_playwright().start()
+        cls.resources.callback(cls.playwright.stop)
         cls.browser = cls.playwright.chromium.launch(channel=os.environ.get("DATABASE_BROWSER_CHANNEL") or None)
+        cls.resources.callback(cls.browser.close)
+        requests = ExitStack()
+        cls.resources.callback(requests.close)
         request = cls.playwright.request.new_context(base_url=URL)
+        requests.callback(request.dispose)
         token = request.get("/api/session").json()["csrf"]
         response = request.post("/api/login", data={"username": "researcher", "password": "LocalDemo2026!"}, headers={"X-CSRF-Token": token})
         token = response.json()["csrf"]
@@ -65,19 +84,12 @@ class LayoutBrowserTests(unittest.TestCase):
                 ids.append(record["id"])
             cls.sample = {"source": source["id"], "person": person["id"], "records": ids}
             sample.write_text(json.dumps(cls.sample), encoding="utf-8")
-        request.dispose()
+        requests.close()
         print("Layout evidence:", cls.evidence, flush=True)
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.browser.close()
-        cls.playwright.stop()
-        cls.server.terminate()
-        cls.server.wait(timeout=10)
-        cls.output.close()
 
     def setUp(self):
         self.context = self.browser.new_context(viewport={"width": 1366, "height": 900})
+        self.addCleanup(self.context.close)
         self.page = self.context.new_page()
         self.errors = []
         self.page.on("pageerror", lambda error: self.errors.append(str(error)))
@@ -87,7 +99,6 @@ class LayoutBrowserTests(unittest.TestCase):
         expect(self.page.get_by_role("heading", name="查找研究资料", exact=True)).to_be_visible()
 
     def tearDown(self):
-        self.context.close()
         self.assertEqual(self.errors, [])
 
     def navigate(self, title):
@@ -281,7 +292,10 @@ class LayoutBrowserTests(unittest.TestCase):
             page.get_by_role("button",name="关闭",exact=True).click()
         # Equivalent reflow viewport for a 1440x900 display enlarged to 200%.
         # Native browser chrome zoom is unavailable in headless Edge.
+        zoom_resources = ExitStack()
+        self.addCleanup(zoom_resources.close)
         zoom = self.browser.new_context(viewport={"width":720,"height":450},device_scale_factor=2)
+        zoom_resources.callback(zoom.close)
         zpage = zoom.new_page()
         zpage.goto(URL)
         zpage.get_by_role("button", name="研究员", exact=True).click()
@@ -293,7 +307,7 @@ class LayoutBrowserTests(unittest.TestCase):
         zpage.locator(".record-title button").first.click()
         expect(zpage.get_by_role("dialog",name="连续阅读")).to_be_visible()
         zpage.get_by_role("button",name="返回列表",exact=True).click()
-        zoom.close()
+        zoom_resources.close()
         (self.evidence / "text-audit.json").write_text(json.dumps(findings,ensure_ascii=False,indent=2),encoding="utf-8")
 
     def test_reading_matches_available_space_and_returns_to_query(self):
