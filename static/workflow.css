@@ -21,7 +21,7 @@
 .rich-message{color:var(--error-text);font-size:14px;margin-top:4px}
 .draft-bar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 12px;background:var(--surface-selected);border-radius:6px;margin-bottom:16px;font-size:14px}
 .draft-offer{margin-bottom:18px}.draft-offer .row{margin-top:10px}
-.draft-card{padding:20px;display:flex;justify-content:space-between;align-items:center;gap:16px}.draft-card h2{font-size:19px}.draft-card p{color:var(--text-muted);font-size:14px}
+.draft-card{padding:20px;display:flex;justify-content:space-between;align-items:center;gap:20px;min-width:0}.draft-card>div{min-width:0}.draft-card h2{font-size:18px;line-height:1.6;overflow-wrap:anywhere}.draft-card p{color:var(--text-muted);font-size:14px;margin-top:8px}.draft-card>.button{flex-shrink:0}
 .source-picker{margin:0}.source-pick-list{max-height:200px;overflow:auto;display:grid;gap:7px;padding:12px;border:1px solid var(--border);border-radius:5px}
 .source-pick-list .check-label{align-items:start}.source-pick-list small{color:var(--text-muted);font-size:var(--font-small,14px);margin-left:8px}
 .attachment-editor{display:grid;gap:10px;padding:18px;background:var(--surface-muted);border-radius:7px}.attachment-editor label{font-size:14px}.attachment-editor input[type=file]{max-width:100%}
@@ -40,3 +40,51 @@
 [data-form=topic-search] .row input{min-width:0;flex:1}[data-form=topic-search]>label{display:block;margin-bottom:6px}
 .evidence-editor,.evidence-picker{display:grid;gap:14px;padding:18px;background:var(--surface-muted);border-radius:7px}.evidence-editor h3,.evidence-picker h3{margin:0}.evidence-editor .row input{min-width:0;flex:1}.comparison-fields{margin:12px 0}.comparison-fields>div{margin:10px 0}.comparison-fields dt{font-weight:600;color:var(--text-muted)}.comparison-fields dd{margin:0;overflow-wrap:anywhere;white-space:pre-wrap}.merge-comparison section{max-height:560px}
 @media(max-width:700px){.comparison-grid{grid-template-columns:minmax(0,1fr)}.rich-editor{min-height:240px;padding:12px}.rich-toolbar{gap:4px;padding:7px}.rich-toolbar button{padding:7px}.workflow-form .form-actions{flex-wrap:wrap}.workflow-form .form-actions .button{flex:1;white-space:normal}.draft-card{align-items:start;flex-direction:column}.rich-prose{font-size:16px}.conflict-panel{padding:12px}}
+
+/* Research workspace pages; shared navigation, reading and editor controls stay in their owners. */
+.workspace-collections,.workspace-drafts,.workspace-system,.workspace-topic{min-width:0}
+.topic-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:20px;align-items:start}
+.topic-card{display:flex;flex-direction:column;gap:14px;padding:24px;min-width:0}
+.topic-card h2{font-size:19px;line-height:1.6;overflow-wrap:anywhere}
+.topic-card .title-button{color:var(--primary);line-height:inherit}
+.topic-question p,.topic-description{font-size:16px;line-height:1.75;overflow-wrap:anywhere}
+.topic-question>span{display:block;margin-bottom:5px}
+.topic-owner{font-size:14px;color:var(--text-muted);border-top:1px solid var(--border);padding-top:12px;overflow-wrap:anywhere}
+.workspace-topic .detail-title{font-size:28px;line-height:1.5}
+.workspace-topic .detail-section{margin:28px 0}
+.workspace-topic .detail-section>h3{font-size:20px;margin-bottom:14px}
+.workspace-topic .detail-section>h4{font-size:17px;margin:20px 0 10px}
+.workspace-topic .prose{font-size:16px;color:var(--text);line-height:1.8}
+.workspace-topic .topic-tools{padding:8px 12px}
+.topic-tools .detail-actions{margin:12px 0 2px}
+.workspace-topic [data-form=topic-search] input{padding:9px 11px;border:1px solid var(--control-border);border-radius:6px;background:var(--surface);color:var(--text);font-size:16px}
+.workspace-system .system-grid{grid-template-columns:minmax(0,1fr);align-items:start;gap:24px}
+.workspace-system .system-card{padding:24px;min-width:0}
+.workspace-system .system-card h2{font-size:20px;line-height:1.5;margin-bottom:16px}
+.workspace-system .system-card h3{font-size:17px;line-height:1.6;margin-bottom:10px}
+.workspace-system .system-card p,.workspace-system .system-card ul{font-size:16px;line-height:1.75;overflow-wrap:anywhere}
+.workspace-system .system-card .small{font-size:14px}
+.workspace-system .system-card .detail-actions{margin:16px 0}
+.workspace-system .workspace-backup{border-top:1px solid var(--border);margin-top:24px;padding-top:20px}
+.workspace-system .workspace-backup .notice{font-size:14px;line-height:1.8}
+.workspace-system .workspace-portals .between{margin-bottom:14px;align-items:start}
+.workspace-system .workspace-portals h2{margin-bottom:0}
+.workspace-system .portal-list{list-style:none;padding:0;margin:0}
+.workspace-system .portal-list li{border-top:1px solid var(--border);padding:12px 0}
+.workspace-system .workspace-runtime details{margin-top:20px}
+.workspace-system .workspace-runtime details p{margin:12px 0}
+@media(min-width:1200px){
+  .workspace-system .system-grid{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-areas:"account exports" "portals exports" "runtime exports"}
+  .workspace-system .workspace-account{grid-area:account}
+  .workspace-system .workspace-exports{grid-area:exports}
+  .workspace-system .workspace-portals{grid-area:portals}
+  .workspace-system .workspace-runtime{grid-area:runtime}
+}
+@media(max-width:700px){
+  .topic-card,.workspace-system .system-card{padding:20px 16px}
+  .workspace-topic .detail-title{font-size:24px}
+  .workspace-topic .detail-actions{gap:10px;align-items:start}
+  .workspace-topic [data-form=topic-search] .row{flex-wrap:wrap}
+  .workspace-topic [data-form=topic-search] input{flex-basis:100%}
+  .workspace-drafts .draft-card>.button{align-self:stretch}
+}
