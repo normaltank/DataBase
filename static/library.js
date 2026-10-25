@@ -127,7 +127,6 @@ async function libraryOpenReader(id,origin=null,section='') {
   panel.closest('.library-workspace').classList.add('library-reading');
   panel.innerHTML='<header class="library-reader-head"><button class="button tiny" type="button" data-action="library-reader-close">返回列表</button></header><p class="library-loading" role="status">正在读取资料…</p>';libraryReaderSemantics();
   panel.querySelector('[data-action="library-reader-close"]').focus({preventScroll:true});
-  if(firstOpen&&!matchMedia('(max-width:900px)').matches){const workspace=panel.closest('.library-results-workspace');window.scrollTo(0,Math.max(0,window.scrollY+workspace.getBoundingClientRect().top-16));}
   try{
     const record=await api('/api/records/'+encodeURIComponent(id));
     if(epoch!==libraryWorkspace.readerEpoch||account!==state.me?.id||hash!==location.hash||!panel.isConnected)return;
@@ -136,6 +135,7 @@ async function libraryOpenReader(id,origin=null,section='') {
     const body=panel.querySelector('.library-reader-body');await uxReadRecord(record,body);
     if(epoch!==libraryWorkspace.readerEpoch||account!==state.me?.id||!panel.isConnected){body.replaceChildren();return;}
     panel.scrollTop=0;body.scrollTop=0;
+    if(firstOpen&&!matchMedia('(max-width:900px)').matches){const workspace=panel.closest('.library-results-workspace');window.scrollTo(0,Math.max(0,window.scrollY+workspace.getBoundingClientRect().top-16));}
     libraryWorkspace.readerRecord=record;
     const focus=section?body.querySelector(section):body.querySelector('.detail-title');
     if(focus){focus.tabIndex=-1;focus.focus({preventScroll:true});if(section)focus.scrollIntoView({block:'start'});}

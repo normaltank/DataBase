@@ -180,6 +180,28 @@ class LibraryBrowserTests(unittest.TestCase):
         self.assertAlmostEqual(page.evaluate('window.scrollY'), before, delta=2)
         expect(origin).to_be_focused()
 
+    def test_single_result_desktop_read_reveals_body_and_restores_list_position(self):
+        page = self.page
+        page.set_viewport_size({'width': 1440, 'height': 960})
+        page.get_by_label('发布日期起', exact=True).fill('2026-10-01')
+        page.get_by_label('发布日期止', exact=True).fill('2026-10-01')
+        page.get_by_role('button', name='应用筛选', exact=True).click()
+        origin = page.locator('.record-list .record-title button')
+        expect(origin).to_have_count(1)
+        before = page.evaluate('window.scrollY')
+        origin.click()
+        reader = page.get_by_role('region', name='连续阅读')
+        paragraph = reader.locator('#ux-body p').first
+        expect(paragraph).to_be_visible()
+        box = paragraph.bounding_box()
+        print('Single-result reader geometry:', json.dumps({'paragraph': box, 'scrollY': page.evaluate('window.scrollY')}, ensure_ascii=False), flush=True)
+        page.screenshot(path=str(self.evidence / 'desktop-single-result-reader-viewport.png'))
+        self.assertGreaterEqual(box['y'], 0)
+        self.assertLess(box['y'] + box['height'], 960)
+        reader.get_by_role('button', name='返回列表', exact=True).click()
+        self.assertAlmostEqual(page.evaluate('window.scrollY'), before, delta=2)
+        expect(origin).to_be_focused()
+
     def test_continuous_reader_returns_to_list_on_desktop_and_narrow_screen(self):
         page = self.page
         title = page.locator('.record-list .record-title button').nth(1)
