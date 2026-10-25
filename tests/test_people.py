@@ -227,12 +227,16 @@ class PeopleTests(unittest.TestCase):
             new_defaults.update(attachment_matches=[], attachments=[
                 {**attachment, "index": {"status": "unindexed", "message": "尚未建立索引"}}
                 for attachment in before["attachments"]])
+            new_defaults.update({key: [{**item, "attachment_matches": []} for item in before[key]]
+                                 for key in ["linked_records", "cited_by", "excerpts"]})
             self.assertEqual(self.clients["researcher"].get("/api/records/" + rid).json, {**before, **new_defaults})
             self.assertEqual(self.clients["researcher"].get("/api/history/record/" + rid).json, expected["history"][rid])
             for attachment in before["attachments"]:
                 self.assertEqual(self.download("/api/attachments/" + attachment["id"]), b"Synthetic legacy attachment.\n")
         self.assertEqual(self.clients["researcher"].get("/api/sources/" + expected["source"]["id"]).json, expected["source"])
-        self.assertEqual(self.clients["researcher"].get("/api/collections/" + expected["collection"]["id"]).json, expected["collection"])
+        expected_collection = {**expected["collection"], "items": [
+            {**item, "attachment_matches": []} for item in expected["collection"]["items"]]}
+        self.assertEqual(self.clients["researcher"].get("/api/collections/" + expected["collection"]["id"]).json, expected_collection)
         backups = list((legacy / "backups").glob("*.zip"))
         self.assertEqual(len(backups), CURRENT_SCHEMA_VERSION - 5)
         archived_versions = {}
@@ -258,6 +262,8 @@ class PeopleTests(unittest.TestCase):
             new_defaults.update(attachment_matches=[], attachments=[
                 {**attachment, "index": {"status": "unindexed", "message": "尚未建立索引"}}
                 for attachment in before["attachments"]])
+            new_defaults.update({key: [{**item, "attachment_matches": []} for item in before[key]]
+                                 for key in ["linked_records", "cited_by", "excerpts"]})
             self.assertEqual(self.clients["researcher"].get("/api/records/" + rid).json, {**before, **new_defaults})
         self.assertEqual(self.call("/api/records/" + next(iter(expected["records"])),
             {"version": 2, "title": "恢复旧版备份后继续修订"}, method="PUT").status_code, 200)
