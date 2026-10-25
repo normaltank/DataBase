@@ -1,9 +1,9 @@
-.attachment-matches { margin: 12px 0; padding: 10px 12px; background: var(--surface-soft, #f4f7fb); border-left: 3px solid #dfbe54; border-radius: 4px; overflow-wrap: anywhere; }
+.attachment-matches { margin: 12px 0; padding: 10px 12px; background: var(--accent-soft); border-left: 3px solid var(--accent); border-radius: 4px; overflow-wrap: anywhere; }
 .attachment-matches p { margin: 0 0 8px; font-size: 14px; }
 .attachment-matches p:last-child { margin-bottom: 0; }
 .attachment-locator, .attachment-snippet { display: block; margin-top: 4px; }
-.attachment-locator, .attachment-help { color: #52647a; font-size: 13px; line-height: 1.65; }
-.attachment-index-file { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 12px 0; border-bottom: 1px solid #e1e7ef; }
+.attachment-locator, .attachment-help { color: var(--text-muted); font-size: var(--font-small,14px); line-height: 1.65; }
+.attachment-index-file { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 12px 0; border-bottom: 1px solid var(--border); }
 .attachment-index-file a { flex: 1 1 180px; min-width: 0; overflow-wrap: anywhere; }
 .attachment-index-file [data-index-status] { font-size: 14px; }
 .attachment-index details { margin-top: 12px; }

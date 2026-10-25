@@ -51,7 +51,13 @@
 .ux-list-tools>.row .button{width:100%}
 .ux-library .filters{gap:13px}
 .ux-library .filters .field{min-width:0}
-.ux-library .filter-footer{font-size:13px}
+.ux-query-options{position:relative;margin:0 0 12px}
+.ux-library .ux-query-options>.ux-list-tools{position:absolute;right:0;top:0;margin:0}
+.ux-filters{padding:0;border:0;margin:0}
+.ux-filters>summary{padding:9px 140px 9px 0;min-height:40px;font-size:15px;font-weight:500;width:max-content;max-width:100%}
+.ux-filters[open]>summary{margin-bottom:8px}
+.ux-filters .filters{background:var(--surface-muted);border-color:var(--border)}
+.ux-library .filter-footer{font-size:var(--font-small,14px)}
 .ux-reading-drawer.drawer{width:980px;max-width:96vw}
 .ux-reader.drawer-body{padding:32px 40px}
 .ux-reading-article{max-width:820px;margin:0 auto;min-width:0}
@@ -112,7 +118,6 @@
   .ux-reading-actions{gap:9px 14px}
   .ux-library .toolbar .search-input{min-width:0;flex-basis:calc(100% - 90px)}
   .ux-library .ux-list-tools{margin-left:0}
-  .ux-list-tools>.row{left:0;right:auto}
   .ux-library .filters{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
   .ux-library .filters input,.ux-library .filters select{width:100%;min-width:0}
   .ux-library .filters .row{flex-wrap:wrap;gap:7px}

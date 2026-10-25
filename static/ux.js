@@ -80,10 +80,18 @@ async function uxLibraryPage(data=null) {
     root.querySelector('.results-head').before(bar);
   }
   const toolbar=root.querySelector('.toolbar');
+  const filters=root.querySelector('[data-form="filters"]');
+  if(filters){
+    const details=document.createElement('details');details.className='ux-filters';
+    details.innerHTML='<summary>筛选条件</summary>';
+    filters.before(details);details.append(filters);
+  }
   if(toolbar){
     const secondary=[...toolbar.children].filter(el=>el.matches('a,[data-action="duplicates"],[data-action="export-content"]'));
     if(secondary.length){const details=document.createElement('details');details.className='ux-list-tools';details.innerHTML='<summary>整理与导出</summary><div class="row wrap"></div>';secondary.forEach(el=>details.lastElementChild.append(el));toolbar.append(details);}
   }
+  const filterDisclosure=root.querySelector('.ux-filters');
+  if(filterDisclosure){const options=document.createElement('div');options.className='ux-query-options';filterDisclosure.before(options);options.append(filterDisclosure);const tools=root.querySelector('.ux-list-tools');if(tools)options.append(tools);}
   root.className='ux-library';return root.outerHTML;
 }
 async function uxRefreshBackground() {

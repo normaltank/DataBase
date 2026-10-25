@@ -1,7 +1,9 @@
 .library-workspace .results-head{flex-wrap:wrap;gap:12px}
+.library-result-controls{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
 .library-views{display:flex;gap:5px}
 .library-views [aria-pressed=true]{background:var(--surface-selected);border-color:var(--primary);color:var(--primary-strong)}
-.library-selection{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 0 16px;font-size:14px}
+.library-selection{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:4px 0 14px;font-size:14px}
+.has-selection .library-selection{padding:14px 16px;margin-bottom:14px;border:1px solid var(--border);border-left:3px solid var(--primary);border-radius:6px;background:var(--surface-selected)}
 .library-selection [data-library-batch-actions]{display:flex;gap:8px;flex-wrap:wrap}
 .library-selection [data-library-batch-status]{flex-basis:100%;margin:0;overflow-wrap:anywhere}
 .library-select{display:flex;align-items:flex-start;flex:0 0 22px;padding-top:6px;cursor:pointer}
@@ -13,28 +15,29 @@
 .library-row-main{flex:1;min-width:0}
 .library-row .record-title{font-size:17px;line-height:1.65;margin:0 0 7px;overflow-wrap:anywhere}
 .library-row .title-button{text-align:left;white-space:normal;overflow-wrap:anywhere}
-.library-row .record-meta{font-size:13px;gap:5px 13px;line-height:1.7;overflow-wrap:anywhere}
-.library-row-status{flex:0 0 150px;display:flex;flex-wrap:wrap;align-content:flex-start;align-items:flex-start;gap:6px}
-.library-row-status .ux-reading-actions{margin:5px 0 0;font-size:13px}
+.library-row .record-meta{font-size:14px;gap:5px 13px;line-height:1.7;overflow-wrap:anywhere}
+.library-row-status{flex:0 0 230px;display:flex;flex-wrap:wrap;align-content:flex-start;align-items:flex-start;gap:6px}
+.library-row-status .ux-reading-actions{flex-basis:100%;gap:8px 12px}
+.library-row-status .ux-reading-actions{margin:5px 0 0;font-size:14px}
 .library-results-workspace{min-width:0}
 .library-reader[hidden]{display:none}
-.library-reading .library-results-workspace{display:grid;grid-template-columns:minmax(230px,.85fr) minmax(0,1.4fr);gap:18px;align-items:start}
+.library-reading .library-results-workspace{display:grid;grid-template-columns:minmax(260px,.6fr) minmax(0,1.4fr);gap:18px;align-items:start}
 .library-reading .record-list{max-height:75vh;overflow-y:auto;overscroll-behavior:contain}
 .library-reading .library-row{flex-wrap:wrap;gap:7px}
 .library-reading .library-row-status{flex-basis:100%;align-items:center}
 .library-reader{position:sticky;top:16px;max-height:80vh;overflow:auto;min-width:0;background:var(--surface);border:1px solid var(--control-border);border-radius:8px}
 .library-reader-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px;padding:12px;border-bottom:1px solid var(--border);background:var(--surface-muted);position:sticky;top:0;z-index:1}
-.library-reader-head p{flex-basis:100%;font-size:13px;color:var(--text-muted);margin:0}
+.library-reader-head p{flex-basis:100%;font-size:14px;color:var(--text-muted);margin:0}
 .library-reader .library-reader-body{padding:22px;overflow:visible}
 .library-reader .detail-title{font-size:24px;line-height:1.6;overflow-wrap:anywhere}
 .library-reader .ux-identities{margin:22px 0;border-top:1px solid var(--border);padding-top:16px}
 .library-reader .ux-identities>summary{font-size:15px;color:var(--primary);cursor:pointer}
 .library-current{border-color:var(--primary);background:var(--surface-selected)}
 .library-loading{padding:25px}
-@media(max-width:900px){
+@media(max-width:1199px){
   .library-reading .library-results-workspace{display:block}
   .library-reading .record-list{max-height:none;overflow:visible}
-  .library-reader{position:fixed;inset:0;max-height:none;z-index:25;border:0;border-radius:0;overscroll-behavior:contain}
+  .library-reader{position:fixed;inset:0;max-height:none;z-index:35;border:0;border-radius:0;overscroll-behavior:contain}
   .library-narrow-reading{overflow:hidden}
   .library-reader .library-reader-body{padding:20px}
   .library-reader .detail-title{font-size:22px}
