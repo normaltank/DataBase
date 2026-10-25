@@ -147,7 +147,7 @@ class LibraryBrowserTests(unittest.TestCase):
         page.get_by_label('排序方式').select_option('title')
         expect(page.get_by_text('已选 0 条', exact=True)).to_be_visible()
 
-        expect(page.get_by_role('status')).to_contain_text('已清空选择')
+        expect(page.locator('#toast')).to_contain_text('已清空选择')
         page.get_by_role('button', name='选择当前页', exact=True).click()
         page.get_by_title('来源目录', exact=True).click()
         page.get_by_title('资料库', exact=True).click()
