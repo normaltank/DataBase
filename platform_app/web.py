@@ -13,6 +13,7 @@ from flask import Flask, abort, g, jsonify, render_template, request, send_file,
 from werkzeug.exceptions import HTTPException
 from werkzeug.security import check_password_hash
 
+from .attachment_search import AttachmentIndex, original_path
 from .store import connect, decoded, initialize, now, save_revision
 from .record_revisions import RecordRevisions, validate_text, check_version
 from . import source_catalog, workflow, evidence, identity, operations, reading, people, note_subjects, bylines, affiliations, person_identity
@@ -153,6 +154,19 @@ def create_app(data_dir=None, testing=False):
     def get_source(sid):
         return records().source(sid)
 
+    def attachment_index():
+        if 'attachment_index' not in g:
+            g.attachment_index = AttachmentIndex(db(), data_dir)
+        return g.attachment_index
+
+    def index_uploaded(rid, file, previous_ids=()):
+        if file and file.filename:
+            # The record transaction has committed before parsing starts.
+            attachments = attachment_index().current(get_record(rid))
+            for attachment in attachments:
+                if attachment["id"] not in previous_ids:
+                    attachment_index().rebuild(attachment)
+
     def record_summary(r, favorite_ids=None):
         obj = {k: r[k] for k in ["id", "kind", "title", "original_title", "authors", "source_id", "serial_id",
                "publication_title", "published_on", "language", "abstract", "keywords", "countries", "status",
@@ -165,6 +179,9 @@ def create_app(data_dir=None, testing=False):
         obj["related_source_ids"] = workflow.source_ids(db(), r["id"])
         text = " ".join(r[k] or "" for k in ["title", "original_title", "aliases", "abstract", "body_text", "coverage"])
         obj["search_snippet"] = workflow.snippet(text, request.args.get("q", "")) if request.args.get("q") else ""
+        obj["attachment_matches"] = attachment_index().matches(r, request.args.get("q", ""))
+        if obj["attachment_matches"] and not any(word in text.casefold() for word in request.args.get("q", "").casefold().split()):
+            obj["search_snippet"] = ""
         obj["evidence_record_id"] = r["evidence_record_id"]
         if "reading_authors" not in g:
             g.reading_authors = {u["id"]: u["name"] for u in db().execute("SELECT id,name FROM users")}
@@ -213,6 +230,7 @@ def create_app(data_dir=None, testing=False):
             if q:
                 hay = " ".join(str(r[k]) for k in ["title", "original_title", "authors", "abstract", "keywords", "publication_title", "doi", "id", "aliases", "body_text", "coverage", "original_catalogue", "quote", "translation", "interpretation", "locator"]) + " " + " ".join(source_names.get(sid, "") for sid in [r["source_id"], r["serial_id"], *associated])
                 hay += " " + bylines.Bylines(db(), user(), records()).search_text(r["id"])
+                hay += " " + " ".join(s["text"] for s in attachment_index().segments(r))
                 if not all(word in hay.casefold() for word in q.split()):
                     continue
             results.append(r)
@@ -244,6 +262,9 @@ def create_app(data_dir=None, testing=False):
         obj["linked_records"] = [record_summary(r) for r in db().execute("SELECT r.* FROM records r JOIN record_links l ON r.id=l.original_id WHERE l.report_id=?", (rid,)) if visible(r)]
         obj["cited_by"] = [record_summary(r) for r in db().execute("SELECT r.* FROM records r JOIN record_links l ON r.id=l.report_id WHERE l.original_id=?", (rid,)) if visible(r)]
         obj["attachments"] = [dict(a) for a in db().execute("SELECT id,name,bytes,created_at FROM attachments WHERE record_id=?", (rid,)) if a["id"] in obj["attachment_ids"]]
+        for attachment in obj["attachments"]:
+            full = db().execute("SELECT * FROM attachments WHERE id=?", (attachment["id"],)).fetchone()
+            attachment["index"] = attachment_index().info(full)
         obj["evidence_citations"] = evidence.citations(db(), rid, visible)
         obj["excerpts"] = [record_summary(r) for r in db().execute("SELECT * FROM records WHERE evidence_record_id=? AND merged_into IS NULL", (rid,)) if visible(r)]
         obj["evidence_snapshot"] = json.loads(row["evidence_snapshot_json"])
@@ -262,11 +283,18 @@ def create_app(data_dir=None, testing=False):
 
     @app.post("/api/records")
     def new_record():
-        return jsonify(id=records().create(body(), request.files.get("file"))), 201
+        file = request.files.get("file")
+        rid = records().create(body(), file)
+        index_uploaded(rid, file)
+        return jsonify(id=rid), 201
 
     @app.put("/api/records/<rid>")
     def edit_record(rid):
-        return jsonify(id=records().edit(rid, body(), request.files.get("file")))
+        file = request.files.get("file")
+        previous_ids = json.loads(get_record(rid)["attachment_ids"])
+        rid = records().edit(rid, body(), file)
+        index_uploaded(rid, file, previous_ids)
+        return jsonify(id=rid)
 
     @app.post("/api/records/<rid>/author")
     def confirm_author(rid):
@@ -534,18 +562,29 @@ def create_app(data_dir=None, testing=False):
             save_revision(db(), "collection", cid, "移出专题资料" if data.get("remove") is True else "加入专题资料", user()["id"])
         return jsonify(ok=True)
 
-    @app.get("/api/attachments/<aid>")
-    def download_attachment(aid):
+    def current_attachment(aid):
         a = db().execute("SELECT * FROM attachments WHERE id=?", (aid,)).fetchone()
         if not a:
             abort(404)
         row = get_record(a["record_id"])
         if aid not in json.loads(row["attachment_ids"]):
             abort(404, "附件属于历史版本，请先恢复相应版本。")
-        path = data_dir / "uploads" / a["stored_name"]
-        if not path.is_file():
+        path = original_path(data_dir, a)
+        if path is None:
             abort(404, "附件文件缺失，请联系管理员。")
+        return a, path
+
+    @app.get("/api/attachments/<aid>")
+    def download_attachment(aid):
+        a, path = current_attachment(aid)
         return send_file(path, as_attachment=True, download_name=a["name"])
+
+    @app.post("/api/attachments/<aid>/index")
+    def rebuild_attachment_index(aid):
+        attachment, _ = current_attachment(aid)
+        result = attachment_index().rebuild(attachment)
+        current_attachment(aid)  # Recheck membership and permissions after parsing.
+        return jsonify(result)
 
     @app.get("/api/records/<rid>/evidence-file")
     def evidence_file(rid):

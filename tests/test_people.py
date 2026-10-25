@@ -224,6 +224,9 @@ class PeopleTests(unittest.TestCase):
         self.assertEqual(self.clients["researcher"].get("/api/people").json["total"], 0)
         for rid, before in expected["records"].items():
             new_defaults = {"research_subjects": []} if before["kind"] == "research_note" else {}
+            new_defaults.update(attachment_matches=[], attachments=[
+                {**attachment, "index": {"status": "unindexed", "message": "尚未建立索引"}}
+                for attachment in before["attachments"]])
             self.assertEqual(self.clients["researcher"].get("/api/records/" + rid).json, {**before, **new_defaults})
             self.assertEqual(self.clients["researcher"].get("/api/history/record/" + rid).json, expected["history"][rid])
             for attachment in before["attachments"]:
@@ -252,6 +255,9 @@ class PeopleTests(unittest.TestCase):
         self.assertEqual(self.clients["researcher"].get("/api/people").json["total"], 0)
         for rid, before in expected["records"].items():
             new_defaults = {"research_subjects": []} if before["kind"] == "research_note" else {}
+            new_defaults.update(attachment_matches=[], attachments=[
+                {**attachment, "index": {"status": "unindexed", "message": "尚未建立索引"}}
+                for attachment in before["attachments"]])
             self.assertEqual(self.clients["researcher"].get("/api/records/" + rid).json, {**before, **new_defaults})
         self.assertEqual(self.call("/api/records/" + next(iter(expected["records"])),
             {"version": 2, "title": "恢复旧版备份后继续修订"}, method="PUT").status_code, 200)
