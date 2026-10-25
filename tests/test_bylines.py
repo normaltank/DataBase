@@ -435,7 +435,13 @@ class BylineTests(unittest.TestCase):
             app = create_app(recovered_dir, testing=True)
             self.clients = {u: self.login(u, app) for u in self.clients}
             self.assertEqual(self.get("/health")["schema"], CURRENT_SCHEMA_VERSION)
-            self.assertEqual(self.get("/api/records/" + rid), expected["records"][rid])
+            old_record = expected["records"][rid]
+            self.assertEqual(self.get("/api/records/" + rid), {
+                **old_record, "attachment_matches": [],
+                **{key: [{**item, "attachment_matches": []} for item in old_record[key]]
+                   for key in ["linked_records", "cited_by", "excerpts"]}, "attachments": [
+                    {**attachment, "index": {"status": "unindexed", "message": "尚未建立索引"}}
+                    for attachment in old_record["attachments"]]})
             self.assertEqual(self.bylines(rid)["raw_authors"], expected["records"][rid]["authors"])
             self.assertEqual(self.bylines(rid)["items"], [])
             self.assertEqual(self.get("/api/people")["total"], 1)
