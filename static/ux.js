@@ -66,8 +66,8 @@ async function uxDashboard() {
     +'<section class="panel ux-latest"><div class="panel-head"><h2>最近入库</h2>'+linkButton('资料库'+icon('arrow'),'nav','library','ux-read-link')+'</div>'+(data.latest.map(recentRow).join('')||'<div class="ux-empty">暂无入库内容。</div>')+'</section>'
     +'<div class="ux-dashboard-summary" aria-label="资料概况"><span>资料 '+data.stats.records+'</span><span>来源 '+data.stats.source_entries+'</span><span>收藏 '+data.stats.favorites+'</span></div></div>';
 }
-async function uxLibraryPage() {
-  const root=document.createElement('div');root.innerHTML=await baseLibraryPage();
+async function uxLibraryPage(data=null) {
+  const root=document.createElement('div');root.innerHTML=await baseLibraryPage(data);
   const labels={q:'关键词',kind:'类型',source:'来源',language:'语言',status:'核对',country:'研究对象',from:'起始日期',to:'截止日期',collection:'专题'};
   const entries=[...state.params].filter(([key,value])=>labels[key]&&value);
   if(entries.length){
@@ -95,7 +95,7 @@ async function uxRefreshBackground() {
   else if(state.page==='system')html=await systemPage();
   else if(state.page==='drafts')html=await draftsPage();
   else html=await libraryPage();
-  if(state.me&&location.hash===hash&&loadId===state.loadId)document.querySelector('#content').innerHTML=html;
+  if(state.me&&location.hash===hash&&loadId===state.loadId){document.querySelector('#content').innerHTML=html;if(typeof libraryAfterRender==='function')libraryAfterRender();}
 }
 function uxCopyLabel(record) {
   return ['compilation','research_report'].includes(record.kind)?'复制引用清单':record.kind==='research_note'?(record.evidence_record_id?'复制摘录与出处':'复制笔记与出处'):'复制出处';
@@ -112,13 +112,13 @@ function uxReadingNotes(record) {
   return '<section class="detail-section ux-notes-section" data-reading-notes><div class="between wrap"><h3>阅读说明</h3>'+linkButton(icon('edit')+'写阅读说明','ux-reading-note',record.id,'button tiny')+'</div>'
     +(notes.map(note=>'<article class="ux-note-card" data-reading-note="'+esc(note.id)+'"><div class="between"><h4>'+linkButton(esc(note.title),'detail',note.id,'title-button')+'</h4><button class="ux-read-link" type="button" data-action="ux-expand-note" data-id="'+esc(note.id)+'" aria-expanded="false" aria-controls="note-body-'+esc(note.id)+'">展开说明</button></div><p class="ux-time">'+esc(note.authors||note.author_name||state.users.find(u=>u.id===note.author_id)?.name||'负责作者待确认')+(note.updated_at?' · 更新于 '+dateTime(note.updated_at):'')+'</p><div id="note-body-'+esc(note.id)+'" data-note-body hidden></div></article>').join('')||'<p class="ux-empty-line">记录这份资料的用途、局限或值得继续的问题。</p>')+'</section>';
 }
-async function uxReadRecord(record) {
+async function uxReadRecord(record,target=null) {
   const bylines=typeof bylineSection==='function'?await bylineSection(record):'';
   const research=isResearchContent(record.kind),access=uxAccess(record),references=record.linked_records||[],hasEvidence=!!record.evidence_record_id||!!record.evidence_citations?.length;
   const meta=[record.authors,record.published_on,languageLabel(record.language)].filter(Boolean),sources=recordSourceLabels(record).filter(label=>!label.startsWith('关联来源：'));
   const maintenance=(record.can_edit?linkButton('编辑内容','edit-record',record.id)+linkButton('修改历史','history','record:'+record.id):'')+linkButton('加入专题','add-to-collection',record.id)+linkButton(record.favorite?'取消收藏':'收藏资料','favorite',record.id)
     +(state.me.role==='admin'&&record.status!=='verified'?linkButton('标记已核对','verify','record:'+record.id):'');
-  modal(kinds[record.kind]||'阅读资料','<article class="ux-reading-article"><div class="row wrap ux-reading-labels">'+typeBadge(record.kind)+badge(record.status)+'<span class="badge neutral">'+(record.visibility==='shared'?'中心共享':'限授权成员')+'</span><span class="ux-version">版本 '+record.version+'</span></div>'
+  const content='<article class="ux-reading-article"><div class="row wrap ux-reading-labels">'+typeBadge(record.kind)+badge(record.status)+'<span class="badge neutral">'+(record.visibility==='shared'?'中心共享':'限授权成员')+'</span><span class="ux-version">版本 '+record.version+'</span></div>'
     +'<h2 class="detail-title">'+esc(record.title)+'</h2>'+(record.original_title&&record.original_title!==record.title?'<p class="original-title">'+esc(record.original_title)+'</p>':'')
     +'<div class="ux-bibliography">'+(meta.length?'<p>'+meta.map(esc).join(' · ')+'</p>':'')+(sources.length?'<p>'+sources.map(esc).join(' · ')+'</p>':'')+(record.coverage?'<p>'+esc(record.coverage)+'</p>':'')+((record.related_source_ids||[]).length?'<p>关联来源：'+record.related_source_ids.map(sourceName).join(' / ')+'</p>':'')+'</div>'
     +'<div class="ux-reading-actions ux-reading-toolbar">'+uxReadingActions(record)+'<button class="button tiny" type="button" data-action="ux-copy" data-id="'+esc(record.id)+'">'+uxCopyLabel(record)+'</button></div><div data-copy-region></div>'
@@ -138,11 +138,13 @@ async function uxReadRecord(record) {
     +((record.cited_by||[]).some(r=>r.kind!=='research_note')?'<section class="detail-section"><h3>引用此资料的成果</h3>'+record.cited_by.filter(r=>r.kind!=='research_note').map(r=>linkButton(esc(r.title),'detail',r.id,'detail-link')).join('')+'</section>':'')
     +'<details class="ux-metadata"><summary>题录与维护信息</summary><dl class="detail-grid section-gap">'+detailPair('稳定编号',esc(record.id))+detailPair('上传者',esc(record.owner_name))+detailPair('最近修改',record.last_modifier?esc(record.last_modifier.name)+' · '+dateTime(record.last_modifier.created_at):dateTime(record.updated_at))+detailPair('DOI',esc(record.doi))+detailPair('关键词',esc(record.keywords))+detailPair('研究对象',esc(record.countries))+detailPair('发布机构',sourceName(record.source_id))+detailPair('所属刊物',sourceName(record.serial_id)||esc(record.publication_title))+'</dl>'+(record.aliases?'<p class="prose">其他题名：'+esc(record.aliases)+'</p>':'')+(record.upstream_status?'<p class="prose">上游核查信息：'+esc(record.upstream_status)+'</p>':'')+'</details>'
     +'<details class="ux-maintenance"><summary>整理、编辑与核对</summary><div class="detail-actions">'+maintenance+'</div></details>'
-    +(!hasEvidence&&research&&typeof archivedLinks==='function'?archivedLinks('record',record):'')+'</article>');
-  const body=document.querySelector('.drawer-body');body.classList.add('ux-reader');body.closest('.drawer').classList.add('ux-reading-drawer');
+    +(!hasEvidence&&research&&typeof archivedLinks==='function'?archivedLinks('record',record):'')+'</article>';
+  if(target)target.innerHTML=content;else modal(kinds[record.kind]||'阅读资料',content);
+  const body=target||document.querySelector('.drawer-body');body.classList.add('ux-reader');body.closest('.drawer')?.classList.add('ux-reading-drawer');
   const favorite=body.querySelector('[data-action=favorite]');if(favorite)favorite.dataset.saved=!!record.favorite;
   for(const button of body.querySelectorAll('.icon-button[data-action=add-to-collection]'))button.setAttribute('aria-label','加入专题');
   state.detail={type:'record',data:record};
+  document.dispatchEvent(new CustomEvent('library:reader-rendered',{detail:{record,root:body}}));
 }
 async function uxReadingNote(original) {
   await workflowRecordForm('','research_note','reading:'+original.id,'','',{title:'阅读说明｜'+original.title.slice(0,60),linked_records:[original]});
