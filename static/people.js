@@ -28,16 +28,19 @@ async function peoplePage() {
 async function personPage(person,works='') {
   state.detail={type:'person',data:person};
   const names=personNames(person);
-  return `<article class="person-page"><a class="back-link" href="#people?${esc(parameters({id:''}))}">← 返回作者目录</a>
+  const employment=(await employmentSection(person.id)).replace('<h2>','<h2 id="person-employment">');
+  const notes=(await noteSubjectProfile('person',person.id)).replace('<h2>','<h2 id="person-notes">');
+  return `<article class="person-page" data-section-scope><a class="back-link" href="#people?${esc(parameters({id:''}))}">← 返回作者目录</a>
     ${person.requested_id!==person.id?`<div class="notice person-redirect">旧编号 ${esc(person.requested_id)} 已合并至当前人物“${esc(person.name)}”。${linkButton('查看原档案修改历史','person-history',person.requested_id,'link-button')}，或从身份整理历史查看原档案与关系来历。</div>`:''}
     ${state.params.get('work')?linkButton('返回资料','byline-back',state.params.get('work')):''}
     <header class="person-heading"><div>${personAvatar(person)}${person.avatar&&person.avatar_source?`<p class="person-avatar-source">头像来源：${esc(person.avatar_source)}</p>`:''}</div><div><p class="eyebrow">人物 Wiki</p><h1>${esc(person.name)}</h1>${names.length?`<p class="person-names">${esc(names.join(' · '))}</p>`:''}<p class="muted">版本 ${person.version}${person.last_modifier?' · '+esc(person.last_modifier.name)+' · '+dateTime(person.last_modifier.created_at):''}</p><div class="detail-actions">${person.can_edit?linkButton(icon('edit')+' 编辑档案','edit-person',person.id,'button primary'):''}${linkButton(icon('clock')+' 修改历史','person-history',person.id)}${linkButton('比较合并','person-merge-picker',person.id)}${linkButton('身份整理历史','person-identity-history',person.id)}</div></div></header>
-    <section class="panel person-section"><h2>人物介绍</h2>${person.introduction_html?`<div class="rich-prose">${readRich(person.introduction_html)}</div>`:'<p class="muted">介绍待补充，可由中心成员共同维护。</p>'}${person.sources?`<section class="person-sources"><h3>参考出处</h3><p class="prose">${esc(person.sources)}</p></section>`:''}</section>
+    ${sectionNavigation([{id:'person-introduction',label:'人物介绍'},{id:'person-employment',label:'任职经历'},{id:'person-works',label:'已确认作品'},{id:'person-notes',label:'研究笔记'},{id:'person-evidence',label:'依据与档案信息'}],'人物章节')}
+    <section class="panel person-section"><h2 id="person-introduction">人物介绍</h2>${person.introduction_html?`<div class="rich-prose">${readRich(person.introduction_html)}</div>`:'<p class="muted">介绍待补充，可由中心成员共同维护。</p>'}${person.sources?`<section class="person-sources"><h3>参考出处</h3><p class="prose">${esc(person.sources)}</p></section>`:''}</section>
     <div class="detail-actions"><button class="button" data-action="export-content" data-query="person=${encodeURIComponent(person.requested_id)}">${icon('down')} 导出人物档案</button></div>
-    ${await employmentSection(person.id)}
-    ${works}
-    ${await noteSubjectProfile('person',person.id)}
-    <details class="person-identity"><summary>档案信息</summary><dl><dt>稳定编号</dt><dd>${esc(person.id)}</dd>${person.previous_ids.length?`<dt>原档案编号</dt><dd>${person.previous_ids.map(id=>`<a href="#people?id=${encodeURIComponent(id)}">${esc(id)}</a>`).join('<br>')}</dd>`:''}<dt>最近维护依据 / 说明</dt><dd>${esc(person.change_note)}</dd></dl></details></article>`;
+    ${employment}
+    <section class="person-works-group"><h2 id="person-works">已确认作品</h2>${works}</section>
+    ${notes}
+    <section class="person-section"><h2 id="person-evidence">依据与档案信息</h2><details class="person-identity"><summary>档案信息</summary><dl><dt>稳定编号</dt><dd>${esc(person.id)}</dd>${person.previous_ids.length?`<dt>原档案编号</dt><dd>${person.previous_ids.map(id=>`<a href="#people?id=${encodeURIComponent(id)}">${esc(id)}</a>`).join('<br>')}</dd>`:''}<dt>最近维护依据 / 说明</dt><dd>${esc(person.change_note)}</dd></dl></details></section></article>`;
 }
 
 async function personForm(id='',draftKey='') {
