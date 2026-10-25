@@ -30,7 +30,7 @@ async function sourcesPage(){
 }
 async function systemPage(){
   const base=await baseSystemPage(),d=await api('/api/sources?group=maintenance');
-  return base+(state.schema>=5&&typeof operationsSystemCards==='function'?operationsSystemCards():'')+`<section class="system-card section-gap"><div class="between"><h3>采集入口与检索门户</h3>${linkButton('管理 '+d.total+' 个采集入口','source-group','maintenance','button primary')}</div><p>用于发现资料的门户与检索站。</p><div class="source-grid">${d.items.map(sourceCard).join('')}</div></section>`;
+  return `<section class="workspace-system"><div class="page-heading"><h1>数据与维护</h1></div><div class="system-grid">${state.schema>=5&&typeof operationsSystemCards==='function'?operationsSystemCards():''}<section class="system-card workspace-portals" aria-labelledby="portals-heading"><div class="between wrap"><h2 id="portals-heading">采集入口</h2>${linkButton('管理入口（'+d.total+'）','source-group','maintenance','button')}</div><p>门户与检索站用于发现资料，当前不自动采集。</p>${d.items.length?`<ul class="portal-list">${d.items.map(s=>`<li>${linkButton(esc(s.name),'source-detail',s.id,'title-button')}</li>`).join('')}</ul>`:'<p class="muted">暂无采集入口。</p>'}</section>${base}</div></section>`;
 }
 function relationDetails(s){
   const outgoing=(s.relationships||[]).map(r=>({label:relationLabels[r.type],id:r.target_id,evidence:r.evidence,checked_on:r.checked_on,owner:s.id}));
