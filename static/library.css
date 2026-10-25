@@ -3,6 +3,7 @@
 .library-views [aria-pressed=true]{background:var(--surface-selected);border-color:var(--primary);color:var(--primary-strong)}
 .library-selection{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 0 16px;font-size:14px}
 .library-selection [data-library-batch-actions]{display:flex;gap:8px;flex-wrap:wrap}
+.library-selection [data-library-batch-status]{flex-basis:100%;margin:0;overflow-wrap:anywhere}
 .library-select{display:flex;align-items:flex-start;flex:0 0 22px;padding-top:6px;cursor:pointer}
 .library-select input{width:18px;height:18px;accent-color:var(--primary);cursor:pointer}
 .library-card-item{display:flex;gap:10px;min-width:0}
