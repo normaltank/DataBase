@@ -177,8 +177,7 @@ class SavedSearchTests(unittest.TestCase):
             restored=restore_backup(backup,Path(self.temp.name)/('migration-backup-'+str(index)))
             with closing(sqlite3.connect(restored/'platform.sqlite3')) as db:
                 version=db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0]
-                if int(version) < 11:
-                    self.assertFalse(db.execute("SELECT name FROM sqlite_master WHERE name='saved_searches'").fetchone())
+                self.assertEqual(bool(db.execute("SELECT name FROM sqlite_master WHERE name='saved_searches'").fetchone()), int(version)>=11)
                 if version=='10':v10_backup=backup
             for name, info in expected['files'].items():
                 self.assertEqual((restored/name).read_bytes(),base64.b64decode(info['base64']))

@@ -21,7 +21,7 @@ from . import evidence, identity, source_catalog, workflow, note_subjects, bylin
 from .store import now, save_revision
 
 RECORD_FIELDS = ["kind", "title", "original_title", "authors", "source_id", "serial_id", "publication_title",
-                 "volume", "issue", "pages", "issn", "published_on", "language", "abstract", "keywords", "countries", "doi", "url", "visibility", "unresolved_refs"] + list(workflow.RECORD_DEFAULTS) + workflow.EVIDENCE_FIELDS
+                 "volume", "issue", "pages", "issn", "published_on", "language", "abstract", "chinese_title", "chinese_abstract", "keywords", "countries", "doi", "url", "visibility", "unresolved_refs"] + list(workflow.RECORD_DEFAULTS) + workflow.EVIDENCE_FIELDS
 KINDS = {"research_article", "journal_article", "report", "compilation", "book_section", "book", "book_review",
          "conference_abstract", "thesis", "presentation", "speech", "policy", "news", "other"}
 KINDS |= workflow.CONTENT_KINDS
@@ -33,7 +33,7 @@ def validate_text(data, fields, base=None):
         value = data.get(field, base[field] if base else "")
         if value is None:
             value = ""
-        limit = 500000 if field in ["body_html", "body_text", "introduction_html", "introduction_text"] else 40000 if field in ["abstract", "notes", "unresolved_refs", "quote", "translation", "interpretation"] else 4000
+        limit = 500000 if field in ["body_html", "body_text", "introduction_html", "introduction_text"] else 40000 if field in ["abstract", "chinese_abstract", "notes", "unresolved_refs", "quote", "translation", "interpretation"] else 4000
         if not isinstance(value, str) or len(value) > limit:
             abort(400, "字段格式或长度不正确。")
         values[field] = value.strip()
@@ -411,7 +411,7 @@ class RecordRevisions:
             old = json.loads(revision["snapshot_json"])
             if old["kind"] in workflow.CONTENT_KINDS and (self.db.execute("SELECT 1 FROM record_links WHERE original_id=?", (rid,)).fetchone() or self.db.execute("SELECT 1 FROM records WHERE evidence_record_id=?", (rid,)).fetchone()):
                 abort(409, "此资料现已被成果或摘录引用，不能恢复为研究内容类型。")
-            values = {k: old[k] for k in RECORD_FIELDS + ["attachment_ids", "evidence_version", "evidence_snapshot_json", "raw_json"] if k in old}
+            values = {k: old[k] for k in RECORD_FIELDS + ["attachment_ids", "evidence_version", "evidence_snapshot_json", "raw_json", "adopted_translation_id"] if k in old}
             self._unique_doi(intake.normalize_doi(values.get("doi")) or values.get("doi", ""), rid)
             bylines.validate_record_kind(self.db, rid, values["kind"])
             # Current permissions and responsible author are never restored from old content.

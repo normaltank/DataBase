@@ -18,7 +18,7 @@ from .attachment_search import AttachmentIndex, original_path
 from .publication_dates import interval as publication_interval, query_range as publication_query_range
 from .store import connect, decoded, initialize, now, save_revision
 from .record_revisions import RecordRevisions, validate_text, check_version
-from . import source_catalog, workflow, evidence, identity, operations, reading, people, note_subjects, bylines, affiliations, person_identity, bulk, intake, saved_searches, collection_scope, reviews
+from . import source_catalog, workflow, evidence, identity, operations, reading, people, note_subjects, bylines, affiliations, person_identity, bulk, intake, saved_searches, collection_scope, reviews, translations
 
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE_FIELDS = ["name", "original_name", "kind", "classification", "location", "country", "research_scope",
@@ -350,6 +350,8 @@ def create_app(data_dir=None, testing=False):
         obj["previous_ids"] = [x for x in identity.origins(db(), "records", rid) if x != rid]
         if row["kind"] == "research_note":
             obj["research_subjects"] = note_subjects.read(db(), rid, visible)
+        obj["translations"] = translations.items(db(), row)
+        obj["translation_history"] = translations.human_history(db(), row["id"])
         return jsonify(obj)
 
     @app.get("/api/records/<rid>/copy-text")
@@ -712,10 +714,10 @@ def create_app(data_dir=None, testing=False):
     def export_csv(rows, filename="research-records.csv"):
         output = io.StringIO(newline="")
         writer = csv.writer(output)
-        writer.writerow(["稳定编号", "题名", "原题名", "作者/编译者", "类型", "日期", "语言", "研究对象", "关键词", "刊物", "卷", "期", "页码", "ISSN", "DOI", "原文链接", "核对状态", "来源编号", "期刊编号", "关联原文编号"])
+        writer.writerow(["稳定编号", "题名", "原题名", "作者/编译者", "类型", "日期", "语言", "研究对象", "关键词", "刊物", "卷", "期", "页码", "ISSN", "DOI", "原文链接", "核对状态", "来源编号", "期刊编号", "关联原文编号", "人工中文题名", "人工中文摘要", "机器译文版本及出处"])
         for r in rows:
             linked = [x["id"] for x in db().execute("SELECT r.* FROM record_links l JOIN records r ON r.id=l.original_id WHERE l.report_id=?", (r["id"],)) if visible(x)]
-            values = [r[k] or "" for k in ["id", "title", "original_title", "authors", "kind", "published_on", "language", "countries", "keywords", "publication_title", "volume", "issue", "pages", "issn", "doi", "url", "status", "source_id", "serial_id"]] + [";".join(linked)]
+            values = [r[k] or "" for k in ["id", "title", "original_title", "authors", "kind", "published_on", "language", "countries", "keywords", "publication_title", "volume", "issue", "pages", "issn", "doi", "url", "status", "source_id", "serial_id"]] + [";".join(linked), r["chinese_title"], r["chinese_abstract"], json.dumps(translations.items(db(), r), ensure_ascii=False)]
             writer.writerow(["'" + v if str(v).lstrip().startswith(("=", "+", "-", "@")) else v for v in values])
         return send_file(io.BytesIO(output.getvalue().encode("utf-8-sig")), mimetype="text/csv; charset=utf-8", as_attachment=True, download_name=filename)
 
@@ -762,6 +764,7 @@ def create_app(data_dir=None, testing=False):
 
     saved_searches.register(app, SimpleNamespace(db=db, user=user, body=body, filtered_records=filtered_records))
     intake.register(app, SimpleNamespace(db=db, user=user, body=body, records=records))
+    translations.register(app, SimpleNamespace(db=db, user=user, body=body, records=records))
     bulk.register(app, SimpleNamespace(db=db, user=user, body=body, visible=visible, get_collection=get_collection, export_csv=export_csv))
     identity.register(app, db=db, body=body, records=records, validate_source=source_values)
     people.register(app, SimpleNamespace(db=db, user=user, body=body, data_dir=data_dir))

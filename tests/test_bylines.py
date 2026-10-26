@@ -445,6 +445,7 @@ class BylineTests(unittest.TestCase):
             old_record = expected["records"][rid]
             self.assertEqual(self.get("/api/records/" + rid), {
                 **old_record, "volume": "", "issue": "", "pages": "", "issn": "", "attachment_matches": [], "can_manage_access": True,
+                "chinese_title": "", "chinese_abstract": "", "adopted_translation_id": "", "translations": [], "translation_history": [],
                 "last_verified": None, "review_history": [],
                 **{key: [{**item, "volume": "", "issue": "", "pages": "", "issn": "", "attachment_matches": [], "can_manage_access": True} for item in old_record[key]]
                    for key in ["linked_records", "cited_by", "excerpts"]}, "attachments": [
