@@ -1,5 +1,6 @@
 """Whole-acquisition deadlines through authenticated HTTP and synthetic sockets."""
 import io
+import ssl
 import tempfile
 import threading
 import time
@@ -16,6 +17,7 @@ class SlowReader(io.BytesIO):
         self.transport = transport
 
     def readline(self, *args):
+        self.transport.stage_entered.set()
         # Keep each read below the configured inactivity timeout while the
         # complete header exceeds the acquisition budget. shutdown interrupts
         # this makefile even after HTTPConnection has closed its own reference.
@@ -31,6 +33,7 @@ class SlowSocket:
         self.interrupted = threading.Event()
         self.closed = False
         self.reader = None
+        self.stage_entered = threading.Event()
 
     def getpeername(self):
         return (self.peer, 443)
@@ -57,6 +60,7 @@ class SlowSocket:
 
 class SlowHandshakeSocket(SlowSocket):
     def do_handshake(self):
+        self.stage_entered.set()
         if self.interrupted.wait(.6):
             raise OSError('TLS handshake interrupted')
 
@@ -67,6 +71,7 @@ class SlowBodyReader(io.BytesIO):
         self.transport = transport
 
     def read1(self, *args):
+        self.transport.stage_entered.set()
         self.transport.interrupted.wait(.6)
         # A real shutdown can end a read with EOF rather than an exception.
         return b''
@@ -81,6 +86,9 @@ class SlowBodySocket(SlowSocket):
 class IntakeDeadlineTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        # Windows loads its system certificate store here. That startup cost
+        # is outside the synthetic 100ms network budget under test.
+        cls.ssl_context = ssl.create_default_context()
         cls.temp = tempfile.TemporaryDirectory(prefix='intake-deadline-')
         cls.app = create_app(Path(cls.temp.name), testing=True)
         cls.client = cls.app.test_client()
@@ -102,6 +110,7 @@ class IntakeDeadlineTests(unittest.TestCase):
             sockets.append(transport)
             return transport
         with patch('platform_app.intake.MAX_SECONDS', .10), \
+             patch('ssl.create_default_context', return_value=self.ssl_context), \
              patch('socket.getaddrinfo', return_value=[(2,1,6,'',('93.184.216.34',443))]), \
              patch('socket.create_connection', side_effect=connect), \
              patch('ssl.SSLContext.wrap_socket', side_effect=lambda sock, **kwargs:sock):
@@ -113,14 +122,19 @@ class IntakeDeadlineTests(unittest.TestCase):
                 self.assertEqual(result.status_code, 422, result.json)
                 self.assertIn('超时', result.json['error'])
                 self.assertLess(time.monotonic() - started, .35)
-        self.assertTrue(all(transport.interrupted.is_set() and transport.closed for transport in sockets))
-        self.assertTrue(all(transport.reader.closed for transport in sockets))
+        self.assertEqual(len(sockets), 5)
+        for transport in sockets:
+            self.assertTrue(transport.stage_entered.is_set(), 'slow response headers were not reached')
+            self.assertIsNotNone(transport.reader)
+            self.assertTrue(transport.interrupted.is_set() and transport.closed)
+            self.assertTrue(transport.reader.closed)
 
     def test_tls_handshake_and_detached_body_are_interrupted(self):
         for transport_type in (SlowHandshakeSocket, SlowBodySocket):
             with self.subTest(stage=transport_type.__name__):
                 transport = transport_type()
                 with patch('platform_app.intake.MAX_SECONDS', .10), \
+                     patch('ssl.create_default_context', return_value=self.ssl_context), \
                      patch('socket.getaddrinfo', return_value=[(2,1,6,'',('93.184.216.34',443))]), \
                      patch('socket.create_connection', return_value=transport), \
                      patch('ssl.SSLContext.wrap_socket', side_effect=lambda sock, **kwargs:sock):
@@ -130,12 +144,15 @@ class IntakeDeadlineTests(unittest.TestCase):
                     self.assertIn('超时', result.json['error'])
                     self.assertLess(time.monotonic() - started, .35)
                 self.assertTrue(transport.interrupted.is_set() and transport.closed)
-                if transport.reader:
+                self.assertTrue(transport.stage_entered.is_set(), 'intended TLS/body stage was not reached')
+                if transport_type is SlowBodySocket:
+                    self.assertIsNotNone(transport.reader)
                     self.assertTrue(transport.reader.closed)
 
     def test_proxy_dns_slow_headers_use_the_same_acquisition_deadline(self):
         transport = SlowSocket('1.1.1.1')
         with patch('platform_app.intake.MAX_SECONDS', .10), \
+             patch('ssl.create_default_context', return_value=self.ssl_context), \
              patch('socket.getaddrinfo', return_value=[(2,1,6,'',('198.18.1.50',443))]), \
              patch('socket.create_connection', return_value=transport), \
              patch('ssl.SSLContext.wrap_socket', side_effect=lambda sock, **kwargs:sock):
@@ -145,6 +162,8 @@ class IntakeDeadlineTests(unittest.TestCase):
             self.assertIn('超时', result.json['error'])
             self.assertLess(time.monotonic() - started, .35)
         self.assertTrue(transport.interrupted.is_set() and transport.closed)
+        self.assertTrue(transport.stage_entered.is_set(), 'slow DoH response headers were not reached')
+        self.assertIsNotNone(transport.reader)
         self.assertTrue(transport.reader.closed)
 
 
