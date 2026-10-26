@@ -222,6 +222,7 @@ def register(app, ctx):
         payload = {"format": "research-content-v1", "exported_at": now(), "selected_ids": [r["id"] for r in selected],
                    "records": list(records.values()), "sources": sources, "collections": collections, "attachments": list(attachments.values()),
                    "people": people, "avatars": list(avatars.values())}
+        coverage = content_export.evidence_coverage(records, attachments)
         output = io.BytesIO()
         style = "body{font:16px/1.7 system-ui,sans-serif;max-width:960px;margin:32px auto;padding:0 20px;color:#202f42}a{color:#234e78}pre{font:inherit;white-space:pre-wrap}section{margin:28px 0}"
         style += (Path(app.static_folder) / "reading.css").read_text(encoding="utf-8")
@@ -243,8 +244,11 @@ def register(app, ctx):
             return '<section><h2>引用时的原始资料快照</h2><pre>' + html.escape(details) + '</pre>' + (snapshot.get("body_html") or "") + prose("原摘要", snapshot.get("abstract")) + '</section>'
 
         with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("evidence-coverage.json", json.dumps(coverage, ensure_ascii=False, indent=2))
+            archive.writestr("review.html", page("研究复核与证据留存范围", content_export.coverage_html(coverage)))
             archive.writestr("content.json", json.dumps(payload, ensure_ascii=False, indent=2))
             index = "<p>包括当前可见正文、附件、来源、专题和引用时的证据快照。账户凭据不在此导出中；全部历史的系统恢复使用完整备份。</p><ul>"
+            index = '<p><a href="review.html">研究复核与证据留存范围</a></p>' + index
             for person in people:
                 index += '<li><a href="' + person["path"] + '">人物档案：' + html.escape(person["name"]) + '</a></li>'
                 archive.writestr(person["path"], page(person["name"], content_export.person_html(person, prose, paths, source_paths)))
@@ -274,7 +278,7 @@ def register(app, ctx):
                     if snap.get("evidence_record_id"):
                         original_id = ctx.get_record(snap["evidence_record_id"])["id"]
                         if original_id in paths:
-                            content += '<p><a href="../' + paths[original_id] + '">返回引用时对应原文</a></p>'
+                            content += '<p><a href="../' + paths[original_id] + '">查看当前原文（非引用时正文）</a></p>'
                     if snap.get("evidence_attachment_id") in attachments:
                         attached = attachments[snap["evidence_attachment_id"]]
                         content += '<p><a href="../attachments/' + attached["stored_name"] + '">采用版本的原文附件：' + html.escape(attached["name"]) + '</a></p>'
@@ -305,16 +309,19 @@ def register(app, ctx):
             for collection in collections:
                 index += "<section><h2>" + html.escape(collection["name"]) + "</h2>" + prose("研究问题", collection["research_question"]) + collection["comparison_html"] + prose("阶段判断", collection["stage_judgment"]) + "</section>"
             archive.writestr("index.html", page("研究资料内容导出", index))
-            for attachment in attachments.values():
-                path = ctx.data_dir / "uploads" / attachment["stored_name"]
-                if not path.is_file():
-                    abort(409, "附件文件缺失，无法完成完整内容导出。")
-                archive.write(path, "attachments/" + attachment["stored_name"])
-            for avatar in avatars.values():
-                path = ctx.data_dir / "avatars" / avatar["stored_name"]
-                if (not path.is_file() or path.stat().st_size != avatar["bytes"]
-                        or hashlib.sha256(path.read_bytes()).hexdigest() != avatar["sha256"]):
-                    abort(409, "头像文件缺失或与登记信息不一致，无法完成内容导出。")
-                archive.write(path, avatar["path"])
+            for group, folder, label in [(attachments, "uploads", "附件"), (avatars, "avatars", "头像")]:
+                for entry in group.values():
+                    try:
+                        data = (ctx.data_dir / folder / entry["stored_name"]).read_bytes()
+                    except OSError:
+                        abort(409, label + "文件缺失或不可读，无法完成内容导出。")
+                    if len(data) != entry["bytes"] or hashlib.sha256(data).hexdigest() != entry["sha256"]:
+                        abort(409, label + "文件与登记信息不一致，无法完成内容导出。")
+                    archive.writestr(entry["path"], data)
+            manifest = {"format": "research-content-manifest-v1", "files": []}
+            for name in archive.namelist():
+                data = archive.read(name)
+                manifest["files"].append({"path": name, "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()})
+            archive.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
         output.seek(0)
         return send_file(output, mimetype="application/zip", as_attachment=True, download_name="research-content.zip")
