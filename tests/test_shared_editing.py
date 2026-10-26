@@ -57,7 +57,7 @@ class SharedEditingTests(unittest.TestCase):
         self.assertEqual(restored.status_code, 200, restored.json)
         self.assertEqual(self.call(f"/api/history/{history[0]['id']}/restore", {"version": 2}).status_code, 409)
         self.assertEqual(self.clients["researcher"].get("/api/sources/" + sid).json["introduction_html"], "<p>公开档案初稿</p>")
-        self.assertEqual(self.call("/api/review/source/" + sid, {"version": 3}, user="colleague").status_code, 403)
+        self.assertEqual(self.call("/api/review/source/" + sid, {"version": 3, "review_scope": "metadata_only", "review_note": "合成题录核对"}, user="colleague").status_code, 403)
 
     def test_legacy_restricted_unconfirmed_note_does_not_expose_reading_to_editors(self):
         rid = self.record("research_note", visibility="restricted")

@@ -1,3 +1,8 @@
+const citationStances={unclassified:'未分类',supports:'支撑',contradicts:'反例',qualifies:'限定',background:'背景'};
+const citationReasons={note_updated:'笔记已修订',original_updated:'原文已修订',original_merged:'原文已合并转向',identity_changed:'署名、文章单位或笔记研究对象关系有变化'};
+function citationReview(c){return '<p><strong>引用用途：'+esc(citationStances[c.stance]||'未分类')+'</strong></p>'+(c.claim_note?'<p class="prose">所涉判断与说明：'+esc(c.claim_note)+'</p>':'')+((c.staleness_reasons||[]).length?'<p class="notice">有变更待评估：'+c.staleness_reasons.map(r=>esc(citationReasons[r]||r)).join('；')+'</p>':'')+(c.identity_changes||[]).map(d=>'<p class="form-help">'+esc(({bylines:'原文署名',article_affiliations:'文章署名单位',subjects:'笔记研究对象'})[d.scope]||d.scope)+'：'+(d.change==='endpoints_or_status'?'当前端点或确认状态已改变':'关系历史已有修订（当前端点及状态相同）')+'</p>').join('')+(c.identity_baseline_status==='unknown'?'<p class="form-help">历史未记录完整身份基线，无法自动比较。</p>':'');}
+function groupedCitations(citations,render){return Object.entries(citationStances).map(([role,label])=>{const items=citations.filter(c=>(c.stance||'unclassified')===role);return items.length?'<section class="citation-group"><h4>'+esc(label)+'</h4>'+items.map(render).join('')+'</section>':'';}).join('');}
+function citationScopeNotice(citations){const roles=new Set(citations.map(c=>c.stance||'unclassified'));return roles.has('unclassified')?'当前可见引用中有未分类用途，反例与限定的登记情况未知。':roles.size===1&&roles.has('supports')?'当前可见的已登记引用中未登记反例或限定；这不表示现实中不存在相反材料。':'';}
 'use strict';
 
 async function mergeChoices(type,q='') {
@@ -11,8 +16,8 @@ async function duplicatesView(type='record') {
 }
 function readableField(value){if(typeof value==='string'){try{const decoded=JSON.parse(value);if(Array.isArray(decoded))return decoded.map(v=>typeof v==='object'?Object.values(v).join(' · '):v).join('；');}catch{}return value;}return Array.isArray(value)?value.join('；'):String(value??'');}
 function mergeSide(r) {
-  const labels={id:'稳定编号',kind:'类型',original_name:'原名',original_title:'原题名',authors:'署名',aliases:'其他名称',coverage:'覆盖范围',country:'国家',host_id:'主办方',publisher_id:'出版方',website:'官网',doi:'DOI',issn:'ISSN',published_on:'日期',visibility:'可见范围',owner_id:'提交者编号',author_id:'负责作者编号',author_confirmed:'作者已确认',editors:'获授权成员',attachment_ids:'附件编号',relationships:'机构关系',abstract:'摘要',notes:'备注',research_question:'研究问题',stage_judgment:'阶段判断',quote:'原文摘录',translation:'译文',interpretation:'研究说明',locator:'位置',evidence_version:'原文版本'};
-  return '<h3>'+esc(r.name||r.title)+'</h3><p class="muted">版本 '+r.version+'</p><dl class="comparison-fields">'+Object.entries(labels).filter(([k])=>r[k]!==undefined&&r[k]!==''&&r[k]!==null).map(([k,l])=>detailPair(l,esc(k==='kind'?(kinds[r[k]]||sourceKinds[r[k]]||r[k]):readableField(r[k])))).join('')+'</dl><h4>正文 / 介绍</h4><div class="rich-prose">'+readRich(r.body_html||r.introduction_html||r.comparison_html)+'</div>';
+  const labels={id:'稳定编号',kind:'类型',original_name:'原名',original_title:'原题名',authors:'署名',aliases:'其他名称',coverage:'覆盖范围',country:'国家',host_id:'主办方',publisher_id:'出版方',website:'官网',doi:'DOI',volume:'卷',issue:'期',pages:'页码 / 文章编号',issn:'ISSN',published_on:'日期',visibility:'可见范围',owner_id:'提交者编号',author_id:'负责作者编号',author_confirmed:'作者已确认',editors:'获授权成员',attachment_ids:'附件编号',relationships:'机构关系',abstract:'摘要',notes:'备注',research_question:'研究问题',stage_judgment:'阶段判断',quote:'原文摘录',translation:'译文',interpretation:'研究说明',locator:'位置',evidence_version:'原文版本'};
+  return '<h3>'+esc(r.name||r.title)+'</h3><p class="muted">版本 '+r.version+'</p><dl class="comparison-fields">'+Object.entries(labels).filter(([k])=>r[k]!==undefined&&r[k]!==''&&r[k]!==null).map(([k,l])=>detailPair(l,esc(k==='kind'?(kinds[r[k]]||sourceKinds[r[k]]||r[k]):readableField(r[k])))).join('')+'</dl><h4>正文 / 介绍</h4><div class="rich-prose">'+readRich(r.body_html||r.introduction_html||r.comparison_html)+'</div>'+(r.item_details?'<h4>专题条目决定与理由</h4>'+r.item_details.map(item=>'<p>'+esc(item.record_id)+' · '+(item.disposition==='excluded'?'已排查并排除':'已纳入')+' · '+esc(item.rationale||'未登记理由')+'</p>').join('')+'<h4>检索覆盖日志</h4>'+scopeLogHTML(r.scope_log):'');
 }
 async function mergePreview(type,keepId,duplicateId) {
   const result=await api('/api/merge/preview',{method:'POST',body:{type,keep_id:keepId,duplicate_id:duplicateId}});
@@ -33,14 +38,34 @@ async function enhanceEvidenceForm(form,r,evidenceId='') {
     +textField('quote','原文摘录',r.quote)+textField('translation','我的译文',r.translation)+textField('interpretation','研究说明 / 解释',r.interpretation)+inputField('locator','页码 / 段落 / 其他定位',r.locator,'例如：第 12 页，第 2 段',true)+inputField('evidence_url','原文位置链接',r.evidence_url,'https://…',true,'url')+selectField('evidence_attachment_id','所据附件',{},r.evidence_attachment_id,'未选择附件',true)
     +(r.id?'<label class="check-label"><input type="checkbox" name="refresh_evidence">将所据原文更新到当前版本（会形成新修订）</label>':'');
   const citations=document.createElement('section');citations.className='wide evidence-picker';citations.dataset.evidencePicker='';
-  citations.innerHTML='<h3>引用研究笔记 / 摘录</h3><div class="source-picker"><input type="search" data-source-picker-search aria-label="筛选研究证据" placeholder="筛选笔记或摘录"><div class="source-pick-list">'+notes.filter(n=>n.id!==r.id).map(n=>'<label class="check-label" data-source-choice="'+esc((n.title+' '+n.authors).toLowerCase())+'"><input type="checkbox" name="evidence_ids" value="'+esc(n.id)+'" '+(existing.includes(n.id)?'checked':'')+'><span>'+esc(n.title)+' · 当前 v'+n.version+'</span></label>').join('')+'</div></div><p class="form-help">保留引用时版本；笔记以后修改不会悄悄替换本报告的依据。</p>'+(r.id&&existing.length?'<label class="check-label"><input type="checkbox" name="refresh_citations">明确更新所选证据为当前版本</label>':'');
+  citations.innerHTML='<h3>引用研究笔记 / 摘录</h3><p class="form-help">每份笔记在本报告登记一个主要用途；说明可写具体判断与适用范围。用途由成员选择，不代表系统评价材料。</p><div class="source-picker"><input type="search" data-source-picker-search aria-label="筛选研究证据" placeholder="筛选笔记或摘录"><div class="source-pick-list">'+notes.filter(n=>n.id!==r.id).map(n=>{
+    const saved=(r.evidence_citations||[]).find(c=>c.excerpt_id===n.id);
+    return '<div data-source-choice="'+esc((n.title+' '+n.authors).toLowerCase())+'"><label class="check-label"><input type="checkbox" name="evidence_ids" value="'+esc(n.id)+'" '+(saved?'checked':'')+'><span>'+esc(n.title)+' · 当前 v'+n.version+'</span></label><div data-citation-context '+(saved?'':'hidden')+'>'+selectField('citation_stance_'+n.id,'引用用途',citationStances,saved?.stance||'background')+textField('citation_claim_'+n.id,'所涉判断与说明',saved?.claim_note||'')+'</div></div>';
+  }).join('')+'</div></div><p class="form-help">保留引用时版本；笔记以后修改不会悄悄替换本报告的依据。原文、身份或笔记变化仅提示待评估。</p>'+(r.id&&existing.length?'<label class="check-label"><input type="checkbox" name="refresh_citations">明确更新所选笔记为当前版本（笔记仍固定旧原文时，原文提示继续保留）</label>':'');
   form.querySelector('[data-rich-field=body_html]').before(noteSection,citations);
   if(r.evidence_record_id||evidenceId)await setEvidenceOriginal(form,r.evidence_record_id||evidenceId,r.evidence_attachment_id,r.evidence_version);
+  const anchor=evidenceSnapshotData(r).attachment_anchor;
+  const retained=anchor?.quote_match?.status==='matched'&&anchor.id===r.evidence_attachment_id&&anchor.locator===r.locator&&anchor.quote===r.quote
+    ?{evidence_selection_start:anchor.selection_start,evidence_occurrence:anchor.occurrence}:{};
+  setEvidencePosition(form,{...retained,...r});
+  for(const type of ['input','change'])noteSection.addEventListener(type,event=>{
+    if(['quote','locator','evidence_attachment_id','evidence_record_id'].includes(event.target.name))setEvidencePosition(form);
+  });
   updateEvidenceMode(form);
 }
-function updateEvidenceMode(form){const kind=form.elements.kind.value;const note=form.querySelector('[data-evidence-editor]'),citations=form.querySelector('[data-evidence-picker]');if(note){note.hidden=kind!=='research_note';citations.hidden=!['compilation','research_report'].includes(kind);}}
+function setEvidencePosition(form,values={}) {
+  const section=form.querySelector('[data-evidence-editor]');if(!section)return;
+  for(const field of ['evidence_occurrence','evidence_selection_start']){
+    section.querySelector('[name="'+field+'"]')?.remove();
+    const raw=values[field],value=typeof raw==='string'&&/^\d+$/u.test(raw)?Number(raw):raw;
+    if(!Number.isInteger(value)||value<0||value>1000000)continue;
+    const position=document.createElement('input');position.type='hidden';position.name=field;position.value=String(value);section.append(position);
+  }
+}
+function updateEvidenceMode(form){const kind=form.elements.kind.value;const note=form.querySelector('[data-evidence-editor]'),citations=form.querySelector('[data-evidence-picker]');if(note){note.hidden=kind!=='research_note';citations.hidden=!['compilation','research_report'].includes(kind);citations.querySelectorAll('[name=evidence_ids]').forEach(input=>{const context=input.closest('[data-source-choice]')?.querySelector('[data-citation-context]');if(context)context.hidden=!input.checked;});}}
 async function setEvidenceOriginal(form,id,attachment='',version=null) {
   const r=await api('/api/records/'+encodeURIComponent(id));if(!form.isConnected)return;
+  setEvidencePosition(form);
   form.elements.evidence_record_id.value=r.id;
   form.querySelector('[data-evidence-origin]').hidden=false;
   form.querySelector('[data-evidence-origin]').innerHTML='<strong>'+esc(r.title)+'</strong><p>所据版本 '+(version||r.version)+' · '+esc(r.authors)+'</p>';
@@ -48,11 +73,24 @@ async function setEvidenceOriginal(form,id,attachment='',version=null) {
   form.elements.evidence_attachment_id.innerHTML=selectOptions(options,attachment,'未选择附件');
   form.querySelector('[data-evidence-results]').innerHTML='';
 }
-async function prepareEvidenceDraft(form,values){if(values.evidence_record_id&&form.querySelector('[data-evidence-editor]')){try{await setEvidenceOriginal(form,values.evidence_record_id,values.evidence_attachment_id,form._editing.original.evidence_version);}catch(error){form.querySelector('.form-error').textContent=error.message+' 草稿输入继续保留。';}}}
+async function prepareEvidenceDraft(form,values){
+  setEvidencePosition(form);
+  if(values.evidence_record_id&&form.querySelector('[data-evidence-editor]')){
+    try{await setEvidenceOriginal(form,values.evidence_record_id,values.evidence_attachment_id,form._editing.original.evidence_version);setEvidencePosition(form,values);}
+    catch(error){form.querySelector('.form-error').textContent=error.message+' 草稿输入继续保留。';}
+  }
+}
 function evidenceSnapshotData(note) {
   let snapshot=note.evidence_snapshot??note.evidence_snapshot_json;
   if(typeof snapshot==='string'){try{snapshot=JSON.parse(snapshot);}catch{return {};}}
   return snapshot&&typeof snapshot==='object'&&!Array.isArray(snapshot)?snapshot:{};
+}
+function attachmentAnchorDetail(snapshot) {
+  const anchor=snapshot.attachment_anchor;
+  if(!anchor)return '<p class="form-help">历史未记录附件锚点，无法自动检查当时的文件与位置。</p>';
+  const status=anchor.quote_match||{},labels={matched:'已在指定位置的提取文字中匹配',not_matched:'未在指定位置的提取文字中匹配',unchecked:'无法检查指定位置的提取文字'};
+  const reasons={at_location:'规范化空白后匹配',quote_not_at_location:'该位置未找到相同原句（跨段等情况可手工核对）',location_not_found:'索引未记录该位置（跨段等情况可手工核对）',unindexed:'尚无有效索引',empty:'无可提取文字',unsupported:'格式不支持',limit:'超过提取限制',failed:'提取失败',missing:'文件缺失',file_mismatch:'文件字节与登记摘要不一致'};
+  return '<section class="section-gap attachment-anchor"><h4>引用附件锚点</h4><p>'+esc(labels[status.status]||'无法检查指定位置的提取文字')+' · '+esc(reasons[status.reason]||status.reason||'未记录原因')+'</p><p class="form-help">提取文字匹配与文件摘要只供核对，不证明材料真实、身份或研究结论。</p><dl class="detail-grid">'+[['附件',anchor.name],['附件编号',anchor.id],['字节数',anchor.bytes],['SHA-256',anchor.sha256],['固定位置',anchor.locator],['前文',anchor.context_prefix||'未取得'],['后文',anchor.context_suffix||'未取得']].map(([label,value])=>detailPair(label,esc(value))).join('')+'</dl></section>';
 }
 function originalSnapshotDetail(note) {
   const snapshot=evidenceSnapshotData(note),missing='<span class="muted">该快照未记录</span>';
@@ -69,8 +107,8 @@ function originalSnapshotDetail(note) {
 function evidenceDetail(r) {
   let html='';
   if(!isResearchContent(r.kind))html+='<section class="detail-section"><div class="between wrap"><h3>研究摘录</h3>'+linkButton(icon('plus')+' 保存一段摘录','new-excerpt',r.id,'button primary')+'</div>'+((r.excerpts||[]).map(n=>linkButton(esc(n.title),'detail',n.id,'detail-link')).join('')||'<p class="muted section-gap">尚无可见摘录。</p>')+'</section>';
-  if(r.evidence_record_id){const snap=evidenceSnapshotData(r);html+='<section class="detail-section"><h3>摘录与出处</h3><dl class="detail-grid">'+detailPair('原始资料',linkButton(esc(snap.title||r.evidence_record_id),'detail',r.evidence_record_id,'link-button'))+detailPair('引用时版本',esc(r.evidence_version))+detailPair('位置',esc(r.locator))+'</dl><h4>原文摘录</h4><blockquote class="quote-text">'+esc(r.quote)+'</blockquote>'+(r.translation?'<h4>我的译文</h4><p class="prose section-gap">'+esc(r.translation)+'</p>':'')+(r.interpretation?'<h4 class="section-gap">研究说明 / 解释</h4><p class="prose section-gap">'+esc(r.interpretation)+'</p>':'')+'<div class="detail-actions">'+(r.evidence_url?externalLink(r.evidence_url,'前往原文位置'):'')+(r.evidence_file_url?'<a class="button tiny" href="'+esc(r.evidence_file_url)+'">下载所据附件</a>':'')+'</div>'+originalSnapshotDetail(r)+'</section>';}
-  if((r.evidence_citations||[]).length)html+='<section class="detail-section"><h3>报告引用的证据</h3>'+r.evidence_citations.map(c=>{const s=c.snapshot||{};return '<article class="citation-card"><h4>'+esc(s.title)+'</h4><p class="muted">引用笔记 v'+c.excerpt_version+' · 当前 v'+c.current_version+'</p><p>原文位置：'+esc(s.locator||'笔记内详述')+'</p>'+(s.quote?'<blockquote class="quote-text">'+esc(s.quote)+'</blockquote>':'')+(s.translation?'<p class="prose"><strong>译文：</strong>'+esc(s.translation)+'</p>':'')+(s.interpretation?'<p class="prose"><strong>研究说明：</strong>'+esc(s.interpretation)+'</p>':'')+(s.body_html?'<div class="rich-prose">'+readRich(s.body_html)+'</div>':'')+(s.evidence_record_id?originalSnapshotDetail(s):'')+'<div class="detail-actions">'+linkButton('查看当前笔记','detail',c.excerpt_id)+(s.evidence_record_id?linkButton('返回原始资料','detail',s.evidence_record_id):'')+'</div></article>';}).join('')+'</section>';
+  if(r.evidence_record_id){const snap=evidenceSnapshotData(r);html+='<section class="detail-section"><h3>摘录与出处</h3><dl class="detail-grid">'+detailPair('原始资料',linkButton(esc(snap.title||r.evidence_record_id),'detail',r.evidence_record_id,'link-button'))+detailPair('引用时版本',esc(r.evidence_version))+detailPair('位置',esc(r.locator))+'</dl><h4>原文摘录</h4><blockquote class="quote-text">'+esc(r.quote)+'</blockquote>'+(r.translation?'<h4>我的译文</h4><p class="prose section-gap">'+esc(r.translation)+'</p>':'')+(r.interpretation?'<h4 class="section-gap">研究说明 / 解释</h4><p class="prose section-gap">'+esc(r.interpretation)+'</p>':'')+'<div class="detail-actions">'+(r.evidence_url?externalLink(r.evidence_url,'前往原文位置'):'')+(r.evidence_file_url?'<a class="button tiny" href="'+esc(r.evidence_file_url)+'">下载所据附件</a>':'')+'</div>'+attachmentAnchorDetail(snap)+originalSnapshotDetail(r)+'</section>';}
+  if((r.evidence_citations||[]).length)html+='<section class="detail-section"><h3>报告引用的证据</h3><p class="form-help">'+esc(citationScopeNotice(r.evidence_citations))+'</p>'+groupedCitations(r.evidence_citations,c=>{const s=c.snapshot||{};return '<article class="citation-card"><h4>'+esc(s.title)+'</h4>'+citationReview(c)+'<p class="muted">引用笔记 v'+c.excerpt_version+' · 当前 v'+c.current_version+'</p><p>原文位置：'+esc(s.locator||'笔记内详述')+'</p>'+(s.quote?'<blockquote class="quote-text">'+esc(s.quote)+'</blockquote>':'')+(s.translation?'<p class="prose"><strong>译文：</strong>'+esc(s.translation)+'</p>':'')+(s.interpretation?'<p class="prose"><strong>研究说明：</strong>'+esc(s.interpretation)+'</p>':'')+(s.body_html?'<div class="rich-prose">'+readRich(s.body_html)+'</div>':'')+(s.evidence_record_id?attachmentAnchorDetail(evidenceSnapshotData(s))+originalSnapshotDetail(s):'')+'<div class="detail-actions">'+linkButton('查看当前笔记','detail',c.excerpt_id)+(s.evidence_record_id?linkButton('查看当前原始资料','detail',c.current_original_id||s.evidence_record_id):'')+'</div></article>';})+'</section>';
   return html+archivedLinks('record',r);
 }
 async function workflowHistory(kind,id) {
@@ -97,3 +135,5 @@ document.addEventListener('submit',async event=>{
     else{const p=form._preview;if(!form.elements.confirmed.checked)throw new Error('请先核对并确认合并。');const result=await api('/api/merge',{method:'POST',body:{type:p.type,keep_id:p.keep.id,duplicate_id:p.duplicate.id,keep_version:p.keep.version,duplicate_version:p.duplicate.version,confirmed:true}});await loadLookups();await route();if(p.type==='source')await openSource(result.id);else await openRecord(result.id);toast('合并完成，旧编号与历史已保留');}
   }catch(e){error.textContent=e.message+(e.status===409?' 请关闭后重新比较。':'');}finally{if(button)button.disabled=false;}
 });
+
+document.addEventListener('change',event=>{const input=event.target;if(input.name==='evidence_ids'){const context=input.closest('[data-source-choice]')?.querySelector('[data-citation-context]');if(context)context.hidden=!input.checked;}});

@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from platform_app.web import create_app
+from platform_app.store import CURRENT_SCHEMA_VERSION
 
 class SavedSearchTests(unittest.TestCase):
     def setUp(self):
@@ -168,21 +169,21 @@ class SavedSearchTests(unittest.TestCase):
             path.parent.mkdir(exist_ok=True)
             path.write_bytes(base64.b64decode(info['base64']))
         upgraded=create_app(legacy,testing=True)
-        self.assertEqual(upgraded.test_client().get('/health').json['schema'],11)
+        self.assertEqual(upgraded.test_client().get('/health').json['schema'],CURRENT_SCHEMA_VERSION)
         backups=list((legacy/'backups').glob('*.zip'))
-        self.assertEqual(len(backups),2,'Both 9→10 and 10→11 must back up their input version.')
+        self.assertEqual(len(backups),CURRENT_SCHEMA_VERSION - 9,'Every upgrade must back up its input version.')
         v10_backup=None
         for index,backup in enumerate(backups):
             restored=restore_backup(backup,Path(self.temp.name)/('migration-backup-'+str(index)))
             with closing(sqlite3.connect(restored/'platform.sqlite3')) as db:
                 version=db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0]
-                self.assertFalse(db.execute("SELECT name FROM sqlite_master WHERE name='saved_searches'").fetchone())
+                self.assertEqual(bool(db.execute("SELECT name FROM sqlite_master WHERE name='saved_searches'").fetchone()), int(version)>=11)
                 if version=='10':v10_backup=backup
             for name, info in expected['files'].items():
                 self.assertEqual((restored/name).read_bytes(),base64.b64decode(info['base64']))
         self.assertIsNotNone(v10_backup)
         create_app(legacy,testing=True)
-        self.assertEqual(len(list((legacy/'backups').glob('*.zip'))),2)
+        self.assertEqual(len(list((legacy/'backups').glob('*.zip'))),CURRENT_SCHEMA_VERSION - 9)
         failed=restore_backup(v10_backup,Path(self.temp.name)/'failed-migration')
         with closing(sqlite3.connect(failed/'platform.sqlite3')) as db:
             db.execute("CREATE TRIGGER fail_saved_upgrade BEFORE UPDATE ON settings WHEN OLD.key='schema_version' AND NEW.value='11' BEGIN SELECT RAISE(ABORT,'synthetic migration failure'); END")
@@ -194,7 +195,7 @@ class SavedSearchTests(unittest.TestCase):
             db.execute('DROP TRIGGER fail_saved_upgrade')
             db.commit()
         recovered=create_app(failed,testing=True)
-        self.assertEqual(recovered.test_client().get('/health').json['schema'],11)
+        self.assertEqual(recovered.test_client().get('/health').json['schema'],CURRENT_SCHEMA_VERSION)
 
 if __name__=='__main__': unittest.main()
 

@@ -8,3 +8,5 @@
 .attachment-index-file [data-index-status] { font-size: 14px; }
 .attachment-index details { margin-top: 12px; }
 @media(max-width:600px) { .attachment-index-file a { flex-basis: 100%; } }
+
+.attachment-segment { width:100%; min-height:220px; font:inherit; line-height:1.7; white-space:pre-wrap; overflow-wrap:anywhere; }

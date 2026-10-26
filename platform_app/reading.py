@@ -65,7 +65,8 @@ def body_text(data):
 
 def citation(data):
     labels = [("title", "题名"), ("original_title", "原题名"), ("authors", "作者"),
-              ("published_on", "日期"), ("publication_title", "刊物／出处"), ("doi", "DOI"),
+              ("published_on", "日期"), ("publication_title", "刊物／出处"), ("volume", "卷"), ("issue", "期"),
+              ("pages", "页码"), ("issn", "ISSN"), ("doi", "DOI"),
               ("coverage", "覆盖范围"), ("id", "稳定编号"), ("version", "版本")]
     url = external_url(data.get("url"))
     return "\n".join(part for part in [fields(data, labels), "原文地址：" + url if url else ""] if part)
@@ -99,6 +100,8 @@ def copy_text(record, citations=(), linked_records=()):
             content = excerpt(saved) if saved.get("evidence_record_id") else join([
                 note_header(saved), section("笔记正文", body_text(saved)),
                 section("笔记登记出处", citation({k: saved[k] for k in ["url", "doi", "published_on"] if k in saved}))])
+            from .evidence import citation_description
+            content = join([citation_description(adopted), content])
             parts.append("采用笔记版本：" + str(adopted["excerpt_version"]) + "\n" + content)
         return {"mode": "references", "text": join(parts) or "暂无可复制的引用。",
                 "notice": "仅包含当前可查看的引用；内容按报告采用时快照整理。"}
