@@ -280,6 +280,20 @@ class Bylines:
             self.bump(rid)
         return self.detail(rid)
 
+    def initialize(self, rid, items, note):
+        """Add initial bylines inside the owning record creation transaction."""
+        if not self.db.in_transaction:
+            raise RuntimeError("Initial bylines require the record creation transaction.")
+        record = self.record(rid)
+        if self.rows(rid) or not isinstance(items, list) or len(items) > 100:
+            abort(400, "初始署名列表无效。")
+        # Validate the whole selection before appending any relation revisions.
+        values = [self.values(item, index) for index, item in enumerate(items, 1)]
+        for value in values:
+            self.change(None, value, record=record, note=note)
+        if values:
+            self.bump(rid)
+
     def historical(self, value):
         if value is None:
             return None

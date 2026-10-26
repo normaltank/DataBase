@@ -127,6 +127,7 @@ async function restoreEditorDraft(form) {
   if(draft.type==='record'&&typeof prepareEvidenceDraft==='function')await prepareEvidenceDraft(form,draft.values);
   for(const el of form.elements){if(!el.name||el.type==='file')continue;const value=draft.values[el.name];if(value===undefined)continue;if(el.matches('[data-source-values]'))restoreSourceSelection(el,value);else if(['checkbox','radio'].includes(el.type))el.checked=Array.isArray(value)&&value.includes(el.value);else if(el.multiple)[...el.options].forEach(o=>o.selected=Array.isArray(value)&&value.includes(o.value));else el.value=value;}
   refreshSourcePickers(form);
+  if(draft.type==='record'&&typeof restoreIntakeForm==='function')restoreIntakeForm(form);
   if(draft.type==='byline')restoreBylineDraft(form,draft);
   if(draft.type==='employment'||draft.type==='affiliation')restoreRelationshipDraft(form,draft);
   form.querySelectorAll('[data-rich-field]').forEach(field=>field.querySelector('[data-rich-input]').innerHTML=cleanRich(draft.values[field.dataset.richField]));
@@ -185,6 +186,7 @@ async function workflowRecordForm(id='',kind='report',sourceId='',draftKey='',ev
     +'</div><div class="form-error" role="alert"></div><div class="form-actions"><button type="button" class="button" data-action="close">关闭并保留草稿</button><button type="submit" class="button primary">'+(id?'保存修订':'保存内容')+'</button></div></form>';
   modal(id?'修订内容':'新建'+(kinds[kind]||'资料'),html);
   const form=document.querySelector('[data-form=record]');form._editing=state.editing;if(sourceId.startsWith('collection:'))form.dataset.collectionId=sourceId.slice(11);
+  if(typeof prepareIntakeForm==='function')prepareIntakeForm(form);
   if(id&&isResearchContent(r.kind))form.elements.kind.disabled=true;
   renderSelectedLinks();updateRecordFormMode(form);form.inert=true;
   try{if(state.schema>=4&&typeof enhanceEvidenceForm==='function')await enhanceEvidenceForm(form,r,evidenceId);await prepareNoteSubjectForm(form,r);await enableEditorDraft(form,form._editing,sourceId,draftKey);if(typeof uxPrepareReadingForm==='function')uxPrepareReadingForm(form,sourceId);}
@@ -205,6 +207,7 @@ async function workflowSubmitRecord(form,data) {
   if(form._conflictPending)throw new Error('请先对照最新版本，再继续保存。');
   if(form._draftOffer)throw new Error('请先选择恢复或舍弃已有草稿。');
   const file=form._draftFile||data.get('file');if(file?.size>20*1024*1024)throw new Error('附件超过 20 MB，请选择较小文件。');
+  if(typeof intakeSaveValues==='function')intakeSaveValues(form,values);
   const multipart=new FormData();multipart.set('data',JSON.stringify(values));if(file?.size)multipart.set('file',file,file.name);
   form.dataset.saving='true';form.inert=true;
   try{
