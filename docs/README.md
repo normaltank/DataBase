@@ -19,7 +19,7 @@
 
 ## 个人常用检索
 
-[规格 1.0](specs/个人常用检索.md)定义个人保存查询、动态重查、管理与权限／恢复边界，授权与本轮选取依据见 [R018](需求讨论记录.md#r018继续内化-zotero-的基础资料管理)。本任务继续借鉴 Zotero 的基础资料工作方式；已有返回位置及候选完整性问题分别由 [#30](https://github.com/normaltank/DataBase/issues/30)、[#31](https://github.com/normaltank/DataBase/issues/31)跟踪。
+[规格 1.0](specs/个人常用检索.md)定义个人保存查询、动态重查、管理与权限／恢复边界，授权与本轮选取依据见 [R018](需求讨论记录.md#r018继续内化-zotero-的基础资料管理)，实施由 [#34](https://github.com/normaltank/DataBase/issues/34)跟踪。本任务继续借鉴 Zotero 的基础资料工作方式；已有返回位置及候选完整性问题分别由 [#30](https://github.com/normaltank/DataBase/issues/30)、[#31](https://github.com/normaltank/DataBase/issues/31)跟踪；本轮交付入口为 [PR #35](https://github.com/normaltank/DataBase/pull/35)。
 
 ## 基础数据库查找与来源选择
 
