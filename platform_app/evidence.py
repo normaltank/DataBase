@@ -110,7 +110,10 @@ def validate(db, data, values, base, get_record, data_dir):
         stance, claim = context.get("stance", "unclassified"), context.get("claim_note", "")
         if not isinstance(stance, str) or stance not in STANCES or not isinstance(claim, str) or len(claim) > 10000:
             abort(400, "请选择支撑、反例、限定、背景或未分类，并填写有效说明。")
-        contexts[get_record(eid)["id"]] = {"stance": stance, "claim_note": claim.strip()}
+        canonical_id = get_record(eid)["id"]
+        if canonical_id in contexts:
+            abort(400, "旧编号与当前编号指向同一笔记，请只登记一次主要用途。")
+        contexts[canonical_id] = {"stance": stance, "claim_note": claim.strip()}
     return [{"excerpt_id": eid, **contexts.get(eid, {})} for eid in sorted(set(canonical))]
 
 

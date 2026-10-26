@@ -50,7 +50,7 @@ async function enhanceEvidenceForm(form,r,evidenceId='') {
   }
   updateEvidenceMode(form);
 }
-function updateEvidenceMode(form){const kind=form.elements.kind.value;const note=form.querySelector('[data-evidence-editor]'),citations=form.querySelector('[data-evidence-picker]');if(note){note.hidden=kind!=='research_note';citations.hidden=!['compilation','research_report'].includes(kind);}}
+function updateEvidenceMode(form){const kind=form.elements.kind.value;const note=form.querySelector('[data-evidence-editor]'),citations=form.querySelector('[data-evidence-picker]');if(note){note.hidden=kind!=='research_note';citations.hidden=!['compilation','research_report'].includes(kind);citations.querySelectorAll('[name=evidence_ids]').forEach(input=>{const context=input.closest('[data-source-choice]')?.querySelector('[data-citation-context]');if(context)context.hidden=!input.checked;});}}
 async function setEvidenceOriginal(form,id,attachment='',version=null) {
   const r=await api('/api/records/'+encodeURIComponent(id));if(!form.isConnected)return;
   form.elements.evidence_record_id.value=r.id;

@@ -262,3 +262,11 @@ class CitationContextTests(unittest.TestCase):
         self.assertEqual(self.detail(report)["evidence_citations"][0]["identity_changes"],[{"scope":"bylines","change":"endpoints_or_status"}])
         self.save_byline(original,first)
         self.assertEqual(self.detail(report)["evidence_citations"][0]["identity_changes"],[{"scope":"bylines","change":"relation_history"}])
+
+    def test_aliases_cannot_assign_two_roles_to_the_same_note(self):
+        keep = self.record("research_note",title="保留笔记",editors=["admin"])
+        old = self.record("research_note",title="旧笔记",editors=["admin"])
+        self.assertEqual(self.merge_records(keep,old).status_code,200)
+        response = self.call("/api/records",{"kind":"research_report","title":"歧义引用","evidence_ids":[keep,old],
+            "evidence_citations":[{"excerpt_id":keep,"stance":"supports"},{"excerpt_id":old,"stance":"contradicts"}]})
+        self.assertEqual(response.status_code,400,response.json)
