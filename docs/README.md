@@ -31,6 +31,8 @@
 
 用户反馈和最新权限确认见 [R019](需求讨论记录.md#r019提交资料的自动填写与共同编辑边界)；自动填写、身份确认分离及表单简化由 [#37](https://github.com/normaltank/DataBase/issues/37)实施，个人报告之外的共同编辑由 [#38](https://github.com/normaltank/DataBase/issues/38)实施。当前产品边界统一维护于 [PRODUCT 第 3 节](../PRODUCT.md#3-已确认的共建规则)。
 
+[本轮验收](../work/资料提交与共同编辑验收.md)区分基线复现、实施方验证、指挥方真实 DOI 页面核对及 Standards／Spec 审查；发布入口为 [PR #39](https://github.com/normaltank/DataBase/pull/39)。
+
 ## 链接与编号辅助录入
 
 [规格 1.1](specs/链接与编号辅助录入.md)维护 DOI／文章网址的取得、自动填写、可选身份核对与保存；原始授权见 [R017](需求讨论记录.md#r017链接与编号辅助录入开工)，本次修订见上方 R019。[前期调研](../work/链接与编号辅助录入可行性.md)区分单篇录入与全站持续采集，保留当时未知项；实际支持范围以相应验收为准。
