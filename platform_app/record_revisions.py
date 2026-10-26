@@ -17,7 +17,7 @@ from urllib.parse import urlsplit
 
 from flask import abort
 
-from . import evidence, identity, source_catalog, workflow, note_subjects, bylines, affiliations
+from . import evidence, identity, source_catalog, workflow, note_subjects, bylines, affiliations, intake
 from .store import now, save_revision
 
 RECORD_FIELDS = ["kind", "title", "original_title", "authors", "source_id", "serial_id", "publication_title",
@@ -116,7 +116,9 @@ class RecordRevisions:
         evidence.save_links(self.db, rid, cited, self.get, refresh)
 
     def _unique_doi(self, doi, rid=""):
-        if doi and self.db.execute("SELECT 1 FROM records WHERE lower(doi)=lower(?) AND id<>?", (doi, rid)).fetchone():
+        key = intake.normalize_doi(doi) or doi.casefold()
+        if key and any((intake.normalize_doi(row["doi"]) or row["doi"].casefold()) == key
+                       for row in self.db.execute("SELECT doi FROM records WHERE id<>? AND merged_into IS NULL", (rid,))):
             abort(409, "该 DOI 已登记，请联系管理员核对重复条目。")
 
     def visible(self, r):
@@ -151,6 +153,7 @@ class RecordRevisions:
 
     def _values(self, data, base=None):
         values = validate_text(data, RECORD_FIELDS, base)
+        values["doi"] = intake.normalize_doi(values["doi"]) or values["doi"]
         if base:
             values["aliases"] = identity.retained_aliases(self.db, "records", base["id"], values["aliases"])
         values["kind"] = values["kind"] or "report"
@@ -276,12 +279,34 @@ class RecordRevisions:
         with self._transaction():
             values, linked, associated, cited = self._values(data)
             self._unique_doi(values["doi"])
+            acquired = None
+            if data.get("intake_token"):
+                acquired = intake.read_token(data["intake_token"], self.actor)
+                if values["kind"] in workflow.CONTENT_KINDS:
+                    abort(400, "辅助题录只用于外部原始资料。")
+                if values["source_id"] and self.source(values["source_id"])["kind"] not in {"institution", "think_tank"}:
+                    abort(400, "文章发布机构须选择机构；期刊请在所属刊物中关联。")
+                key = intake.normalize_url(values["url"])
+                acquisition_id = hashlib.sha256(data["intake_token"].encode()).hexdigest()
+                for existing in self.db.execute("SELECT url,raw_json FROM records WHERE merged_into IS NULL"):
+                    previous = json.loads(existing["raw_json"] or "{}")
+                    if (key and intake.normalize_url(existing["url"]) == key) or any(e.get("acquisition_id") == acquisition_id for e in previous.get("intake_evidence", [])):
+                        abort(409, "此次保存与已登记资料重复，请核对已有条目或联系管理员。")
+                acquired = {**acquired, "acquisition_id": acquisition_id,
+                            "saved_fields": {key: values[key] for key in acquired["fields"] if key in values}}
             rid = "LOCAL-" + uuid.uuid4().hex[:12].upper()
             values.update(id=rid, owner_id=self.actor["id"], created_at=now(), updated_at=now())
             self.db.execute(f"INSERT INTO records ({','.join(values)}) VALUES ({','.join('?' for _ in values)})", list(values.values()))
             attachments = self._upload(rid, data, [], file)
             self.db.execute("UPDATE records SET attachment_ids=? WHERE id=?", (json.dumps(attachments), rid))
             self._relations(rid, linked, associated, cited)
+            if acquired:
+                raw = {"intake_evidence": [acquired]}
+                self.db.execute("UPDATE records SET raw_json=? WHERE id=?", (json.dumps(raw, ensure_ascii=False), rid))
+                items = data.get("intake_bylines")
+                if items is None:
+                    items = [{"raw_name": item["raw_name"], "status": "pending"} for item in acquired["authors"]]
+                bylines.Bylines(self.db, self.actor, self).initialize(rid, items, "辅助录入：依据原始题录核对署名")
             if "research_subjects" in data:
                 note_subjects.save(self.db, rid, values["kind"], data["research_subjects"], self.actor["id"])
             self._history(rid, "提交资料")
@@ -359,7 +384,8 @@ class RecordRevisions:
             old = json.loads(revision["snapshot_json"])
             if old["kind"] in workflow.CONTENT_KINDS and (self.db.execute("SELECT 1 FROM record_links WHERE original_id=?", (rid,)).fetchone() or self.db.execute("SELECT 1 FROM records WHERE evidence_record_id=?", (rid,)).fetchone()):
                 abort(409, "此资料现已被成果或摘录引用，不能恢复为研究内容类型。")
-            values = {k: old[k] for k in RECORD_FIELDS + ["attachment_ids", "evidence_version", "evidence_snapshot_json"] if k in old}
+            values = {k: old[k] for k in RECORD_FIELDS + ["attachment_ids", "evidence_version", "evidence_snapshot_json", "raw_json"] if k in old}
+            self._unique_doi(intake.normalize_doi(values.get("doi")) or values.get("doi", ""), rid)
             bylines.validate_record_kind(self.db, rid, values["kind"])
             # Current permissions and responsible author are never restored from old content.
             values["visibility"] = current["visibility"]
