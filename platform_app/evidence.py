@@ -5,13 +5,13 @@ from flask import abort
 
 from . import workflow
 
-SNAPSHOT_FIELDS = ["id", "kind", "title", "original_title", "authors", "published_on", "url", "doi", "version",
+SNAPSHOT_FIELDS = ["id", "kind", "title", "original_title", "authors", "publication_title", "volume", "issue", "pages", "issn", "published_on", "url", "doi", "version",
                    "body_html", "body_text", "abstract", "quote", "translation", "interpretation", "locator",
                    "evidence_record_id", "evidence_version", "evidence_url", "evidence_attachment_id", "evidence_snapshot_json"]
 
 
 def snapshot(row, original=False):
-    fields = ["id", "kind", "title", "original_title", "authors", "published_on", "url", "doi", "version"] if original else SNAPSHOT_FIELDS
+    fields = ["id", "kind", "title", "original_title", "authors", "publication_title", "volume", "issue", "pages", "issn", "published_on", "url", "doi", "version"] if original else SNAPSHOT_FIELDS
     return {key: row[key] for key in fields if key in row.keys()}
 
 

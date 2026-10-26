@@ -21,7 +21,7 @@ from . import evidence, identity, source_catalog, workflow, note_subjects, bylin
 from .store import now, save_revision
 
 RECORD_FIELDS = ["kind", "title", "original_title", "authors", "source_id", "serial_id", "publication_title",
-                 "published_on", "language", "abstract", "keywords", "countries", "doi", "url", "visibility", "unresolved_refs"] + list(workflow.RECORD_DEFAULTS) + workflow.EVIDENCE_FIELDS
+                 "volume", "issue", "pages", "issn", "published_on", "language", "abstract", "keywords", "countries", "doi", "url", "visibility", "unresolved_refs"] + list(workflow.RECORD_DEFAULTS) + workflow.EVIDENCE_FIELDS
 KINDS = {"research_article", "journal_article", "report", "compilation", "book_section", "book", "book_review",
          "conference_abstract", "thesis", "presentation", "speech", "policy", "news", "other"}
 KINDS |= workflow.CONTENT_KINDS
@@ -75,6 +75,7 @@ class RecordRevisions:
         self.actor = actor
         self.upload_dir = Path(upload_dir)
         self._new_files = None
+        self.prefetched_records = None
 
     @contextmanager
     def _transaction(self):
@@ -124,7 +125,16 @@ class RecordRevisions:
     def visible(self, r):
         u = self.actor
         if r["evidence_record_id"]:
-            original = identity.resolve(self.db, "records", r["evidence_record_id"])
+            if self.prefetched_records is None:
+                original = identity.resolve(self.db, "records", r["evidence_record_id"])
+            else:
+                original = self.prefetched_records.get(r["evidence_record_id"])
+                seen = set()
+                while original and original["merged_into"]:
+                    if original["id"] in seen:
+                        abort(409, "编号转向存在循环，请检查合并记录。")
+                    seen.add(original["id"])
+                    original = self.prefetched_records.get(original["merged_into"])
             if not original or original["id"] == r["id"] or not self.visible(original):
                 return False
         return r["visibility"] == "shared" or u["role"] == "admin" or r["owner_id"] == u["id"] or r["author_id"] == u["id"] or (u["id"] in json.loads(r["editors"]) and (r["kind"] not in workflow.PERSONAL_KINDS or r["author_confirmed"]))

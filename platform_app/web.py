@@ -13,6 +13,7 @@ from flask import Flask, abort, g, jsonify, render_template, request, send_file,
 from werkzeug.exceptions import HTTPException
 from werkzeug.security import check_password_hash
 
+from .search import normalize, RecordSearch
 from .attachment_search import AttachmentIndex, original_path
 from .store import connect, decoded, initialize, now, save_revision
 from .record_revisions import RecordRevisions, validate_text, check_version
@@ -140,7 +141,9 @@ def create_app(data_dir=None, testing=False):
         return obj
 
     def records():
-        return RecordRevisions(db(), user(), data_dir / "uploads")
+        if 'record_access' not in g:
+            g.record_access = RecordRevisions(db(), user(), data_dir / "uploads")
+        return g.record_access
 
     def visible(row):
         return records().visible(row)
@@ -169,19 +172,23 @@ def create_app(data_dir=None, testing=False):
 
     def record_summary(r, favorite_ids=None):
         obj = {k: r[k] for k in ["id", "kind", "title", "original_title", "authors", "source_id", "serial_id",
-               "publication_title", "published_on", "language", "abstract", "keywords", "countries", "status",
+               "publication_title", "volume", "issue", "pages", "issn", "published_on", "language", "abstract", "keywords", "countries", "status",
                 "visibility", "owner_id", "version", "updated_at", "upstream_status", "aliases", "coverage", "author_id", "author_confirmed"]}
-        source = db().execute("SELECT name FROM sources WHERE id=?", (r["source_id"],)).fetchone()
-        obj["source_name"] = source[0] if source else ""
+        if 'record_search' in g:
+            source = g.record_search.sources.get(r['source_id'])
+            obj['source_name'] = source['name'] if source else ''
+        else:
+            source = db().execute("SELECT name FROM sources WHERE id=?", (r["source_id"],)).fetchone()
+            obj["source_name"] = source[0] if source else ""
         obj["favorite"] = r["id"] in favorite_ids if favorite_ids is not None else bool(db().execute("SELECT 1 FROM favorites WHERE user_id=? AND record_id=?", (user()["id"], r["id"])).fetchone())
         obj["can_edit"] = editable(r)
         obj["can_manage_access"] = records().manages_access(r)
         obj["has_attachment"] = bool(json.loads(r["attachment_ids"]))
-        obj["related_source_ids"] = workflow.source_ids(db(), r["id"])
+        obj["related_source_ids"] = g.record_search.associated[r["id"]] if "record_search" in g else workflow.source_ids(db(), r["id"])
         text = " ".join(r[k] or "" for k in ["title", "original_title", "aliases", "abstract", "body_text", "coverage"])
         obj["search_snippet"] = workflow.snippet(text, request.args.get("q", "")) if request.args.get("q") else ""
         obj["attachment_matches"] = attachment_index().matches(r, request.args.get("q", ""))
-        if obj["attachment_matches"] and not any(word in text.casefold() for word in request.args.get("q", "").casefold().split()):
+        if obj["attachment_matches"] and not any(word in normalize(text) for word in normalize(request.args.get("q", "")).split()):
             obj["search_snippet"] = ""
         obj["evidence_record_id"] = r["evidence_record_id"]
         if "reading_authors" not in g:
@@ -194,11 +201,21 @@ def create_app(data_dir=None, testing=False):
 
     def filtered_records(args):
         args = saved_searches.resolve(db(), user()['id'], args)
-        rows = [r for r in db().execute("SELECT * FROM records WHERE merged_into IS NULL ORDER BY published_on DESC, created_at DESC, id") if visible(r)]
+        all_rows = db().execute("SELECT * FROM records ORDER BY published_on DESC, created_at DESC, id").fetchall()
+        access = records()
+        access.prefetched_records = {r['id']: r for r in all_rows}
+        rows = [r for r in all_rows if not r['merged_into'] and visible(r)]
+        g.record_search = RecordSearch(db(), access)
+        from collections import defaultdict
+        attachments = defaultdict(list)
+        for attachment in db().execute('SELECT * FROM attachments'):
+            attachments[attachment['record_id']].append(dict(attachment))
+        attachment_index().prefetched = attachments
+        g.reading_attachments = {a["id"]: a for group in attachments.values() for a in group}
         favorites = {r[0] for r in db().execute("SELECT record_id FROM favorites WHERE user_id=?", (user()["id"],))}
-        q = args.get("q", "").strip().casefold()
+        q = normalize(args.get("q", "").strip())
         country = args.get("country", "").strip().casefold()
-        source_names = {r["id"]: r["name"] + " " + r["original_name"] + " " + r["aliases"] for r in db().execute("SELECT * FROM sources")}
+        source_names = {sid: g.record_search.source_text(sid) for sid in g.record_search.sources}
         collection_ids = None
         if args.get("collection"):
             get_collection(args["collection"])
@@ -228,7 +245,7 @@ def create_app(data_dir=None, testing=False):
                 continue
             if collection_ids is not None and r["id"] not in collection_ids:
                 continue
-            associated = workflow.source_ids(db(), r["id"])
+            associated = g.record_search.associated[r["id"]]
             if source_scope is not None and not source_scope.intersection([r["source_id"], r["serial_id"], *associated]):
                 continue
             if selected_source and selected_source not in [r["source_id"], r["serial_id"], *associated]:
@@ -260,9 +277,9 @@ def create_app(data_dir=None, testing=False):
                 continue
             if q:
                 hay = " ".join(str(r[k]) for k in ["title", "original_title", "authors", "abstract", "keywords", "publication_title", "doi", "id", "aliases", "body_text", "coverage", "original_catalogue", "quote", "translation", "interpretation", "locator"]) + " " + " ".join(source_names.get(sid, "") for sid in [r["source_id"], r["serial_id"], *associated])
-                hay += " " + bylines.Bylines(db(), user(), records()).search_text(r["id"])
+                hay += " " + " ".join(g.record_search.bylines[r["id"]])
                 hay += " " + " ".join(s["text"] for s in attachment_index().segments(r))
-                if not all(word in hay.casefold() for word in q.split()):
+                if not all(word in normalize(hay) for word in q.split()):
                     continue
             results.append(r)
         if args.get("sort") == "updated":
@@ -660,10 +677,10 @@ def create_app(data_dir=None, testing=False):
     def export_csv(rows, filename="research-records.csv"):
         output = io.StringIO(newline="")
         writer = csv.writer(output)
-        writer.writerow(["稳定编号", "题名", "原题名", "作者/编译者", "类型", "日期", "语言", "研究对象", "关键词", "刊物", "DOI", "原文链接", "核对状态", "来源编号", "期刊编号", "关联原文编号"])
+        writer.writerow(["稳定编号", "题名", "原题名", "作者/编译者", "类型", "日期", "语言", "研究对象", "关键词", "刊物", "卷", "期", "页码", "ISSN", "DOI", "原文链接", "核对状态", "来源编号", "期刊编号", "关联原文编号"])
         for r in rows:
             linked = [x["id"] for x in db().execute("SELECT r.* FROM record_links l JOIN records r ON r.id=l.original_id WHERE l.report_id=?", (r["id"],)) if visible(x)]
-            values = [r[k] or "" for k in ["id", "title", "original_title", "authors", "kind", "published_on", "language", "countries", "keywords", "publication_title", "doi", "url", "status", "source_id", "serial_id"]] + [";".join(linked)]
+            values = [r[k] or "" for k in ["id", "title", "original_title", "authors", "kind", "published_on", "language", "countries", "keywords", "publication_title", "volume", "issue", "pages", "issn", "doi", "url", "status", "source_id", "serial_id"]] + [";".join(linked)]
             writer.writerow(["'" + v if str(v).lstrip().startswith(("=", "+", "-", "@")) else v for v in values])
         return send_file(io.BytesIO(output.getvalue().encode("utf-8-sig")), mimetype="text/csv; charset=utf-8", as_attachment=True, download_name=filename)
 
