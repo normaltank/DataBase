@@ -1,5 +1,7 @@
 """Synthetic #43 acceptance at the real browser and authenticated HTTP seams."""
 import json
+import os
+import shutil
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
@@ -39,7 +41,12 @@ def main():
                         raise RuntimeError('Synthetic server exited')
                     time.sleep(.1)
             with sync_playwright() as pw:
-                browser = pw.chromium.launch(executable_path='/usr/bin/chromium', args=['--no-sandbox'])
+                browser_options = {}
+                if os.environ.get('DATABASE_BROWSER_CHANNEL'):
+                    browser_options['channel'] = os.environ['DATABASE_BROWSER_CHANNEL']
+                elif shutil.which('chromium'):
+                    browser_options.update(executable_path=shutil.which('chromium'), args=['--no-sandbox'])
+                browser = pw.chromium.launch(**browser_options)
                 try:
                     for width in [1366, 390]:
                         context = browser.new_context(viewport={'width': width, 'height': 1000})
