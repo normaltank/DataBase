@@ -3,6 +3,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import socket
 import subprocess
 import sys
 import time
@@ -11,23 +12,69 @@ from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
 
+
+def verify_selection(page, api, base):
+    for i in range(40):
+        assert api('/api/records',{'title':'Probe %02d'%i,'kind':'report'})['status']==201
+    saved=api('/api/saved-searches',{'name':'Probe selection','conditions':{'q':'Probe','sort':'title'}})['body']
+    page.goto(base+'/#library?saved_search='+saved['id'])
+    page.get_by_text('检索：Probe selection',exact=True).wait_for()
+    page.locator('[data-library-select]').first.check()
+    page.get_by_text('已选 1 条',exact=True).wait_for()
+    page.get_by_role('button',name='下一页',exact=True).click()
+    page.get_by_text('第 2 / 4 页',exact=True).wait_for()
+    page.get_by_text('已选 1 条',exact=True).wait_for(timeout=3000)
+    page.go_back()
+    page.get_by_text('第 1 / 4 页',exact=True).wait_for()
+    assert page.locator('[data-library-select]').first.is_checked()
+    page.go_forward()
+    page.get_by_text('第 2 / 4 页',exact=True).wait_for()
+    page.get_by_text('已选 1 条',exact=True).wait_for()
+    # Updating the same persisted search changes its effective scope and clears selection.
+    current=api('/api/saved-searches/'+saved['id'],None,'GET')['body']
+    assert api('/api/saved-searches/'+saved['id'],{'version':current['version'],'conditions':{'q':'Probe 00','sort':'title'}},'PUT')['status']==200
+    page.get_by_role('button',name='上一页',exact=True).click()
+    page.get_by_text('已选 0 条',exact=True).wait_for()
+    page.get_by_role('button',name='Probe 00',exact=True).wait_for()
+    assert page.locator('[data-library-select]').count()==1
+    page.locator('[data-library-select]').first.check()
+    page.get_by_label('资料关键词',exact=True).fill('Probe 01')
+    page.locator('[data-form=library-search]').get_by_role('button',name='搜索',exact=True).click()
+    page.get_by_text('已选 0 条',exact=True).wait_for()
+    page.get_by_role('button',name='Probe 01',exact=True).wait_for()
+    assert page.locator('[data-library-select]').count()==1
+    return ['saved search id-only first open retains selection across pages and history',
+            'persisted condition/version update and explicit filter changes clear selection']
+
+
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--evidence-dir',type=Path,required=True)
     parser.add_argument('--port',type=int,default=8853)
+    parser.add_argument('--selection-only',action='store_true')
     args=parser.parse_args()
+    try:
+        occupied=socket.create_connection(('127.0.0.1',args.port),timeout=.25)
+    except OSError:
+        pass
+    else:
+        occupied.close()
+        parser.error('Requested test port is occupied; refusing to use an existing service.')
     args.evidence_dir.mkdir(parents=True,exist_ok=True)
     base=f'http://127.0.0.1:{args.port}'
     log=(args.evidence_dir/'server.log').open('w',encoding='utf-8')
-    service=subprocess.Popen([r'C:\Python312\python.exe',str(ROOT/'app.py'),'--port',str(args.port),'--data-dir',str(args.evidence_dir/'data'),'--no-import'],cwd=ROOT,stdout=log,stderr=log,creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0)
+    service=subprocess.Popen([os.environ.get('DATABASE_SERVER_PYTHON',sys.executable),str(ROOT/'app.py'),'--port',str(args.port),'--data-dir',str(args.evidence_dir/'data'),'--no-import'],cwd=ROOT,stdout=log,stderr=log,creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0)
     results=[]
     try:
         for _ in range(100):
             try:
+                if service.poll() is not None:raise RuntimeError('Synthetic service exited during startup.')
                 urllib.request.urlopen(base+'/health',timeout=1).close();break
             except OSError: time.sleep(.1)
+        else:
+            raise RuntimeError('Synthetic service did not become ready.')
         with sync_playwright() as pw:
-            browser=pw.chromium.launch(executable_path=os.environ.get('DATABASE_BROWSER_EXECUTABLE',r'C:\Users\27451\AppData\Local\ms-playwright\chromium-1187\chrome-win\chrome.exe'),headless=True)
+            browser=pw.chromium.launch(headless=True,**({'executable_path':os.environ['DATABASE_BROWSER_EXECUTABLE']} if os.environ.get('DATABASE_BROWSER_EXECUTABLE') else {}))
             context=browser.new_context(viewport={'width':1366,'height':900})
             page=context.new_page()
             errors=[]
@@ -39,6 +86,12 @@ def main():
             page.get_by_role('heading',name='查找研究资料',exact=True).wait_for()
             def api(path,body=None,method='POST'):
                 return page.evaluate('''async ({path,body,method})=>{const session=await(await fetch('/api/session')).json();const response=await fetch(path,{method,headers:{'Content-Type':'application/json','X-CSRF-Token':session.csrf},body:body===null?undefined:JSON.stringify(body)});return {status:response.status,body:await response.json()};}''',dict(path=path,body=body,method=method))
+            if args.selection_only:
+                results.extend(verify_selection(page,api,base))
+                assert not errors,errors
+                browser.close()
+                print(json.dumps(results,ensure_ascii=False))
+                return
             api('/api/records',{'title':'Latvia original','kind':'report'})
             api('/api/records',{'title':'Unrelated original','kind':'report'})
             page.goto(base+'/#favorites?q=Latvia&page=3')
@@ -189,5 +242,3 @@ def main():
     print(json.dumps(results,ensure_ascii=False))
 
 if __name__=='__main__':main()
-
-

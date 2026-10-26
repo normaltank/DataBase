@@ -24,10 +24,12 @@ function libraryClearSelection(message='') {
   if(restore)document.querySelector('[data-action="library-select-page"]')?.focus({preventScroll:true});
   if(count&&message)toast(message);
 }
-function libraryRouteContext() {
+function libraryRouteContext(savedVersion=null) {
+  // A saved ID is not an effective query until its persisted conditions resolve.
+  if(state.params.has('saved_search')&&savedVersion===null)return;
   const active=['library','compilations','favorites','review'].includes(state.page),query=recordQuery();
   query.delete('page');query.delete('size');query.sort();
-  const context=active?state.page+'?'+query:null;
+  const context=active?state.page+'?'+query+(savedVersion===null?'':'@'+savedVersion):null;
   if(libraryWorkspace.account!==state.me?.id){libraryResetAccount();libraryWorkspace.account=state.me?.id;}
   else if(libraryWorkspace.context!==context)libraryClearSelection(active?'查找条件已改变，已清空选择。':'已离开资料库，已清空选择。');
   libraryWorkspace.context=context;libraryCloseReader(false);
