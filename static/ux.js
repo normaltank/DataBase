@@ -69,14 +69,14 @@ async function uxDashboard() {
 }
 async function uxLibraryPage(data=null) {
   const root=document.createElement('div');root.innerHTML=await baseLibraryPage(data);
-  const labels={q:'关键词',kind:'类型',source:'来源',language:'语言',status:'核对',country:'研究对象',from:'起始日期',to:'截止日期',collection:'专题'};
+  const labels={q:'关键词',kind:'类型',source:'来源',source_group:'来源类型',source_country:'来源国别',source_international:'国际办刊定位',language:'语言',status:'核对',country:'研究对象',from:'起始日期',to:'截止日期',collection:'专题'};
   const entries=[...state.params].filter(([key,value])=>labels[key]&&value);
   if(entries.length){
     const bar=document.createElement('section');bar.className='ux-filter-chips';bar.setAttribute('aria-label','已应用的筛选');
     bar.innerHTML='<span>已筛选</span>'+entries.map(([key,value])=>{
-      const name=key==='source'?state.sources.find(s=>s.id===value)?.name:key==='collection'?state.collections.find(c=>c.id===value)?.name:key==='kind'?kinds[value]:key==='language'?languageLabel(value):key==='status'?{pending:'待核对',verified:'已核对'}[value]:value;
+      const name=key==='source_group'?sourceGroups[value]:key==='source_country'?(value==='__pending__'?'待确认':value):key==='source_international'?internationalLabels[value]:key==='source'?sourceById(value)?.name:key==='collection'?state.collections.find(c=>c.id===value)?.name:key==='kind'?kinds[value]:key==='language'?languageLabel(value):key==='status'?{pending:'待核对',verified:'已核对'}[value]:value;
       return '<button class="ux-filter-chip" type="button" data-action="ux-clear-filter" data-key="'+esc(key)+'" aria-label="清除'+labels[key]+'：'+esc(name||value)+'">'+labels[key]+'：'+esc(name||value)+icon('close')+'</button>';
-    }).join('')+'<button class="ux-read-link" type="button" data-action="ux-clear-filters">清除筛选</button>';
+    }).join('')+(entries.some(([key])=>key!=='collection')?'<button class="ux-read-link" type="button" data-action="ux-clear-filters">清除筛选</button>':'');
     root.querySelector('.results-head').before(bar);
   }
   const toolbar=root.querySelector('.toolbar');
@@ -200,8 +200,8 @@ document.addEventListener('click',async event=>{
   const button=event.target.closest('[data-action]');if(!button)return;
   const action=button.dataset.action;if(!action.startsWith('ux-'))return;
   try{
-    if(action==='ux-clear-filter'){const p=parameters({[button.dataset.key]:'',page:''});go(state.page,p);}
-    else if(action==='ux-clear-filters')go(state.page);
+    if(action==='ux-clear-filter'){const p=parameters({[button.dataset.key]:'',...(button.dataset.key==='source'?{source_section:''}:{}),page:''});go(state.page,p);}
+    else if(action==='ux-clear-filters')go(state.page,state.params.has('collection')?{collection:state.params.get('collection')}:{});
     else if(action==='ux-read-body'||action==='ux-files'){
       if(state.detail?.type!=='record'||state.detail.data.id!==button.dataset.id||!document.querySelector('.ux-reader'))await openRecord(button.dataset.id);
       const section=document.querySelector(action==='ux-files'?'#ux-files':'#ux-body');if(section){section.tabIndex=-1;section.focus({preventScroll:true});section.scrollIntoView({block:'start'});}
