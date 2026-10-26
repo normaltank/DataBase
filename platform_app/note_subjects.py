@@ -4,7 +4,7 @@ import sqlite3
 import uuid
 from pathlib import Path
 
-from flask import abort, jsonify
+from flask import abort, jsonify, request
 
 from . import identity
 from .store import connect, now
@@ -232,6 +232,13 @@ def register(app, ctx):
             WHERE s.subject_type=? AND s.subject_id=? AND s.status='confirmed' AND r.merged_into IS NULL
             ORDER BY r.updated_at DESC,r.id""", (subject_type, row["id"]))
         items = [ctx.record_summary(r) for r in rows if access.visible(r)]
+        if "page" in request.args or "size" in request.args:
+            try:
+                page = max(1, int(request.args.get("page", 1)))
+                size = min(100, max(1, int(request.args.get("size", 12))))
+            except ValueError:
+                abort(400, "页码不正确。")
+            return jsonify(items=items[(page-1)*size:page*size], total=len(items), page=page, size=size)
         return jsonify(items=items, total=len(items))
 
     @app.get("/api/people/<pid>/research-notes")

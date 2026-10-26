@@ -25,3 +25,15 @@
 .source-profile .relation-detail>.between{flex-wrap:wrap}
 @media(max-width:560px){.sources-page .toolbar{flex-wrap:wrap}.sources-page .source-filters label{flex-basis:100%}.source-card{padding:18px}.source-card h2{font-size:18px}}
 @media(max-width:560px){.source-profile .detail-title{font-size:24px}.source-profile .source-introduction .rich-prose{font-size:16px}.source-profile-group{margin:26px 0;padding-top:22px}.source-profile .detail-grid{grid-template-columns:minmax(0,1fr)}.source-profile .relation-detail{padding:13px}}
+
+.source-page{max-width:1000px;margin:0 auto;min-width:0}
+.source-profile .back-link{display:inline-flex;align-items:center;gap:8px;color:var(--primary);margin-bottom:24px;line-height:1.7}
+.source-profile .back-link svg{width:18px;height:18px}
+.source-page>.source-profile-group,.source-page>.note-subject-profile{padding:26px;margin:24px 0;border:1px solid var(--border);border-radius:8px;background:var(--surface)}
+.source-profile-heading{padding:20px 0;min-width:0}
+.source-maintenance{margin-top:20px}
+.source-content-section{min-width:0}
+.source-content-section>.between{gap:14px}
+.source-profile .source-content-list .title-button{font-size:17px;line-height:1.8;text-align:left}
+.source-profile .pagination{flex-wrap:wrap}
+@media(max-width:560px){.source-page>.source-profile-group,.source-page>.note-subject-profile{padding:20px 16px}.source-profile-heading{padding:10px 0}.source-profile .source-content-section>.between{display:flex;flex-direction:column;align-items:flex-start}}
