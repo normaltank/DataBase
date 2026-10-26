@@ -17,6 +17,12 @@
 | 用户决定及历史答复 | [需求讨论记录](需求讨论记录.md) |
 | 长期研究方向与分期建议 | [长期愿景](长期研究愿景与演进路线.md) |
 
+## 个人常用检索
+
+[规格 1.0](specs/个人常用检索.md)定义个人保存查询、动态重查、管理与权限／恢复边界，授权与本轮选取依据见 [R018](需求讨论记录.md#r018继续内化-zotero-的基础资料管理)，实施由 [#34](https://github.com/normaltank/DataBase/issues/34)跟踪。本任务继续借鉴 Zotero 的基础资料工作方式；已有返回位置及候选完整性问题分别由 [#30](https://github.com/normaltank/DataBase/issues/30)、[#31](https://github.com/normaltank/DataBase/issues/31)跟踪；本轮交付入口为 [PR #35](https://github.com/normaltank/DataBase/pull/35)。
+
+[整组验收](../work/常用检索与资料工作流验收.md)记录常用检索、连续工作位置及完整候选的实际复现、升级恢复、浏览器回归与 Standards／Spec 审查。它补齐一批资料管理能力；标准题录交换由 [#36](https://github.com/normaltank/DataBase/issues/36)继续细化。
+
 ## 基础数据库查找与来源选择
 
 [本轮规格](specs/基础数据库查找与来源选择.md)覆盖来源范围查询、长来源选择、筛选上下文及发现网站入口；主动检查范围包括查找、阅读、录入、档案、专题与导出。授权出处见[R016](需求讨论记录.md#r016基础数据库建设与完整使用流程)，[验收记录](../work/基础数据库查找与来源选择验收.md)区分本轮改动、独立验证、审查修复及后续问题；执行和交付见[任务 #28](https://github.com/normaltank/DataBase/issues/28)／[PR #29](https://github.com/normaltank/DataBase/pull/29)。

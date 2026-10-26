@@ -24,10 +24,12 @@ function libraryClearSelection(message='') {
   if(restore)document.querySelector('[data-action="library-select-page"]')?.focus({preventScroll:true});
   if(count&&message)toast(message);
 }
-function libraryRouteContext() {
+function libraryRouteContext(savedVersion=null) {
+  // A saved ID is not an effective query until its persisted conditions resolve.
+  if(state.params.has('saved_search')&&savedVersion===null)return;
   const active=['library','compilations','favorites','review'].includes(state.page),query=recordQuery();
   query.delete('page');query.delete('size');query.sort();
-  const context=active?state.page+'?'+query:null;
+  const context=active?state.page+'?'+query+(savedVersion===null?'':'@'+savedVersion):null;
   if(libraryWorkspace.account!==state.me?.id){libraryResetAccount();libraryWorkspace.account=state.me?.id;}
   else if(libraryWorkspace.context!==context)libraryClearSelection(active?'查找条件已改变，已清空选择。':'已离开资料库，已清空选择。');
   libraryWorkspace.context=context;libraryCloseReader(false);
@@ -79,7 +81,7 @@ function libraryCloseReader(restore=true) {
   document.querySelectorAll('.library-current').forEach(row=>row.classList.remove('library-current'));
   document.body.classList.remove('library-narrow-reading');
   libraryReaderBackground(false);
-  if(restore){let focus=libraryWorkspace.returnFocus;if(!focus?.isConnected)focus=[...document.querySelectorAll('.record-list [data-action]')].find(button=>button.dataset.id===libraryWorkspace.returnFocus?.dataset.id&&button.dataset.action===libraryWorkspace.returnFocus?.dataset.action);focus?.focus({preventScroll:true});window.scrollTo(0,libraryWorkspace.returnY);}
+  if(restore){let focus=libraryWorkspace.returnFocus;if(!focus?.isConnected)focus=[...document.querySelectorAll('.record-list [data-action]')].find(button=>button.dataset.id===libraryWorkspace.returnFocus?.dataset.id&&button.dataset.action===libraryWorkspace.returnFocus?.dataset.action);focus?.focus({preventScroll:true});window.scrollTo(0,libraryWorkspace.returnY);if(typeof continuityRemember==='function')continuityRemember();}
 }
 function libraryAfterRender() {
   if(!document.querySelector('.library-workspace'))return;
@@ -153,7 +155,7 @@ async function libraryOpenReader(id,origin=null,section='') {
     if(epoch!==libraryWorkspace.readerEpoch||account!==state.me?.id||!panel.isConnected){body.replaceChildren();return;}
     panel.scrollTop=0;body.scrollTop=0;
     if(firstOpen&&!libraryReaderMedia.matches){const workspace=panel.closest('.library-results-workspace');window.scrollTo(0,Math.max(0,window.scrollY+workspace.getBoundingClientRect().top-16));}
-    libraryWorkspace.readerRecord=record;
+    libraryWorkspace.readerRecord=record;if(typeof continuityRemember==='function')continuityRemember();
     const focus=section?body.querySelector(section):body.querySelector('.detail-title');
     if(focus){focus.tabIndex=-1;focus.focus({preventScroll:true});if(section)focus.scrollIntoView({block:'start'});}
     for(const row of document.querySelectorAll('[data-library-record]'))row.classList.toggle('library-current',row.dataset.libraryRecord===id);

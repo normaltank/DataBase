@@ -5,7 +5,7 @@ from pathlib import Path
 
 from werkzeug.security import generate_password_hash
 
-CURRENT_SCHEMA_VERSION = 10
+CURRENT_SCHEMA_VERSION = 11
 
 
 def now():
@@ -102,6 +102,8 @@ def initialize(data_dir):
     migrate_affiliations(data_dir)
     from .person_identity import migrate as migrate_person_identity
     migrate_person_identity(data_dir)
+    from .saved_searches import migrate as migrate_saved_searches
+    migrate_saved_searches(data_dir)
 
 
 def decoded(row):

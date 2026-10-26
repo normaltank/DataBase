@@ -189,9 +189,14 @@ async function workflowRecordForm(id='',kind='report',sourceId='',draftKey='',ev
   if(typeof prepareIntakeForm==='function')prepareIntakeForm(form);
   if(id&&isResearchContent(r.kind))form.elements.kind.disabled=true;
   renderSelectedLinks();updateRecordFormMode(form);form.inert=true;
+  // Keep inputs unavailable until their draft protection and references are ready.
+  const preparing=document.createElement('fieldset');preparing.disabled=true;preparing.style.cssText='border:0;padding:0;margin:0;min-width:0';
+  const grid=form.querySelector('.form-grid');grid.before(preparing);preparing.append(grid);
+  const preparationStatus=document.createElement('p');preparationStatus.className='notice';preparationStatus.setAttribute('role','status');preparationStatus.textContent='正在准备编辑与草稿保护…';form.prepend(preparationStatus);
+  form.querySelector('[type=submit]').disabled=true;
   try{if(state.schema>=4&&typeof enhanceEvidenceForm==='function')await enhanceEvidenceForm(form,r,evidenceId);await prepareNoteSubjectForm(form,r);await enableEditorDraft(form,form._editing,sourceId,draftKey);if(typeof uxPrepareReadingForm==='function')uxPrepareReadingForm(form,sourceId);}
   catch(error){form._evidenceLoadFailed=true;if(!form.dataset.draftKey)await enableEditorDraft(form,form._editing,sourceId,draftKey);form.querySelector('.form-error').textContent='关联证据未能读取，请关闭后重新打开。已有草稿仍保留。';form.querySelector('[type=submit]').disabled=true;throw error;}
-  finally{form.inert=false;}
+  finally{preparing.replaceWith(...preparing.childNodes);preparationStatus.remove();form.inert=false;if(!form._evidenceLoadFailed&&!form._draftOffer)form.querySelector('[type=submit]').disabled=false;}
 }
 async function workflowSubmitRecord(form,data) {
   if(form._evidenceLoadFailed)throw new Error('请重新打开编辑器，完整读取关联证据后保存。');
@@ -224,7 +229,8 @@ function authorPanel(r) {
     +(canChoose?'<form data-form="author-assignment" data-record="'+esc(r.id)+'" data-version="'+r.version+'">'+selectField('author_id','负责作者',Object.fromEntries(state.users.map(u=>[u.id,u.name])),r.author_id||state.me.id,'请选择')+'<label class="check-label"><input type="checkbox" name="confirm">如选择本人，我确认由本人负责</label><div class="form-error" role="alert"></div><button type="submit" class="button tiny">保存作者安排</button></form>':canConfirm?'<button type="button" class="button primary" data-action="confirm-author" data-id="'+esc(r.id)+'" data-version="'+r.version+'">确认本人为负责作者</button>':'')+'</section>';
 }
 async function workflowOpenRecord(id) {
-  const r=await api('/api/records/'+encodeURIComponent(id));state.detail={type:'record',data:r};if(typeof uxReadRecord==='function')return uxReadRecord(r);const raw=r.raw_json||{},research=isResearchContent(r.kind),hasEvidence=!!r.evidence_record_id||!!r.evidence_citations?.length;
+  const generation=modalGeneration,account=state.me?.id,hash=location.hash;
+  const r=await api('/api/records/'+encodeURIComponent(id));if(generation!==modalGeneration||account!==state.me?.id||hash!==location.hash)return;state.detail={type:'record',data:r};if(typeof uxReadRecord==='function')return uxReadRecord(r);const raw=r.raw_json||{},research=isResearchContent(r.kind),hasEvidence=!!r.evidence_record_id||!!r.evidence_citations?.length;
   modal(kinds[r.kind]||'资料详情','<div class="row wrap">'+typeBadge(r.kind)+badge(r.status)+'<span class="badge neutral">'+(r.visibility==='shared'?'中心共享':'限授权成员')+'</span><span class="small muted">版本 '+r.version+'</span></div><h2 class="detail-title">'+esc(r.title)+'</h2>'+(r.original_title&&r.original_title!==r.title?'<p class="original-title">'+esc(r.original_title)+'</p>':'')
     +'<div class="detail-actions">'+(r.can_edit?linkButton(icon('edit')+' 编辑内容','edit-record',r.id,'button primary')+linkButton(icon('clock')+' 修改历史','history','record:'+r.id):'')+linkButton(icon('folder')+' 加入专题','add-to-collection',r.id)+'<button class="button tiny" data-action="favorite" data-id="'+esc(r.id)+'" data-saved="'+!!r.favorite+'">'+icon('star')+' '+(r.favorite?'取消收藏':'收藏')+'</button>'+(r.url?externalLink(r.url,'打开原文'):'')+(state.me.role==='admin'&&r.status!=='verified'?linkButton('标记已核对','verify','record:'+r.id):'')+'</div>'
     +authorPanel(r)+'<dl class="detail-grid">'+detailPair(research?'作者 / 编译者署名':'原文作者',esc(r.authors))+(r.coverage?detailPair('覆盖范围',esc(r.coverage)):'')+detailPair('上传者',esc(r.owner_name))+detailPair('最近修改',r.last_modifier?esc(r.last_modifier.name)+' · '+dateTime(r.last_modifier.created_at):'暂无修订')+detailPair('日期',esc(r.published_on))+detailPair('稳定编号',esc(r.id))+'</dl>'
