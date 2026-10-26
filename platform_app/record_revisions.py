@@ -251,7 +251,7 @@ class RecordRevisions:
         associated = [self.source(sid)["id"] for sid in associated]
         if values["kind"] == "directory_translation" and not associated:
             abort(400, "请至少选择一个关联来源。")
-        cited = evidence.validate(self.db, data, values, base, self.get)
+        cited = evidence.validate(self.db, data, values, base, self.get, self.upload_dir.parent)
         return values, sorted(set(canonical_links)), sorted(set(associated)), cited
 
     def _upload(self, rid, data, current_ids, file):

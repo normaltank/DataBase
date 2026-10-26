@@ -241,6 +241,8 @@ def register(app, ctx):
                 return ""
             fields = [("title", "题名"), ("original_title", "原题名"), ("authors", "署名"), ("published_on", "日期"), ("id", "编号"), ("version", "版本"), ("url", "原文链接"), ("doi", "DOI")]
             details = "\n".join(label + "：" + str(snapshot[key]) for key, label in fields if snapshot.get(key) not in (None, ""))
+            from .attachment_anchor import description as anchor_description
+            details += "\n\n" + anchor_description(snapshot.get("attachment_anchor"))
             return '<section><h2>引用时的原始资料快照</h2><pre>' + html.escape(details) + '</pre>' + (snapshot.get("body_html") or "") + prose("原摘要", snapshot.get("abstract")) + '</section>'
 
         with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
