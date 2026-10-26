@@ -75,5 +75,5 @@ finally:
  server_thread.join()
  server.server_close()
  data_temp.cleanup()
-(root/'browser-results.json').write_text(json.dumps(results,ensure_ascii=False,indent=2))
+(root/'browser-results.json').write_text(json.dumps(results,ensure_ascii=False,indent=2), encoding="utf-8")
 print(json.dumps(results,ensure_ascii=False))

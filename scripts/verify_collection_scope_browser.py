@@ -29,7 +29,7 @@ def main():
     offline_server = ThreadingHTTPServer(('127.0.0.1', 0), partial(SimpleHTTPRequestHandler, directory=str(EVIDENCE)))
     Thread(target=offline_server.serve_forever, daemon=True).start()
     offline_url = f'http://127.0.0.1:{offline_server.server_port}'
-    with tempfile.TemporaryDirectory(prefix='scope-browser-data-') as temp, (EVIDENCE / 'server.log').open('w') as server_log:
+    with tempfile.TemporaryDirectory(prefix='scope-browser-data-') as temp, (EVIDENCE / 'server.log').open('w', encoding='utf-8') as server_log:
         server = subprocess.Popen([sys.executable, str(ROOT / 'app.py'), '--no-import', '--port', str(port), '--data-dir', temp], cwd=ROOT, stdout=server_log, stderr=subprocess.STDOUT)
         try:
             for _ in range(100):
@@ -116,7 +116,7 @@ def main():
                         download.value.save_as(exported)
                         verified = subprocess.run([sys.executable, str(ROOT / 'scripts/verify_content_export.py'), str(exported)], capture_output=True, text=True)
                         assert verified.returncode == 0, verified.stderr
-                        (EVIDENCE / f'zip-cli-{width}.log').write_text(verified.stdout)
+                        (EVIDENCE / f'zip-cli-{width}.log').write_text(verified.stdout, encoding="utf-8")
                         offline = EVIDENCE / f'offline-{width}'
                         with zipfile.ZipFile(exported) as archive:
                             archive.extractall(offline)
@@ -146,7 +146,7 @@ def main():
                         page.wait_for_timeout(200)
                         expect(page.locator('[role=dialog]')).to_have_count(0)
                         assert not errors, errors
-                        (EVIDENCE / f'result-{width}.json').write_text(json.dumps({'width': width, 'topic': cid, 'record': rid, 'errors': errors, 'status': 'passed'}))
+                        (EVIDENCE / f'result-{width}.json').write_text(json.dumps({'width': width, 'topic': cid, 'record': rid, 'errors': errors, 'status': 'passed'}), encoding="utf-8")
                         context.close()
                 finally:
                     browser.close()

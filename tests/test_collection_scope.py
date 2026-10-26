@@ -230,13 +230,13 @@ class CollectionScopeTests(unittest.TestCase):
         from platform_app.store import CURRENT_SCHEMA_VERSION
         from platform_app.collection_scope import SCHEMA_VERSION as SCOPE_SCHEMA_VERSION
         fixture = Path(__file__).parent / 'fixtures'
-        expected = json.loads((fixture / 'collection_scope_v11.json').read_text())
+        expected = json.loads((fixture / 'collection_scope_v11.json').read_text(encoding="utf-8"))
         rid, cid = expected['record_id'], expected['collection_id']
         legacy = Path(self.temp.name) / 'legacy-shape'
         legacy.mkdir()
         # Frozen non-empty schema and snapshots produced by the actual v11 application.
         with closing(sqlite3.connect(legacy / 'platform.sqlite3')) as db, db:
-            db.executescript((fixture / 'collection_scope_v11.sql').read_text())
+            db.executescript((fixture / 'collection_scope_v11.sql').read_text(encoding="utf-8"))
         legacy_backup = create_backup(legacy)
         restored = restore_backup(legacy_backup, Path(self.temp.name) / 'upgrade-v11')
         app = create_app(restored, testing=True)

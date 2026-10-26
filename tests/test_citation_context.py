@@ -216,11 +216,11 @@ class CitationContextTests(unittest.TestCase):
         from platform_app.maintenance import create_backup, restore_backup
         from platform_app.store import CURRENT_SCHEMA_VERSION
         fixtures = Path(__file__).parent/"fixtures"
-        expected = json.loads((fixtures/"citations_v11.json").read_text())
+        expected = json.loads((fixtures/"citations_v11.json").read_text(encoding="utf-8"))
         old = Path(self.temp.name)/"frozen11"
         old.mkdir();(old/"uploads").mkdir()
         with closing(sqlite3.connect(old/"platform.sqlite3")) as db:
-            db.executescript((fixtures/"citations_v11.sql").read_text())
+            db.executescript((fixtures/"citations_v11.sql").read_text(encoding="utf-8"))
         target = restore_backup(create_backup(old),Path(self.temp.name)/"old-restored")
         upgraded = create_app(target,testing=True)
         self.clients = {name:self.login(name,upgraded) for name in self.clients}
@@ -293,7 +293,7 @@ class CitationContextTests(unittest.TestCase):
         legacy.mkdir();(legacy/"uploads").mkdir()
         fixture = Path(__file__).parent/"fixtures/citations_v11.sql"
         with closing(sqlite3.connect(legacy/"platform.sqlite3")) as db:
-            db.executescript(fixture.read_text())
+            db.executescript(fixture.read_text(encoding="utf-8"))
             db.execute(f"CREATE TRIGGER fail_citation_upgrade BEFORE UPDATE ON settings WHEN OLD.key='schema_version' AND NEW.value='{SCHEMA_VERSION}' BEGIN SELECT RAISE(ABORT,'synthetic citation migration failure'); END")
             db.commit()
         with self.assertRaises(sqlite3.IntegrityError):
