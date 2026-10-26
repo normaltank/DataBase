@@ -228,7 +228,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(edited.status_code, 200, edited.json)
         self.assertEqual(self.call(f"/api/collections/{cid}", {"version": 2, "stage_judgment": "过期覆盖"}, method="PUT").status_code, 409)
         self.assertEqual(self.call(f"/api/collections/{cid}", {"version": 3, "visibility": "private"}, user="colleague", method="PUT").status_code, 403)
-        self.call(f"/api/collections/{cid}/items", {"record_id": note, "remove": True}, user="colleague")
+        self.call(f"/api/collections/{cid}/items", {"record_id": note, "version": 3, "remove": True}, user="colleague")
         self.assertEqual(self.detail(note)["title"], "我的笔记")
         self.assertEqual(self.clients["researcher"].get(f"/api/collections/{cid}").json["items"], [])
         history = self.clients["researcher"].get(f"/api/collections/{cid}/history").json["items"]

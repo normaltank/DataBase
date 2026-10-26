@@ -509,7 +509,17 @@ class RecordRevisions:
             self.db.execute("INSERT OR IGNORE INTO evidence_links VALUES (?,?,?,?)", (report, excerpt, link["excerpt_version"], link["snapshot_json"]))
         self.db.execute("DELETE FROM evidence_links WHERE report_id=? OR excerpt_id=?", (did, did))
         self._move_pair("record_links", "report_id", "original_id", did, kid)
-        for table, owner in [("favorites", "user_id"), ("collection_items", "collection_id"), ("record_sources", "source_id")]:
+        for item in self.db.execute("SELECT * FROM collection_items WHERE record_id=?", (did,)).fetchall():
+            cid = item["collection_id"]
+            other = self.db.execute("SELECT * FROM collection_items WHERE collection_id=? AND record_id=?", (cid, kid)).fetchone()
+            if other and (other["disposition"], other["rationale"]) != (item["disposition"], item["rationale"]):
+                abort(409, "合并会冲突于专题纳入／排除决定或理由，请先人工整理。")
+            save_revision(self.db, "collection", cid, "资料合并前专题版本", self.actor["id"])
+            self.db.execute("INSERT OR IGNORE INTO collection_items(collection_id,record_id,disposition,rationale) VALUES (?,?,?,?)", (cid, kid, item["disposition"], item["rationale"]))
+            self.db.execute("DELETE FROM collection_items WHERE collection_id=? AND record_id=?", (cid, did))
+            self.db.execute("UPDATE collections SET version=version+1,updated_at=? WHERE id=?", (now(), cid))
+            save_revision(self.db, "collection", cid, "资料合并转接专题条目", self.actor["id"])
+        for table, owner in [("favorites", "user_id"), ("record_sources", "source_id")]:
             self.db.execute(f"INSERT OR IGNORE INTO {table}({owner},record_id) SELECT {owner},? FROM {table} WHERE record_id=?", (kid, did))
             self.db.execute(f"DELETE FROM {table} WHERE record_id=?", (did,))
         self.db.execute("UPDATE attachments SET record_id=? WHERE record_id=?", (kid, did))

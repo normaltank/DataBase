@@ -53,7 +53,7 @@ def register(app, ctx):
             if new_ids:
                 if not connection.execute("SELECT 1 FROM revisions WHERE target_type='collection' AND target_id=?", (cid,)).fetchone():
                     save_revision(connection, "collection", cid, "专题整理前版本", ctx.user()["id"])
-                connection.executemany("INSERT INTO collection_items VALUES (?,?)", [(cid, rid) for rid in new_ids])
+                connection.executemany("INSERT INTO collection_items(collection_id,record_id) VALUES (?,?)", [(cid, rid) for rid in new_ids])
                 version += 1
                 connection.execute("UPDATE collections SET version=?,updated_at=? WHERE id=?", (version, now(), cid))
                 save_revision(connection, "collection", cid, "批量加入专题资料", ctx.user()["id"])

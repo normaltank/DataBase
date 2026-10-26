@@ -5,7 +5,7 @@ from pathlib import Path
 
 from werkzeug.security import generate_password_hash
 
-CURRENT_SCHEMA_VERSION = 11
+CURRENT_SCHEMA_VERSION = 12
 
 
 def now():
@@ -104,6 +104,8 @@ def initialize(data_dir):
     migrate_person_identity(data_dir)
     from .saved_searches import migrate as migrate_saved_searches
     migrate_saved_searches(data_dir)
+    from .collection_scope import migrate as migrate_collection_scope
+    migrate_collection_scope(data_dir)
 
 
 def decoded(row):
@@ -122,6 +124,7 @@ def save_revision(db, kind, row_id, action, actor):
     else:
         snapshot = dict(db.execute(f"SELECT * FROM {table} WHERE id=?", (row_id,)).fetchone())
     if kind == "collection":
+        snapshot["item_details"] = [dict(r) for r in db.execute("SELECT record_id,disposition,rationale FROM collection_items WHERE collection_id=? ORDER BY record_id", (row_id,))]
         snapshot["item_ids"] = [r[0] for r in db.execute("SELECT record_id FROM collection_items WHERE collection_id=? ORDER BY record_id", (row_id,))]
     db.execute("INSERT INTO revisions(target_type,target_id,action,actor_id,created_at,snapshot_json) VALUES (?,?,?,?,?,?)",
                (kind, row_id, action, actor, now(), json.dumps(snapshot, ensure_ascii=False)))

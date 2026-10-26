@@ -147,7 +147,7 @@ class PlatformTests(unittest.TestCase):
         self.call("researcher", "/api/favorites/"+rid, {"saved": True})
         self.assertEqual(self.clients["researcher"].get("/api/records?favorite=1").json["total"], 1)
         self.assertEqual(self.clients["colleague"].get("/api/records?favorite=1").json["total"], 0)
-        self.call("researcher", f"/api/collections/{cid}/items", {"record_id": rid, "remove": True})
+        self.call("researcher", f"/api/collections/{cid}/items", {"record_id": rid, "version": 2, "remove": True})
         self.assertEqual(self.clients["researcher"].get("/api/records?collection="+cid).json["total"], 0)
 
     def test_combined_search_and_csv_injection_protection(self):
