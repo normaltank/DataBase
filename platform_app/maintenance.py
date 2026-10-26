@@ -99,11 +99,14 @@ def restore_backup(archive_path, target_dir):
             if db.execute("PRAGMA integrity_check").fetchone()[0] != "ok" or db.execute("PRAGMA foreign_key_check").fetchall():
                 raise ValueError("数据库完整性检查失败。")
             version = db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0]
-            if version not in {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13"}:
+            if version not in {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14"}:
                 raise ValueError("数据库版本不匹配。")
             from . import evidence
             if int(version) >= evidence.SCHEMA_VERSION:
                 evidence.validate_backup(db)
+            from . import collection_scope
+            if int(version) >= collection_scope.SCHEMA_VERSION:
+                collection_scope.validate_backup(db)
             if int(version) >= 11:
                 from .saved_searches import validate_backup
                 validate_backup(db)

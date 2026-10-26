@@ -18,7 +18,7 @@ from .attachment_search import AttachmentIndex, original_path
 from .publication_dates import interval as publication_interval, query_range as publication_query_range
 from .store import connect, decoded, initialize, now, save_revision
 from .record_revisions import RecordRevisions, validate_text, check_version
-from . import source_catalog, workflow, evidence, identity, operations, reading, people, note_subjects, bylines, affiliations, person_identity, bulk, intake, saved_searches, reviews
+from . import source_catalog, workflow, evidence, identity, operations, reading, people, note_subjects, bylines, affiliations, person_identity, bulk, intake, saved_searches, collection_scope, reviews
 
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE_FIELDS = ["name", "original_name", "kind", "classification", "location", "country", "research_scope",
@@ -221,7 +221,7 @@ def create_app(data_dir=None, testing=False):
         collection_ids = None
         if args.get("collection"):
             get_collection(args["collection"])
-            collection_ids = {r[0] for r in db().execute("SELECT record_id FROM collection_items WHERE collection_id=?", (args["collection"],))}
+            collection_ids = {r[0] for r in db().execute("SELECT record_id FROM collection_items WHERE collection_id=? AND disposition='included'", (args["collection"],))}
         results = []
         selected_source_row = get_source(args["source"]) if args.get("source") else None
         selected_source = selected_source_row["id"] if selected_source_row else None
@@ -441,6 +441,8 @@ def create_app(data_dir=None, testing=False):
             for citation in snapshot.get("evidence_citations", []):
                 citation["snapshot_json"] = json.dumps(evidence.project_snapshot(db(), json.loads(citation["snapshot_json"]), visible), ensure_ascii=False)
         if row["target_type"] == "collection":
+            snapshot["scope_log"] = json.loads(snapshot.get("scope_log_json", "[]"))
+            snapshot["item_details"] = [item for item in snapshot.get("item_details", [{"record_id": rid, "disposition": "included", "rationale": ""} for rid in snapshot.get("item_ids", [])]) if (record := identity.resolve(db(), "records", item["record_id"])) and visible(record)]
             snapshot["item_ids"] = [rid for rid in snapshot.get("item_ids", []) if (record := identity.resolve(db(), "records", rid)) and visible(record)]
         return jsonify(snapshot=snapshot, action=row["action"], target_id=row["target_id"])
 
@@ -614,7 +616,7 @@ def create_app(data_dir=None, testing=False):
             if r["visibility"] == "private" and r["owner_id"] != user()["id"]:
                 continue
             item = dict(r)
-            item["count"] = sum(1 for x in db().execute("SELECT r.* FROM records r JOIN collection_items i ON r.id=i.record_id WHERE i.collection_id=?", (r["id"],)) if visible(x))
+            item["count"] = sum(1 for x in db().execute("SELECT r.* FROM records r JOIN collection_items i ON r.id=i.record_id WHERE i.collection_id=? AND i.disposition='included' AND r.merged_into IS NULL", (r["id"],)) if visible(x))
             items.append(item)
         return jsonify(items=items)
 
@@ -632,19 +634,27 @@ def create_app(data_dir=None, testing=False):
 
     @app.post("/api/collections/<cid>/items")
     def collection_add(cid):
-        get_collection(cid, edit=True)
+        db().execute("BEGIN IMMEDIATE")
+        collection = get_collection(cid, edit=True)
         data = body()
+        if "version" in data or "disposition" in data or "rationale" in data or data.get("remove") is True:
+            check_version(data, collection)
         rid = str(data.get("record_id", ""))
         rid = get_record(rid)["id"]
+        existing = db().execute("SELECT disposition,rationale FROM collection_items WHERE collection_id=? AND record_id=?", (cid, rid)).fetchone()
+        disposition, rationale = collection_scope.decision({**(dict(existing) if existing else {}), **data})
         with db():
             if not db().execute("SELECT 1 FROM revisions WHERE target_type='collection' AND target_id=?", (cid,)).fetchone():
                 save_revision(db(), "collection", cid, "专题整理前版本", user()["id"])
             if data.get("remove") is True:
                 db().execute("DELETE FROM collection_items WHERE collection_id=? AND record_id=?", (cid, rid))
             else:
-                db().execute("INSERT OR IGNORE INTO collection_items VALUES (?,?)", (cid, rid))
+                if "disposition" in data or "rationale" in data:
+                    db().execute("INSERT INTO collection_items(collection_id,record_id,disposition,rationale) VALUES (?,?,?,?) ON CONFLICT(collection_id,record_id) DO UPDATE SET disposition=excluded.disposition,rationale=excluded.rationale", (cid, rid, disposition, rationale))
+                else:
+                    db().execute("INSERT OR IGNORE INTO collection_items(collection_id,record_id) VALUES (?,?)", (cid, rid))
             db().execute("UPDATE collections SET version=version+1,updated_at=? WHERE id=?", (now(), cid))
-            save_revision(db(), "collection", cid, "移出专题资料" if data.get("remove") is True else "加入专题资料", user()["id"])
+            save_revision(db(), "collection", cid, "移出专题资料" if data.get("remove") is True else "修订专题条目决定与理由" if "disposition" in data or "rationale" in data else "加入专题资料", user()["id"])
         return jsonify(ok=True)
 
     def current_attachment(aid):

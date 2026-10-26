@@ -88,3 +88,5 @@
   .workspace-topic [data-form=topic-search] input{flex-basis:100%}
   .workspace-drafts .draft-card>.button{align-self:stretch}
 }
+
+.scope-log-entry{min-width:0;border:1px solid var(--border);border-radius:6px;padding:14px;margin:12px 0;overflow-wrap:anywhere}.scope-log-entry legend{font-weight:600}.scope-log-entry .field{min-width:0}.scope-log-entry input,.scope-log-entry textarea,.scope-log-entry select{width:100%;min-width:0;box-sizing:border-box}.scope-log-entry .comparison-fields{margin:0}

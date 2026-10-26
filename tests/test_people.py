@@ -242,8 +242,8 @@ class PeopleTests(unittest.TestCase):
         # projection is empty; every pre-existing source field must stay exact.
         expected_source = {**expected["source"], "filter_countries": [], "last_verified": None, "review_history": []}
         self.assertEqual(self.clients["researcher"].get("/api/sources/" + expected["source"]["id"]).json, expected_source)
-        expected_collection = {**expected["collection"], "items": [
-            {**item, "volume": "", "issue": "", "pages": "", "issn": "", "attachment_matches": [], "can_manage_access": True} for item in expected["collection"]["items"]]}
+        expected_collection = {**expected["collection"], "scope_log_json": "[]", "scope_log": [], "excluded_items": [], "items": [
+            {**item, "attachment_matches": [], "can_manage_access": True, "volume": "", "issue": "", "pages": "", "issn": "", "disposition": "included", "rationale": ""} for item in expected["collection"]["items"]]}
         self.assertEqual(self.clients["researcher"].get("/api/collections/" + expected["collection"]["id"]).json, expected_collection)
         backups = list((legacy / "backups").glob("*.zip"))
         self.assertEqual(len(backups), CURRENT_SCHEMA_VERSION - 5)

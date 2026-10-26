@@ -5,7 +5,7 @@ from pathlib import Path
 
 from werkzeug.security import generate_password_hash
 
-CURRENT_SCHEMA_VERSION = 13
+CURRENT_SCHEMA_VERSION = 14
 
 
 def now():
@@ -108,6 +108,8 @@ def initialize(data_dir):
     migrate_bibliography(data_dir)
     from .evidence import migrate as migrate_citations
     migrate_citations(data_dir)
+    from .collection_scope import migrate as migrate_collection_scope
+    migrate_collection_scope(data_dir)
 
 
 def decoded(row):
@@ -126,6 +128,7 @@ def save_revision(db, kind, row_id, action, actor, review_event=None):
     else:
         snapshot = dict(db.execute(f"SELECT * FROM {table} WHERE id=?", (row_id,)).fetchone())
     if kind == "collection":
+        snapshot["item_details"] = [dict(r) for r in db.execute("SELECT record_id,disposition,rationale FROM collection_items WHERE collection_id=? ORDER BY record_id", (row_id,))]
         snapshot["item_ids"] = [r[0] for r in db.execute("SELECT record_id FROM collection_items WHERE collection_id=? ORDER BY record_id", (row_id,))]
     if review_event is not None:
         snapshot["review_event"] = review_event

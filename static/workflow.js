@@ -104,6 +104,7 @@ function currentEditorForm() { return document.querySelector('form[data-draft-ke
 function draftStatus(form, text, failed=false) { const el=form?.querySelector('[data-draft-status]');if(el){el.textContent=text;el.classList.toggle('error-text',failed);} }
 function collectDraft(form) {
   syncRichForm(form);
+  if(typeof syncCollectionScopeLog==='function')syncCollectionScopeLog(form);
   const values={};for(const element of form.elements){if(!element.name||element.type==='file'||element.type==='password')continue;if(['checkbox','radio'].includes(element.type)){if(!values[element.name])values[element.name]=[];if(element.checked)values[element.name].push(element.value);}else if(element.multiple)values[element.name]=[...element.selectedOptions].map(o=>o.value);else values[element.name]=element.value;}
   const edit=form._editing;
   return {user_id:form.dataset.draftUser,type:edit.type,id:edit.id,kind:values.kind||edit.original.kind,context:form.dataset.draftContext||'',version:edit.version,title:values.title||values.name||'未命名草稿',values,links:form._links||[],relationships:[...form.querySelectorAll('[data-relation-row]')].map(row=>Object.fromEntries([...row.querySelectorAll('[data-rel]')].map(el=>[el.dataset.rel,el.value]))),specific:edit.draftSpecific||{},file:form._draftFile?{name:form._draftFile.name,size:form._draftFile.size}:null,updated_at:new Date().toISOString(),conflict_pending:!!form._conflictPending};
@@ -132,6 +133,7 @@ async function restoreEditorDraft(form) {
   }
   for(const el of form.elements){if(!el.name||el.type==='file')continue;const value=draft.values[el.name];if(value===undefined)continue;if(el.matches('[data-source-values]'))restoreSourceSelection(el,value);else if(['checkbox','radio'].includes(el.type))el.checked=Array.isArray(value)&&value.includes(el.value);else if(el.multiple)[...el.options].forEach(o=>o.selected=Array.isArray(value)&&value.includes(o.value));else el.value=value;}
   refreshSourcePickers(form);
+  if(draft.type==='collection'&&typeof renderScopeLogRows==='function')renderScopeLogRows(form);
   if(draft.type==='record'&&typeof restoreIntakeForm==='function')restoreIntakeForm(form);
   if(draft.type==='byline')restoreBylineDraft(form,draft);
   if(draft.type==='employment'||draft.type==='affiliation')restoreRelationshipDraft(form,draft);
