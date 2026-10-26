@@ -18,7 +18,7 @@ from .record_revisions import RECORD_FIELDS
 
 def record_projection(db, item, visible):
     fields = {*RECORD_FIELDS, "id", "version", "created_at", "updated_at", "status", "author_name",
-              "owner_name", "last_modifier", "related_source_ids", "attachments", "evidence_citations", "citation_scope_notice",
+              "owner_name", "last_modifier", "related_source_ids", "attachments", "evidence_citations",
               "evidence_snapshot", "evidence_version", "linked_records", "cited_by", "excerpts", "previous_ids", "research_subjects", "intake_evidence", "last_verified", "review_history"}
     result = identity.readable_record(db, {key: value for key, value in item.items() if key in fields}, visible)
     result.pop("evidence_snapshot_json", None)
@@ -231,7 +231,7 @@ def evidence_coverage(records, attachments, sources=()):
         if not any(item.get(key) for key in ['evidence_record_id', 'evidence_url', 'evidence_snapshot', 'evidence_attachment_id']):
             row['evidence']['notice'] = ('普通笔记未建立固定原文依据；笔记正文不代表原文固定快照。'
                                          if item['kind'] == 'research_note' else '本条未登记固定原文依据。')
-        for citation in item['evidence_citations']:
+        for citation in sorted(item['evidence_citations'], key=lambda c: list(evidence.STANCE_LABELS).index(c.get('stance', 'unclassified'))):
             snap = citation['snapshot']
             row['citations'].append({'excerpt_id': citation['excerpt_id'], 'excerpt_version': citation['excerpt_version'],
                                     **{key: citation.get(key) for key in ['stance', 'claim_note', 'staleness_reasons', 'identity_changes', 'identity_baseline_status', 'current_original_id']},
@@ -243,6 +243,7 @@ def evidence_coverage(records, attachments, sources=()):
 
 
 def coverage_html(coverage):
+    from .evidence import STANCE_LABELS
     content = '<p><a href="index.html">返回目录</a></p>'
     content += '<p>本清单仅说明本次权限范围内导出的内容，不枚举不可见资料。固定引用与当前资料分别列示；外部链接不表示网页已留存。普通笔记可能没有原文固定快照。</p>'
     content += '<p>manifest.json 的 SHA-256 与字节数仅用于包内一致性核查，不能证明材料真实、作者身份或研究结论成立，也不能证明文件未被连同清单一起重写。可使用由其他可信渠道取得的整个 ZIP SHA-256 另行比对。</p>'
@@ -267,7 +268,7 @@ def coverage_html(coverage):
             content += '<p><a href="' + attachment['path'] + '">当前附件</a></p>'
         if row.get('citation_scope_notice'):
             content += '<p>' + html.escape(row['citation_scope_notice']) + '</p>'
-        for label, evidence in [('该条记录的原文依据', row['evidence']), *[('固定采用笔记 ' + c['excerpt_id'] + ' · 版本 ' + str(c['excerpt_version']), c) for c in row['citations']]]:
+        for label, evidence in [('该条记录的原文依据', row['evidence']), *[('引用用途：' + STANCE_LABELS.get(c.get('stance'), '未分类') + ' · 固定采用笔记 ' + c['excerpt_id'] + ' · 版本 ' + str(c['excerpt_version']), c) for c in row['citations']]]:
             content += '<h3>' + html.escape(label) + '</h3><p>' + html.escape(evidence['notice']) + '</p>'
             if 'stance' in evidence:
                 from .evidence import citation_description

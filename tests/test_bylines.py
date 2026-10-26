@@ -392,7 +392,14 @@ class BylineTests(unittest.TestCase):
         self.assertEqual(corrected.status_code, 200, corrected.json)
         self.assertEqual(self.get("/api/records/" + rid), original)
         self.assertEqual(self.get("/api/records/" + note), note_before)
-        self.assertEqual(self.get("/api/records/" + report), report_before)
+        report_after = self.get("/api/records/" + report)
+        adopted = report_after["evidence_citations"][0]
+        self.assertEqual(adopted["staleness_reasons"], ["identity_changed"])
+        self.assertEqual(adopted["identity_changes"], [{"scope": "bylines", "change": "endpoints_or_status"}])
+        # Only the current review projection changes; report content and adoption stay fixed.
+        for key in ["staleness_reasons", "identity_changes"]:
+            adopted[key] = report_before["evidence_citations"][0][key]
+        self.assertEqual(report_after, report_before)
 
     def test_late_legacy_merge_failure_rolls_back_byline_transfers_and_their_history(self):
         person = self.person()

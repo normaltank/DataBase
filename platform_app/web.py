@@ -343,7 +343,6 @@ def create_app(data_dir=None, testing=False):
             full = db().execute("SELECT * FROM attachments WHERE id=?", (attachment["id"],)).fetchone()
             attachment["index"] = attachment_index().info(full)
         obj["evidence_citations"] = evidence.citations(db(), rid, visible)
-        obj["citation_scope_notice"] = evidence.citation_scope_notice(obj["evidence_citations"])
         obj["excerpts"] = [record_summary(r) for r in db().execute("SELECT * FROM records WHERE evidence_record_id=? AND merged_into IS NULL", (rid,)) if visible(r)]
         obj["evidence_snapshot"] = evidence.project_snapshot(db(), json.loads(row["evidence_snapshot_json"]), visible)
         obj["evidence_snapshot_json"] = json.dumps(obj["evidence_snapshot"], ensure_ascii=False)
