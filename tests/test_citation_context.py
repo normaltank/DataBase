@@ -254,11 +254,12 @@ class CitationContextTests(unittest.TestCase):
         from platform_app.maintenance import create_backup, restore_backup
         from pathlib import Path
         original,note,report = self.chain()
+        from contextlib import closing
         # Deliberately corrupt storage only to model an untrusted full backup.
-        db = sqlite3.connect(self.data_dir/"platform.sqlite3")
-        revision = db.execute("SELECT id,snapshot_json FROM revisions WHERE target_id=? ORDER BY id DESC LIMIT 1",(report,)).fetchone()
-        state = json.loads(revision[1]);state["evidence_citations"][0]["stance"]="not-a-role"
-        db.execute("UPDATE revisions SET snapshot_json=? WHERE id=?",(json.dumps(state),revision[0]));db.commit();db.close()
+        with closing(sqlite3.connect(self.data_dir/"platform.sqlite3")) as db:
+            revision = db.execute("SELECT id,snapshot_json FROM revisions WHERE target_id=? ORDER BY id DESC LIMIT 1",(report,)).fetchone()
+            state = json.loads(revision[1]);state["evidence_citations"][0]["stance"]="not-a-role"
+            db.execute("UPDATE revisions SET snapshot_json=? WHERE id=?",(json.dumps(state),revision[0]));db.commit()
         with self.assertRaises(ValueError):
             restore_backup(create_backup(self.data_dir),Path(self.temp.name)/"invalid-restore")
 
