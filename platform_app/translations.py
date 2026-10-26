@@ -18,7 +18,7 @@ from . import workflow
 from .record_revisions import RecordRevisions, check_version, validate_text
 from .store import connect, now, save_revision
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 15
 MAX_SECONDS = 25
 MAX_BYTES = 256 * 1024
 _slots = threading.BoundedSemaphore(4)

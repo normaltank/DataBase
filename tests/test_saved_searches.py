@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from platform_app.web import create_app
+from platform_app.store import CURRENT_SCHEMA_VERSION
 
 class SavedSearchTests(unittest.TestCase):
     def setUp(self):
@@ -167,11 +168,10 @@ class SavedSearchTests(unittest.TestCase):
             path=legacy/name
             path.parent.mkdir(exist_ok=True)
             path.write_bytes(base64.b64decode(info['base64']))
-        from platform_app.store import CURRENT_SCHEMA_VERSION
         upgraded=create_app(legacy,testing=True)
         self.assertEqual(upgraded.test_client().get('/health').json['schema'],CURRENT_SCHEMA_VERSION)
         backups=list((legacy/'backups').glob('*.zip'))
-        self.assertEqual(len(backups),CURRENT_SCHEMA_VERSION-9,'Every migration must back up its input version.')
+        self.assertEqual(len(backups),CURRENT_SCHEMA_VERSION - 9,'Every upgrade must back up its input version.')
         v10_backup=None
         for index,backup in enumerate(backups):
             restored=restore_backup(backup,Path(self.temp.name)/('migration-backup-'+str(index)))
@@ -183,7 +183,7 @@ class SavedSearchTests(unittest.TestCase):
                 self.assertEqual((restored/name).read_bytes(),base64.b64decode(info['base64']))
         self.assertIsNotNone(v10_backup)
         create_app(legacy,testing=True)
-        self.assertEqual(len(list((legacy/'backups').glob('*.zip'))),CURRENT_SCHEMA_VERSION-9)
+        self.assertEqual(len(list((legacy/'backups').glob('*.zip'))),CURRENT_SCHEMA_VERSION - 9)
         failed=restore_backup(v10_backup,Path(self.temp.name)/'failed-migration')
         with closing(sqlite3.connect(failed/'platform.sqlite3')) as db:
             db.execute("CREATE TRIGGER fail_saved_upgrade BEFORE UPDATE ON settings WHEN OLD.key='schema_version' AND NEW.value='11' BEGIN SELECT RAISE(ABORT,'synthetic migration failure'); END")

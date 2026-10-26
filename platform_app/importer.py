@@ -116,7 +116,7 @@ def import_thinktank(data_dir, root=DEFAULT_ROOT):
             db.execute("INSERT INTO collections(id,name,description,visibility,owner_id,created_at) VALUES (?,?,?,?,?,?)", (
                 "pilot-latvia", "拉脱维亚 · 语言与社会", "初始试用专题：从现有条目中整理语言、社会融入及公共政策资料。可继续加入原文和编译成果。", "shared", "admin", stamp))
             samples = db.execute("SELECT id FROM records WHERE lower(title) LIKE '%language%' OR lower(title) LIKE '%integration%' ORDER BY published_on DESC LIMIT 6").fetchall()
-            db.executemany("INSERT INTO collection_items VALUES (?,?)", [("pilot-latvia", s[0]) for s in samples])
+            db.executemany("INSERT INTO collection_items(collection_id,record_id) VALUES (?,?)", [("pilot-latvia", s[0]) for s in samples])
             db.execute("INSERT INTO settings VALUES ('thinktank_import_v1',?)", (json.dumps(report, ensure_ascii=False),))
     finally:
         db.close()

@@ -9,6 +9,7 @@ import tempfile
 from pathlib import Path
 
 from .store import now
+from .search import normalize
 from .workflow import snippet
 
 VERSION = 1
@@ -40,10 +41,12 @@ class AttachmentIndex:
         self.data_dir = Path(data_dir)
         self.directory = self.data_dir / 'attachment-index'
         self.loaded = {}
+        self.prefetched = None
 
     def current(self, record):
         ids = json.loads(record['attachment_ids'])
-        return [dict(a) for a in self.db.execute('SELECT * FROM attachments WHERE record_id=?', (record['id'],)) if a['id'] in ids]
+        rows = self.prefetched.get(record['id'], []) if self.prefetched is not None else self.db.execute('SELECT * FROM attachments WHERE record_id=?', (record['id'],))
+        return [dict(a) for a in rows if a['id'] in ids]
 
     def _cache_path(self, attachment):
         # Never interpret a database identifier as a filesystem path.
@@ -89,12 +92,12 @@ class AttachmentIndex:
         return result
 
     def matches(self, record, query):
-        words = query.casefold().split()
+        words = normalize(query).split()
         if not words:
             return []
         return [{k: segment[k] for k in ['attachment_id', 'name', 'locator', 'url']} |
                 {'snippet': snippet(segment['text'], query)}
-                for segment in self.segments(record) if any(w in segment['text'].casefold() for w in words)][:5]
+                for segment in self.segments(record) if any(w in normalize(segment['text']) for w in words)][:5]
 
     def _save(self, attachment, result):
         self.directory.mkdir(exist_ok=True)

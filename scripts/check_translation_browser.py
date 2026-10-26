@@ -6,7 +6,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from platform_app.web import create_app
 from werkzeug.serving import make_server,WSGIRequestHandler
 from playwright.sync_api import sync_playwright,expect
-root=Path(os.environ.get('DATABASE_TRANSLATION_EVIDENCE', tempfile.mkdtemp(prefix='translation-evidence-')))
+root=Path(os.environ.get('DATABASE_TRANSLATION_EVIDENCE') or tempfile.mkdtemp(prefix='translation-evidence-'))
 root.mkdir(parents=True, exist_ok=True)
 data_temp=tempfile.TemporaryDirectory(prefix='translation-browser-')
 app=create_app(Path(data_temp.name)/'data',testing=True)
@@ -17,7 +17,8 @@ rid=post('/api/records',{'title':'Synthetic translation example','abstract':'Syn
 class Quiet(WSGIRequestHandler):
  def log(self,*args,**kwargs):pass
 server=make_server('127.0.0.1',0,app,threaded=True,request_handler=Quiet)
-threading.Thread(target=server.serve_forever,daemon=True).start()
+server_thread=threading.Thread(target=server.serve_forever,daemon=True)
+server_thread.start()
 provider_delay = {'seconds': 0}
 def provider(*args,**kwargs):
  time.sleep(provider_delay['seconds'])
@@ -71,6 +72,8 @@ try:
   browser.close()
 finally:
  server.shutdown()
+ server_thread.join()
+ server.server_close()
  data_temp.cleanup()
 (root/'browser-results.json').write_text(json.dumps(results,ensure_ascii=False,indent=2))
 print(json.dumps(results,ensure_ascii=False))

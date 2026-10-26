@@ -45,6 +45,69 @@ def unique_object(pairs):
     return result
 
 
+def verify_anchors(archive, entries):
+    """Check declared anchors against both projections and the checked file list."""
+    if 'content.json' not in entries:
+        if 'evidence-coverage.json' in entries:
+            raise VerificationError('Missing attachment anchor content declarations')
+        return
+    content = json.loads(archive.read('content.json'), object_pairs_hook=unique_object)
+    if not isinstance(content, dict) or not isinstance(content.get('records'), list):
+        raise VerificationError('Invalid content schema for attachment anchors')
+    attachments = {}
+    for row in content.get('attachments', []):
+        if not isinstance(row, dict) or not isinstance(row.get('id'), str) or row['id'] in attachments:
+            raise VerificationError('Invalid or duplicate attachment anchor file identity')
+        attachments[row['id']] = row
+    declared = {}
+
+    def check(anchor, aid, path=None):
+        if not isinstance(anchor, dict) or not isinstance(aid, str) or anchor.get('id') != aid:
+            raise VerificationError('Attachment anchor identity mismatch')
+        attached = attachments.get(aid)
+        if not attached or not isinstance(attached.get('path'), str):
+            raise VerificationError('Missing attachment anchor file')
+        if path is not None and path != attached['path']:
+            raise VerificationError('Attachment anchor path mismatch')
+        registered = entries.get(attached['path'])
+        if not attached['path'].startswith('attachments/') or not registered:
+            raise VerificationError('Missing attachment anchor manifest entry')
+        if anchor.get('name') != attached.get('name'):
+            raise VerificationError('Attachment anchor filename mismatch')
+        for key in ['bytes', 'sha256']:
+            if key not in anchor or anchor[key] != attached.get(key) or anchor[key] != registered[key]:
+                raise VerificationError('Attachment anchor ' + key + ' mismatch')
+        if type(anchor['bytes']) is not int or not isinstance(anchor['sha256'], str):
+            raise VerificationError('Invalid attachment anchor checksum')
+
+    for row in content['records']:
+        for key, snapshot in [(('record', row['id']), row), *[(('citation', row['id'], c['excerpt_id']), c['snapshot']) for c in row.get('evidence_citations', [])]]:
+            original = snapshot.get('evidence_snapshot')
+            if original is None:
+                original = json.loads(snapshot.get('evidence_snapshot_json') or '{}', object_pairs_hook=unique_object)
+            if isinstance(original, dict) and 'attachment_anchor' in original:
+                anchor = original['attachment_anchor']
+                check(anchor, snapshot.get('evidence_attachment_id'))
+                declared[key] = anchor
+    if 'evidence-coverage.json' not in entries:
+        if declared:
+            raise VerificationError('Missing attachment anchor coverage')
+        return
+    coverage = json.loads(archive.read('evidence-coverage.json'), object_pairs_hook=unique_object)
+    observed = {}
+    for row in coverage['records']:
+        for key, retained in [(('record', row['id']), row['evidence']), *[(('citation', row['id'], c['excerpt_id']), c) for c in row.get('citations', [])]]:
+            if 'attachment_anchor' in retained and retained['attachment_anchor'] is not None:
+                anchor = retained['attachment_anchor']
+                attached = retained.get('attachment') or {}
+                if not isinstance(attached.get('path'), str):
+                    raise VerificationError('Missing attachment anchor coverage path')
+                check(anchor, attached.get('id'), attached['path'])
+                observed[key] = anchor
+    if declared != observed:
+        raise VerificationError('Attachment anchor content/coverage declarations differ')
+
+
 def verify(path, expected_sha256=None):
     with Path(path).open('rb') as source:
         if expected_sha256 is not None:
@@ -91,6 +154,7 @@ def verify(path, expected_sha256=None):
                     size, digest = digest_stream(stream)
                 if size != row['bytes'] or digest != row['sha256']:
                     raise VerificationError('File checksum mismatch: ' + name)
+            verify_anchors(archive, entries)
             return len(entries)
 
 
@@ -101,10 +165,10 @@ def main():
     args = parser.parse_args()
     try:
         count = verify(args.zip_path, args.sha256)
-    except (OSError, ValueError, zipfile.BadZipFile, RuntimeError, NotImplementedError, EOFError) as error:
+    except (OSError, ValueError, KeyError, TypeError, zipfile.BadZipFile, RuntimeError, NotImplementedError, EOFError) as error:
         print('FAIL: ' + str(error), file=sys.stderr)
         return 1
-    print(f'OK: {count} files match the manifest. Internal consistency only; not proof of authenticity, authorship, or research validity.')
+    print(f'OK: {count} files and declared attachment anchors match the manifest. Historical records without anchors remain unchecked. Internal consistency only; not proof of authenticity, authorship, or research validity.')
     return 0
 
 

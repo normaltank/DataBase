@@ -8,7 +8,16 @@ from tests import test_workflow as workflow_tests
 class TranslationTests(unittest.TestCase):
     setUp = workflow_tests.WorkflowTests.setUp
     login = workflow_tests.WorkflowTests.login
-    call = workflow_tests.WorkflowTests.call
+    def call(self, *args, **kwargs):
+        response = workflow_tests.WorkflowTests.call(self, *args, **kwargs)
+        self.addCleanup(response.close)
+        return response
+
+    def get(self, path, user='researcher'):
+        response = self.clients[user].get(path)
+        self.addCleanup(response.close)
+        return response
+
     record = workflow_tests.WorkflowTests.record
     detail = workflow_tests.WorkflowTests.detail
 
@@ -17,7 +26,7 @@ class TranslationTests(unittest.TestCase):
         with patch('urllib.request.OpenerDirector.open') as network:
             job = self.call(f'/api/records/{rid}/translations', {'version': 1, 'request_id': 'first'})
             self.assertEqual(job.status_code, 201, job.json)
-            item = self.clients['researcher'].get(f'/api/records/{rid}/translations').json['items'][0]
+            item = self.get(f'/api/records/{rid}/translations').json['items'][0]
             self.assertEqual(item['status'], 'queued')
             network.assert_not_called()
         self.assertEqual(item['input_title'], 'Synthetic original')
@@ -53,7 +62,7 @@ class TranslationTests(unittest.TestCase):
         with patch('urllib.request.OpenerDirector.open', return_value=self.provider('新机译', '新摘要')):
             self.assertEqual(self.call(f'/api/translations/{second}/run').status_code, 200)
         self.assertEqual(self.detail(rid)['chinese_title'], '共同修订')
-        history = self.clients['researcher'].get(f'/api/history/record/{rid}').json['items']
+        history = self.get(f'/api/history/record/{rid}').json['items']
         adopted_revision = next(h for h in history if '采用机器译文' in h['action'])
         self.assertEqual(self.call(f"/api/history/{adopted_revision['id']}/restore", {'version': 3}).status_code, 200)
         self.assertEqual(self.detail(rid)['chinese_title'], '人工校订题名')
@@ -104,8 +113,8 @@ class TranslationTests(unittest.TestCase):
             self.call(f'/api/translations/{jid}/run')
         self.call(f'/api/translations/{jid}/adopt', {'version': 1})
         pending = self.call(f'/api/records/{rid}/translations', {'version': 2, 'request_id': 'pending'}).json['id']
-        exported = self.clients['researcher'].get('/api/export/content')
-        with zipfile.ZipFile(io.BytesIO(exported.data)) as archive:
+        exported = self.get('/api/export/content')
+        with io.BytesIO(exported.data) as buffer, zipfile.ZipFile(buffer) as archive:
             payload = json.loads(archive.read('content.json'))
             item = next(x for x in payload['records'] if x['id'] == rid)
             self.assertEqual(item['chinese_title'], '合成译题')
@@ -113,13 +122,22 @@ class TranslationTests(unittest.TestCase):
             self.assertIn('Export original', archive.read(item['path']).decode())
             self.assertIn('合成译题', archive.read(item['path']).decode())
             self.assertNotIn(b'synthetic-secret-test', b''.join(archive.read(n) for n in archive.namelist()))
-        self.assertIn('合成译题', self.clients['researcher'].get('/api/export').data.decode('utf-8-sig'))
+        import subprocess
+        import sys
+        exported_path = Path(self.temp.name) / 'translation-content.zip'
+        exported_path.write_bytes(exported.data)
+        verifier = Path(__file__).resolve().parents[1] / 'scripts' / 'verify_content_export.py'
+        verified = subprocess.run([sys.executable, '-I', str(verifier), str(exported_path)],
+                                  cwd=self.temp.name, capture_output=True, text=True)
+        self.assertEqual(verified.returncode, 0, verified.stdout + verified.stderr)
+        self.assertIn('合成译题', self.get('/api/export').data.decode('utf-8-sig'))
         backup = create_backup(self.data_dir)
         restored = restore_backup(backup, Path(self.temp.name) / 'restored-translations')
         with patch('urllib.request.OpenerDirector.open') as network:
             app = create_app(restored, testing=True)
             client = self.login('colleague', app)
-            detail = client.get(f'/api/records/{rid}').json
+            with client.get(f'/api/records/{rid}') as response:
+                detail = response.json
             self.assertEqual(detail['chinese_title'], '合成译题')
             self.assertEqual(next(x for x in detail['translations'] if x['id'] == pending)['status'], 'queued')
             network.assert_not_called()
@@ -151,35 +169,61 @@ class TranslationTests(unittest.TestCase):
         self.assertEqual(job['status'], 'failed')
         self.assertEqual(job['output_title'], '')
 
-    def test_v11_backup_upgrade_is_atomic_and_does_not_run_pending_work(self):
+    def test_v11_backup_chain_to_15_preserves_prior_migrations_and_rolls_back_translation_failure(self):
         from pathlib import Path
         from platform_app.store import connect
         from platform_app.maintenance import create_backup, restore_backup
         from platform_app.web import create_app
         from contextlib import closing
         import sqlite3
-        with closing(connect(self.data_dir / 'platform.sqlite3')) as db:
-            db.execute('DROP TABLE translation_jobs')
-            for column in ('chinese_title', 'chinese_abstract', 'adopted_translation_id'):
-                db.execute('ALTER TABLE records DROP COLUMN ' + column)
-            db.execute("UPDATE settings SET value='11' WHERE key='schema_version'")
-            db.commit()
-        archive = create_backup(self.data_dir)
-        restored = restore_backup(archive, Path(self.temp.name) / 'legacy-v11')
+        fixtures = Path(__file__).parent / 'fixtures'
+        expected = json.loads((fixtures / 'collection_scope_v11.json').read_text())
+        legacy = Path(self.temp.name) / 'genuine-v11'
+        legacy.mkdir()
+        with closing(sqlite3.connect(legacy / 'platform.sqlite3')) as db:
+            db.executescript((fixtures / 'collection_scope_v11.sql').read_text())
+        restored = restore_backup(create_backup(legacy), Path(self.temp.name) / 'upgrade-to-15')
         with closing(connect(restored / 'platform.sqlite3')) as db:
-            db.execute("CREATE TRIGGER reject_translation_upgrade BEFORE UPDATE ON settings WHEN NEW.value='12' BEGIN SELECT RAISE(ABORT,'synthetic failure'); END")
+            db.execute("CREATE TRIGGER reject_translation_upgrade BEFORE UPDATE ON settings WHEN NEW.value='15' BEGIN SELECT RAISE(ABORT,'synthetic failure'); END")
             db.commit()
         with self.assertRaises(sqlite3.IntegrityError):
             create_app(restored, testing=True)
         with closing(connect(restored / 'platform.sqlite3')) as db:
-            self.assertEqual(db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0], '11')
+            self.assertEqual(db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0], '14')
+            self.assertIn('volume', [row['name'] for row in db.execute('PRAGMA table_info(records)')])
+            self.assertIn('stance', [row['name'] for row in db.execute('PRAGMA table_info(evidence_links)')])
+            self.assertIn('disposition', [row['name'] for row in db.execute('PRAGMA table_info(collection_items)')])
             self.assertNotIn('chinese_title', [row['name'] for row in db.execute('PRAGMA table_info(records)')])
-            db.execute('DROP TRIGGER reject_translation_upgrade');db.commit()
-        self.assertTrue(list((restored / 'backups').glob('*.zip')))
+            self.assertIsNone(db.execute("SELECT name FROM sqlite_master WHERE name='translation_jobs'").fetchone())
+            db.execute('DROP TRIGGER reject_translation_upgrade')
+            db.commit()
+        backups = list((restored / 'backups').glob('*.zip'))
+        self.assertEqual(len(backups), 4)
+        versions = set()
         with patch('urllib.request.OpenerDirector.open') as network:
             app = create_app(restored, testing=True)
-            self.assertEqual(app.test_client().get('/health').json['schema'], 12)
+            with app.test_client().get('/health') as response:
+                self.assertEqual(response.json['schema'], 15)
+            client = self.login('colleague', app)
+            with client.get('/api/records/' + expected['record_id']) as response:
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json['chinese_title'], '')
+                self.assertEqual(response.json['translations'], [])
+            for index, archive in enumerate(backups):
+                stage = restore_backup(archive, Path(self.temp.name) / ('before-15-' + str(index)))
+                with closing(connect(stage / 'platform.sqlite3')) as db:
+                    version = int(db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0])
+                    versions.add(version)
+                    self.assertEqual('volume' in [r['name'] for r in db.execute('PRAGMA table_info(records)')], version >= 12)
+                    self.assertEqual('stance' in [r['name'] for r in db.execute('PRAGMA table_info(evidence_links)')], version >= 13)
+                    self.assertEqual('disposition' in [r['name'] for r in db.execute('PRAGMA table_info(collection_items)')], version >= 14)
+                    # Migration backups preserve the deliberately injected failure trigger.
+                    db.execute('DROP TRIGGER IF EXISTS reject_translation_upgrade')
+                    db.commit()
+                with create_app(stage, testing=True).test_client().get('/health') as response:
+                    self.assertEqual(response.json['schema'], 15)
             network.assert_not_called()
+        self.assertEqual(versions, {11, 12, 13, 14})
 
     @patch.dict('os.environ', {'DEEPSEEK_API_KEY': 'synthetic-secret-test', 'DEEPSEEK_BASE_URL': 'https://api.deepseek.com', 'DEEPSEEK_MODEL': 'deepseek-chat'})
     def test_merge_does_not_adopt_archived_record_translation_into_survivor(self):
