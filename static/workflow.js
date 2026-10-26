@@ -125,7 +125,7 @@ async function restoreEditorDraft(form) {
   const draft=form._draftOffer;if(!draft||draft.user_id!==state.me?.id)return;
   if(draft.type==='source'){state.editing.draftSpecific={...draft.specific,...draft.values,relationships:draft.relationships};form.querySelector('#source-specific-fields').innerHTML=sourceSpecific({...state.editing.draftSpecific,kind:draft.values.kind});}
   if(draft.type==='record'&&typeof prepareEvidenceDraft==='function')await prepareEvidenceDraft(form,draft.values);
-  for(const el of form.elements){if(!el.name||el.type==='file')continue;const value=draft.values[el.name];if(value===undefined)continue;if(['checkbox','radio'].includes(el.type))el.checked=Array.isArray(value)&&value.includes(el.value);else if(el.multiple)[...el.options].forEach(o=>o.selected=Array.isArray(value)&&value.includes(o.value));else el.value=value;}
+  for(const el of form.elements){if(!el.name||el.type==='file')continue;const value=draft.values[el.name];if(value===undefined)continue;if(el.matches('[data-source-values]'))restoreSourceSelection(el,value);else if(['checkbox','radio'].includes(el.type))el.checked=Array.isArray(value)&&value.includes(el.value);else if(el.multiple)[...el.options].forEach(o=>o.selected=Array.isArray(value)&&value.includes(o.value));else el.value=value;}
   refreshSourcePickers(form);
   if(draft.type==='byline')restoreBylineDraft(form,draft);
   if(draft.type==='employment'||draft.type==='affiliation')restoreRelationshipDraft(form,draft);

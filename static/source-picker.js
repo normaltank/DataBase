@@ -5,12 +5,18 @@
 const sourceGroups={institution:'机构',journal:'期刊',publication:'其他出版物'};
 let sourceSelectCounter=0;
 function sourceById(id){return state.sources.find(s=>s.id===id||(s.previous_ids||[]).includes(id));}
+function sourceSelectionIds(values){return [...new Set((Array.isArray(values)?values:String(values||'').split(/[|;,]/).map(v=>v.trim()).filter(Boolean)).map(v=>sourceById(v)?.id||v))];}
+function restoreSourceSelection(select,values){
+  const selected=sourceSelectionIds(values);
+  if(select.multiple)for(const option of select.options)option.selected=selected.includes(option.value);
+  else select.value=selected[0]||'';
+}
 function sourceScopeMatches(source,group='',country='',international=''){
   return (!group||source.group===group)&&(!country||(country==='__pending__'?!source.filter_countries.length:source.filter_countries.includes(country)))&&(!international||source.kind==='journal'&&source.international_status===international);
 }
 function sourceChoiceText(source){return source.name+' · '+sourceLabel(source)+' · '+(source.filter_countries?.join(' / ')||'国别待确认');}
 function searchableSourceField(name,label,values=[],options={}){
-  const id='source-select-'+(++sourceSelectCounter),selected=(Array.isArray(values)?values:String(values||'').split(/[|;,]/).map(v=>v.trim()).filter(Boolean)).map(v=>sourceById(v)?.id||v);
+  const id='source-select-'+(++sourceSelectCounter),selected=sourceSelectionIds(values);
   const allowed=state.sources.filter(s=>(!options.groups||options.groups.includes(s.group))&&s.id!==options.exclude);
   const groups=Object.fromEntries(Object.entries({...sourceGroups,maintenance:'资料发现网站'}).filter(([group])=>options.groups?options.groups.includes(group):allowed.some(s=>s.group===group)));
   const select=`<select id="${id}" ${name?`name="${name}"`:''} ${options.multiple?'multiple':''} ${options.rel?'data-rel="target_id"':''} data-source-values hidden aria-hidden="true" tabindex="-1">${options.multiple?'':'<option value=""></option>'}${allowed.map(s=>`<option value="${esc(s.id)}" ${selected.includes(s.id)?'selected':''}>${esc(s.name)}</option>`).join('')}</select>`;

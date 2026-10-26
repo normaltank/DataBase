@@ -186,6 +186,62 @@ class LibrarySourcesBrowserTests(unittest.TestCase):
         self.assertEqual(detail['source_id'],self.lv)
         self.assertEqual(set(detail['related_source_ids']),{self.lv,self.journal})
 
+    def test_merged_sources_in_draft_restore_current_single_and_multiple_identities(self):
+        page = self.page
+        token = self.context.request.get(URL+'/api/session').json()['csrf']
+        def create_source(name, kind):
+            response = self.context.request.post(URL+'/api/sources', data=dict(name=name, kind=kind), headers={'X-CSRF-Token':token})
+            self.assertTrue(response.ok, response.text())
+            return response.json()['id']
+        old_institution = create_source('草稿旧机构', 'institution')
+        keep_institution = create_source('草稿现机构', 'institution')
+        old_journal = create_source('草稿旧期刊', 'journal')
+        keep_journal = create_source('草稿现期刊', 'journal')
+        # Refresh the real form's source lookup before selecting the old identities.
+        page.reload()
+        page.get_by_role('button', name='提交资料', exact=True).click()
+        form = page.locator('form[data-form=record]')
+        expect(form).not_to_have_attribute('inert')
+        form.get_by_label('题名 *', exact=True).fill('合并后恢复来源草稿')
+        form.locator('[data-rich-field=body_html] [data-rich-input]').fill('保持这份合成正文。')
+        for label, query in [('发布机构','草稿旧机构'),('所属期刊 / 连续出版物','草稿旧期刊'),('关联来源（可多选）','草稿旧')]:
+            picker = form.locator('[data-source-select]').filter(has=page.get_by_label('搜索'+label, exact=True))
+            picker.locator('summary').click()
+            picker.get_by_label('搜索'+label, exact=True).fill(query)
+            for candidate in picker.locator('[data-source-option]').all():
+                candidate.check()
+        form.get_by_role('button', name='关闭并保留草稿', exact=True).click()
+        admin = self.playwright.request.new_context(base_url=URL)
+        try:
+            csrf = admin.get('/api/session').json()['csrf']
+            response = admin.post('/api/login', data=dict(username='admin', password='LocalDemo2026!'), headers={'X-CSRF-Token':csrf})
+            self.assertTrue(response.ok, response.text())
+            csrf = response.json()['csrf']
+            for keep, old in [(keep_institution,old_institution),(keep_journal,old_journal)]:
+                response = admin.post('/api/merge', data=dict(type='source',keep_id=keep,duplicate_id=old,keep_version=1,duplicate_version=1,confirmed=True), headers={'X-CSRF-Token':csrf})
+                self.assertTrue(response.ok, response.text())
+        finally:
+            admin.dispose()
+        page.reload()
+        page.get_by_role('button', name='提交资料', exact=True).click()
+        expect(form).not_to_have_attribute('inert')
+        form.get_by_role('button', name='恢复草稿', exact=True).click()
+        expect(form.get_by_label('题名 *', exact=True)).to_have_value('合并后恢复来源草稿')
+        expect(form.locator('[name=source_id]')).to_have_value(keep_institution)
+        expect(form.locator('[name=serial_id]')).to_have_value(keep_journal)
+        self.assertEqual(set(form.locator('[name=related_source_ids]').evaluate('(s)=>[...s.selectedOptions].map(o=>o.value)')), {keep_institution,keep_journal})
+        expect(form.locator('[data-source-selected]').first).to_contain_text('草稿现机构')
+        expect(form.locator('[data-source-selected]').first).to_contain_text('草稿现期刊')
+        form.get_by_role('button', name='保存内容', exact=True).click()
+        expect(form).not_to_be_visible()
+        result = self.context.request.get(URL+'/api/records?q=合并后恢复来源草稿').json()['items']
+        self.assertEqual(len(result),1)
+        detail = self.context.request.get(URL+'/api/records/'+result[0]['id']).json()
+        self.assertEqual((detail['source_id'],detail['serial_id']), (keep_institution,keep_journal))
+        self.assertEqual(set(detail['related_source_ids']), {keep_institution,keep_journal})
+        self.assertIn('保持这份合成正文。', detail['body_html'])
+        self.assertEqual(detail['visibility'],'shared')
+
     def test_source_maintenance_multi_and_relation(self):
         page = self.page
         token=self.context.request.get(URL+'/api/session').json()['csrf']

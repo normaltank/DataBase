@@ -233,7 +233,10 @@ class PeopleTests(unittest.TestCase):
             self.assertEqual(self.clients["researcher"].get("/api/history/record/" + rid).json, expected["history"][rid])
             for attachment in before["attachments"]:
                 self.assertEqual(self.download("/api/attachments/" + attachment["id"]), b"Synthetic legacy attachment.\n")
-        self.assertEqual(self.clients["researcher"].get("/api/sources/" + expected["source"]["id"]).json, expected["source"])
+        # The legacy institution has no registered country. Its new query-only
+        # projection is empty; every pre-existing source field must stay exact.
+        expected_source = {**expected["source"], "filter_countries": []}
+        self.assertEqual(self.clients["researcher"].get("/api/sources/" + expected["source"]["id"]).json, expected_source)
         expected_collection = {**expected["collection"], "items": [
             {**item, "attachment_matches": []} for item in expected["collection"]["items"]]}
         self.assertEqual(self.clients["researcher"].get("/api/collections/" + expected["collection"]["id"]).json, expected_collection)
