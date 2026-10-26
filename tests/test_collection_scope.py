@@ -228,6 +228,7 @@ class CollectionScopeTests(unittest.TestCase):
         import sqlite3
         from platform_app.maintenance import create_backup, restore_backup
         from platform_app.store import CURRENT_SCHEMA_VERSION
+        from platform_app.collection_scope import SCHEMA_VERSION as SCOPE_SCHEMA_VERSION
         fixture = Path(__file__).parent / 'fixtures'
         expected = json.loads((fixture / 'collection_scope_v11.json').read_text())
         rid, cid = expected['record_id'], expected['collection_id']
@@ -248,7 +249,8 @@ class CollectionScopeTests(unittest.TestCase):
             with closing(sqlite3.connect(before / 'platform.sqlite3')) as db:
                 version = int(db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0])
                 archived_versions.add(version)
-                self.assertNotIn('disposition', [r[1] for r in db.execute('PRAGMA table_info(collection_items)')])
+                collection_columns = {r[1] for r in db.execute('PRAGMA table_info(collection_items)')}
+                self.assertEqual('disposition' in collection_columns, version >= SCOPE_SCHEMA_VERSION)
                 record_columns = {r[1] for r in db.execute('PRAGMA table_info(records)')}
                 citation_columns = {r[1] for r in db.execute('PRAGMA table_info(evidence_links)')}
                 self.assertEqual('volume' in record_columns, version >= 12)
@@ -256,7 +258,7 @@ class CollectionScopeTests(unittest.TestCase):
             # Each genuine intermediate backup remains restorable and can finish the chain.
             intermediate = create_app(before, testing=True)
             self.assertEqual(intermediate.test_client().get('/health').json['schema'], CURRENT_SCHEMA_VERSION)
-        self.assertEqual(archived_versions, {11, 12, 13})
+        self.assertEqual(archived_versions, set(range(11, CURRENT_SCHEMA_VERSION)))
         create_app(restored, testing=True)
         self.assertEqual(len(list((restored / 'backups').glob('*.zip'))), len(backups))
         client = app.test_client()
@@ -293,3 +295,40 @@ class CollectionScopeTests(unittest.TestCase):
         self.call(path + '/items', {'record_id': rid, 'version': 3, 'remove': True})
         self.assertEqual(self.client.get('/api/records/' + rid).status_code, 200)
         self.assertEqual(self.client.get(path).json['excluded_items'], [])
+
+    def test_scope_export_and_complete_restore_keep_bibliography_reviews_and_citations(self):
+        from platform_app.maintenance import restore_backup
+        fields = {'volume': '7', 'issue': 'S2', 'pages': 'e314', 'issn': '1234-5678'}
+        original = self.record('Cross-feature original', **fields)
+        self.call('/api/review/record/' + original, {'version': 1, 'review_scope': 'metadata_only', 'review_note': 'Synthetic catalogue compared'}, who='admin')
+        note = self.record('Cross-feature excerpt', kind='research_note', evidence_record_id=original, quote='Synthetic quotation', locator='paragraph 1')
+        report = self.record('Cross-feature report', kind='research_report', evidence_ids=[note], evidence_citations=[{'excerpt_id': note, 'stance': 'contradicts', 'claim_note': 'Counterexample within the synthetic scope'}])
+        cid = self.topic()
+        path = '/api/collections/' + cid
+        self.call(path + '/items', {'record_id': report})
+        self.call(path + '/items', {'record_id': original, 'version': 2, 'disposition': 'excluded', 'rationale': 'Kept only as cited evidence'})
+        with self.client.get('/api/export/content?collection=' + cid) as response:
+            self.assertEqual(response.status_code, 200)
+            with zipfile.ZipFile(io.BytesIO(response.data)) as archive:
+                payload = json.loads(archive.read('content.json'))
+                self.assertEqual(payload['selected_ids'], [report])
+                originals = {item['id']: item for item in payload['records']}
+                self.assertEqual({key: originals[original][key] for key in fields}, fields)
+                self.assertEqual(originals[original]['last_verified']['review_note'], 'Synthetic catalogue compared')
+                citation = originals[report]['evidence_citations'][0]
+                self.assertEqual((citation['stance'], citation['claim_note']), ('contradicts', 'Counterexample within the synthetic scope'))
+                self.assertEqual(payload['collections'][0]['item_details'], sorted([{'record_id': original, 'disposition': 'excluded', 'rationale': 'Kept only as cited evidence'}, {'record_id': report, 'disposition': 'included', 'rationale': ''}], key=lambda item: item['record_id']))
+        backup = Path(self.temp.name) / 'combined-backup.zip'
+        admin = self.clients['admin']
+        with admin.post('/api/backup', headers={'X-CSRF-Token': admin.get('/api/session').json['csrf']}) as response:
+            self.assertEqual(response.status_code, 200)
+            backup.write_bytes(response.data)
+        app = create_app(restore_backup(backup, Path(self.temp.name) / 'combined-restored'), testing=True)
+        reader = app.test_client()
+        csrf = reader.get('/api/session').json['csrf']
+        self.assertEqual(reader.post('/api/login', json={'username': 'researcher', 'password': 'LocalDemo2026!'}, headers={'X-CSRF-Token': csrf}).status_code, 200)
+        restored_original = reader.get('/api/records/' + original).json
+        self.assertEqual({key: restored_original[key] for key in fields}, fields)
+        self.assertEqual(restored_original['last_verified']['review_note'], 'Synthetic catalogue compared')
+        self.assertEqual(reader.get('/api/records/' + report).json['evidence_citations'][0]['stance'], 'contradicts')
+        self.assertEqual(reader.get(path).json['excluded_items'][0]['rationale'], 'Kept only as cited evidence')
