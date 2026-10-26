@@ -1,7 +1,7 @@
 'use strict';
 
 // A single browser history entry holds identifiers and position, never record bodies.
-let continuityRouting=false,continuityRestoring=false,continuityHash=location.hash;
+let continuityRouting=false,continuityRestoring=false,continuityHash=location.hash,continuityGeneration=0;
 function continuityPosition(){
   if(!state.me)return null;
   const topic=typeof topicPosition==='function'?topicPosition():null;
@@ -25,6 +25,7 @@ function continuityGo(page,params){
 function continuityRouteStart(){
   const form=currentEditorForm();
   if(form?.dataset.saving==='true'||(form&&!saveEditorDraft(form))){history.replaceState(history.state,'',continuityHash||'#dashboard');toast('请稍候，当前编辑内容尚未完成保存。');return false;}
+  continuityGeneration++;continuityRestoring=false;
   continuityHash=location.hash;continuityRouting=true;
   return true;
 }
@@ -45,18 +46,20 @@ function continuityRouteFailed(error){
 
 async function continuityRestore(){
   continuityRouting=false;
-  const pos=history.state?.position,hash=location.hash,account=state.me?.id;
+  const pos=history.state?.position,hash=location.hash,account=state.me?.id,generation=continuityGeneration,loadId=state.loadId;
+  const current=()=>generation===continuityGeneration&&loadId===state.loadId&&account===state.me?.id&&hash===location.hash;
+  continuityRestoring=false;
   if(!pos||pos.account!==account||pos.hash!==hash)return;
   continuityRestoring=true;
   try{
-    if(pos.topic){await openResearchCollection(pos.topic.id,pos.topic);if(pos.record)await workflowOpenRecord(pos.record);}
+    if(pos.topic){await openResearchCollection(pos.topic.id,pos.topic);if(!current())return;if(pos.record)await workflowOpenRecord(pos.record);}
     else if(pos.reader&&document.querySelector('.library-workspace')){
-      if(libraryWorkspace.items.some(r=>r.id===pos.reader)){libraryWorkspace.returnY=pos.returnY||0;await libraryOpenReader(pos.reader);libraryWorkspace.returnY=pos.returnY||0;const body=document.querySelector('.library-reader-body');if(body)body.scrollTop=pos.readerY||0;}
+      if(libraryWorkspace.items.some(r=>r.id===pos.reader)){libraryWorkspace.returnY=pos.returnY||0;await libraryOpenReader(pos.reader);if(!current())return;libraryWorkspace.returnY=pos.returnY||0;const body=document.querySelector('.library-reader-body');if(body)body.scrollTop=pos.readerY||0;}
       else{history.replaceState({...history.state,position:{...pos,reader:null}},'',location.href);toast('原资料已不在当前结果中，已返回查找列表。');}
     }
-    if(account===state.me?.id&&hash===location.hash)window.scrollTo(0,pos.y||0);
-  }catch(error){if(account===state.me?.id&&hash===location.hash){history.replaceState({...history.state,position:null},'',location.href);toast('原工作位置已失效，已返回当前页面。'+error.message);}}
-  finally{continuityRestoring=false;}
+    if(current())window.scrollTo(0,pos.y||0);
+  }catch(error){if(current()){history.replaceState({...history.state,position:null},'',location.href);toast('原工作位置已失效，已返回当前页面。'+error.message);}}
+  finally{if(generation===continuityGeneration)continuityRestoring=false;}
 }
 function continuityRecord(id){
   if(continuityRouting||continuityRestoring)return;
