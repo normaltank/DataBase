@@ -114,6 +114,48 @@ class AttachmentAnchorBrowserTests(unittest.TestCase):
                 self.assertEqual(errors, [])
                 context.close()
 
+    def test_selected_overlaps_whitespace_and_unicode_keep_actual_context(self):
+        results = []
+        cases = [
+            ('banana END', 3, 6, 'ana', 'ban', ' END'),
+            ('  😀\u00a0 banana\t  END  ', 7, 11, 'ana', '😀 ban', ' END'),
+            ('banana ana END', 7, 10, 'ana', 'banana ', ' END'),
+            ('  😀\t banana  \tana\t END  ', 10, 18, 'ana', '😀 banana ', ' END'),
+            ('  😀\t banana\t  END  ', 3, 18, 'banana\t  END', '😀 ', ''),
+        ]
+        for width in [1366, 390]:
+            for index, (content, start, end, quote, prefix, suffix) in enumerate(cases):
+                with self.subTest(width=width, case=index):
+                    with self.browser.new_context(viewport={'width': width, 'height': 900}) as context:
+                        request = context.request
+                        token = request.get(self.url + '/api/session').json()['csrf']
+                        token = request.post(self.url + '/api/login', data={'username': 'researcher', 'password': 'LocalDemo2026!'}, headers={'X-CSRF-Token': token}).json()['csrf']
+                        headers = {'X-CSRF-Token': token}
+                        title = f'Selection{width}Case{index}'
+                        response = request.post(self.url + '/api/records', multipart={'data': json.dumps({'kind': 'report', 'title': title, 'sharing_confirmed': True}), 'file': {'name': 'selection.txt', 'mimeType': 'text/plain', 'buffer': content.encode()}}, headers=headers)
+                        self.assertEqual(response.status, 201, response.text())
+                        original = request.get(self.url + '/api/records/' + response.json()['id']).json()
+                        page = context.new_page()
+                        page.goto(self.url + '/#library?q=banana')
+                        page.locator('[data-action=attachment-excerpt][data-id="' + original['attachments'][0]['id'] + '"]').click()
+                        segment = page.locator('[data-attachment-segment]')
+                        expect(segment).to_have_value(content.strip())
+                        segment.evaluate('(el, range) => {el.focus(); el.setSelectionRange(...range);}', [start, end])
+                        page.get_by_role('button', name='将选中文字作为摘录', exact=True).click()
+                        form = page.locator('form[data-form=record]')
+                        expect(form.locator('[name=quote]')).to_have_value(quote)
+                        form.locator('[name=title]').fill(title + ' excerpt')
+                        form.locator('[type=submit]').click()
+                        expect(page.get_by_text('已在指定位置的提取文字中匹配', exact=False).first).to_be_visible()
+                        found = request.get(self.url + '/api/records?kind=research_note&q=' + title.replace(' ', '%20')).json()['items']
+                        self.assertEqual(len(found), 1)
+                        anchor = request.get(self.url + '/api/records/' + found[0]['id']).json()['evidence_snapshot']['attachment_anchor']
+                        self.assertEqual((anchor['context_prefix'], anchor['context_suffix']), (prefix, suffix))
+                        self.assertTrue(page.evaluate('document.documentElement.scrollWidth <= innerWidth'))
+                        page.locator('.attachment-anchor').screenshot(path=str(self.out / f'selection-{width}-{index}.png'))
+                        results.append({'width': width, 'content': content, 'range_utf16': [start, end], 'anchor': anchor})
+        (self.out / 'selection-results.json').write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding='utf-8')
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

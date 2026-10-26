@@ -77,7 +77,10 @@ def validate(db, data, values, base, get_record, data_dir):
             occurrence = data.get("evidence_occurrence", 0)
             if type(occurrence) is not int or not 0 <= occurrence <= 1000000:
                 abort(400, "所选原句位置格式不正确。")
-            saved["attachment_anchor"] = capture(db, data_dir, attached, values["quote"], values["locator"], occurrence)
+            selection_start = data.get("evidence_selection_start")
+            if "evidence_selection_start" in data and (type(selection_start) is not int or not 0 <= selection_start <= 1000000):
+                abort(400, "所选原句位置格式不正确。")
+            saved["attachment_anchor"] = capture(db, data_dir, attached, values["quote"], values["locator"], occurrence, selection_start)
             values["evidence_snapshot_json"] = json.dumps(saved, ensure_ascii=False)
     elif any(values.get(key) for key in ["quote", "locator", "evidence_attachment_id"]):
         abort(400, "请指定摘录对应的原始资料。")

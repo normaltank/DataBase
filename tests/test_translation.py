@@ -225,6 +225,79 @@ class TranslationTests(unittest.TestCase):
             network.assert_not_called()
         self.assertEqual(versions, {11, 12, 13, 14})
 
+    @patch.dict('os.environ', {'DEEPSEEK_API_KEY': 'synthetic-secret-test', 'DEEPSEEK_BASE_URL': 'https://api.deepseek.com'})
+    def test_restore_pre_translation_history_clears_later_content_without_rewriting_facts(self):
+        from contextlib import closing
+        from pathlib import Path
+        import csv
+        import sqlite3
+        import zipfile
+        from platform_app import bibliography, evidence, collection_scope
+        from platform_app.store import connect, save_revision
+        from platform_app.web import create_app
+        fixtures = Path(__file__).parent / 'fixtures'
+        ids = json.loads((fixtures / 'citations_v11.json').read_text(encoding='utf-8'))
+        rid = ids['original']
+        for schema in [11, 12, 13, 14]:
+            with self.subTest(schema=schema):
+                legacy = Path(self.temp.name) / ('history-v' + str(schema))
+                legacy.mkdir()
+                (legacy / 'uploads').mkdir()
+                with closing(sqlite3.connect(legacy / 'platform.sqlite3')) as db:
+                    db.executescript((fixtures / 'citations_v11.sql').read_text(encoding='utf-8'))
+                # Capture genuine pre-15 snapshots, using each intermediate schema.
+                for version, migration in [(12, bibliography), (13, evidence), (14, collection_scope)]:
+                    if schema >= version:
+                        migration.migrate(legacy)
+                if schema >= 12:
+                    with closing(connect(legacy / 'platform.sqlite3')) as db, db:
+                        db.execute("UPDATE records SET volume='OldVol',issue='OldIssue',pages='1-2',issn='1111-1111' WHERE id=?", (rid,))
+                        save_revision(db, 'record', rid, '迁移前合成版本', 'researcher')
+                app = create_app(legacy, testing=True)
+                self.clients = {name: self.login(name, app) for name in self.clients}
+                old = self.get('/api/history/record/' + rid).json['items'][0]
+                old_snapshot = self.get('/api/history/' + str(old['id'])).json['snapshot']
+                self.assertNotIn('chinese_title', old_snapshot)
+                pinned = self.detail(ids['report'])['evidence_citations'][0]['snapshot']
+                edit = self.call('/api/records/' + rid, {'version': 1, 'title': 'Later synthetic title',
+                    'abstract': 'Later synthetic abstract', 'volume': 'NewVol', 'issue': 'NewIssue', 'pages': '999-1000', 'issn': '9999-9999',
+                    'chinese_title': '后来人工译题', 'chinese_abstract': '后来人工摘要', 'visibility': 'restricted'}, method='PUT')
+                self.assertEqual(edit.status_code, 200, edit.json)
+                job = self.call(f'/api/records/{rid}/translations', {'version': 2, 'request_id': 'history'}).json['id']
+                with patch('urllib.request.OpenerDirector.open', return_value=self.provider('后来机器译题', '后来人工摘要')):
+                    self.assertEqual(self.call(f'/api/translations/{job}/run').status_code, 200)
+                self.assertEqual(self.call(f'/api/translations/{job}/adopt', {'version': 2}).status_code, 200)
+                review = self.call('/api/review/record/' + rid, {'version': 3, 'review_scope': 'metadata_only', 'review_note': '后来真实发生的合成核对'}, user='admin')
+                self.assertEqual(review.status_code, 200, review.json)
+                before = self.detail(rid)
+                self.assertEqual(before['adopted_translation_id'], job)
+                restored = self.call(f"/api/history/{old['id']}/restore", {'version': 4})
+                self.assertEqual(restored.status_code, 200, restored.json)
+                current = self.detail(rid)
+                self.assertEqual(current['title'], '旧原文')
+                self.assertEqual([current[k] for k in ['chinese_title', 'chinese_abstract', 'adopted_translation_id']], ['', '', ''])
+                self.assertEqual([current[k] for k in ['volume', 'issue', 'pages', 'issn']],
+                                 ['', '', '', ''] if schema == 11 else ['OldVol', 'OldIssue', '1-2', '1111-1111'])
+                for key in ['visibility', 'owner_id', 'author_id', 'author_confirmed', 'editors', 'last_verified', 'review_history']:
+                    self.assertEqual(current[key], before[key], key)
+                self.assertEqual(current['translations'], [{**job, 'stale': True} for job in before['translations']])
+                for historical in before['translation_history']:
+                    self.assertIn(historical, current['translation_history'])
+                self.assertEqual(current['status'], 'pending')
+                self.assertEqual(self.get('/api/history/' + str(old['id'])).json['snapshot'], old_snapshot)
+                self.assertEqual(self.detail(ids['report'])['evidence_citations'][0]['snapshot'], pinned)
+                with self.get('/api/export/content') as response, io.BytesIO(response.data) as buffer, zipfile.ZipFile(buffer) as archive:
+                    exported = next(x for x in json.loads(archive.read('content.json'))['records'] if x['id'] == rid)
+                    self.assertEqual(exported['chinese_title'], '')
+                    self.assertEqual(exported['volume'], '' if schema == 11 else 'OldVol')
+                    self.assertEqual(exported['adopted_translation_id'], '')
+                    self.assertEqual(exported['translations'], current['translations'])
+                with self.get('/api/export') as response:
+                    exported = next(row for row in csv.DictReader(io.StringIO(response.data.decode('utf-8-sig'))) if row['稳定编号'] == rid)
+                    self.assertEqual([exported[k] for k in ['人工中文题名', '人工中文摘要']], ['', ''])
+                    self.assertEqual([exported[k] for k in ['卷', '期', '页码', 'ISSN']],
+                                     ['', '', '', ''] if schema == 11 else ['OldVol', 'OldIssue', '1-2', '1111-1111'])
+
     @patch.dict('os.environ', {'DEEPSEEK_API_KEY': 'synthetic-secret-test', 'DEEPSEEK_BASE_URL': 'https://api.deepseek.com', 'DEEPSEEK_MODEL': 'deepseek-chat'})
     def test_merge_does_not_adopt_archived_record_translation_into_survivor(self):
         keep = self.record(title='Surviving original')

@@ -412,6 +412,10 @@ class RecordRevisions:
             if old["kind"] in workflow.CONTENT_KINDS and (self.db.execute("SELECT 1 FROM record_links WHERE original_id=?", (rid,)).fetchone() or self.db.execute("SELECT 1 FROM records WHERE evidence_record_id=?", (rid,)).fetchone()):
                 abort(409, "此资料现已被成果或摘录引用，不能恢复为研究内容类型。")
             values = {k: old[k] for k in RECORD_FIELDS + ["attachment_ids", "evidence_version", "evidence_snapshot_json", "raw_json", "adopted_translation_id"] if k in old}
+            # Pre-12/15 snapshots lack these formal content fields. Restore their
+            # empty/unknown values without changing the immutable old snapshot.
+            for key in ["volume", "issue", "pages", "issn", "chinese_title", "chinese_abstract", "adopted_translation_id"]:
+                values.setdefault(key, "")
             self._unique_doi(intake.normalize_doi(values.get("doi")) or values.get("doi", ""), rid)
             bylines.validate_record_kind(self.db, rid, values["kind"])
             # Current permissions and responsible author are never restored from old content.

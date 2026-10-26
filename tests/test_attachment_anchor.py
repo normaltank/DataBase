@@ -13,9 +13,17 @@ import test_workflow as workflow_tests
 class AttachmentAnchorTests(unittest.TestCase):
     setUp = workflow_tests.WorkflowTests.setUp
     login = workflow_tests.WorkflowTests.login
-    call = workflow_tests.WorkflowTests.call
     record = workflow_tests.WorkflowTests.record
-    detail = workflow_tests.WorkflowTests.detail
+
+    def call(self, *args, **kwargs):
+        response = workflow_tests.WorkflowTests.call(self, *args, **kwargs)
+        self.addCleanup(response.close)
+        return response
+
+    def detail(self, rid, user='researcher'):
+        with self.clients[user].get('/api/records/' + rid) as response:
+            self.assertEqual(response.status_code, 200, response.json)
+            return response.json
 
     def original(self, content=b'First line\nBefore exact quotation after\nLast line', **fields):
         response = self.call('/api/records', {'kind': 'report', 'title': 'Anchor original', 'sharing_confirmed': True, **fields}, file=('anchor.txt', content))
@@ -95,10 +103,10 @@ class AttachmentAnchorTests(unittest.TestCase):
         self.assertEqual(self.detail(changed)['evidence_snapshot']['attachment_anchor']['quote_match'], {'status': 'unchecked', 'reason': 'file_mismatch'})
 
     def exported(self, report):
-        response = self.clients['researcher'].get('/api/export/content?kind=research_report')
-        self.assertEqual(response.status_code, 200, response.json)
-        with zipfile.ZipFile(io.BytesIO(response.data)) as archive:
-            return {name: archive.read(name) for name in archive.namelist()}
+        with self.clients['researcher'].get('/api/export/content?kind=research_report') as response:
+            self.assertEqual(response.status_code, 200, response.json)
+            with io.BytesIO(response.data) as buffer, zipfile.ZipFile(buffer) as archive:
+                return {name: archive.read(name) for name in archive.namelist()}
 
     def verify_files(self, files):
         # Simulate an editor who re-signs the manifest; anchor checks must be independent.
@@ -182,6 +190,33 @@ class AttachmentAnchorTests(unittest.TestCase):
         large, file_id = self.original(b'q ' * 50000 + b'end')
         last = self.excerpt(large, file_id, quote='q', locator='第 1 行', evidence_occurrence=49999)
         self.assertEqual(self.detail(last)['evidence_snapshot']['attachment_anchor']['context_suffix'], ' end')
+
+    def test_normalized_selection_offset_keeps_overlap_and_fixed_export_context(self):
+        rid, aid = self.original(b'banana ana END')
+        nid = self.excerpt(rid, aid, quote='ana', locator='第 1 行', evidence_selection_start=3)
+        anchor = self.detail(nid)['evidence_snapshot']['attachment_anchor']
+        self.assertEqual(anchor['quote_match']['status'], 'matched')
+        self.assertEqual((anchor['context_prefix'], anchor['context_suffix']), ('ban', ' ana END'))
+        self.assertEqual(anchor['selection_start'], 3)
+        # Existing clients still count non-overlapping occurrences.
+        legacy = self.excerpt(rid, aid, quote='ana', locator='第 1 行', evidence_occurrence=1)
+        self.assertEqual(self.detail(legacy)['evidence_snapshot']['attachment_anchor']['context_prefix'], 'banana ')
+        wrong = self.excerpt(rid, aid, quote='ana', locator='第 1 行', evidence_selection_start=2)
+        self.assertEqual(self.detail(wrong)['evidence_snapshot']['attachment_anchor']['quote_match'],
+                         {'status': 'not_matched', 'reason': 'quote_not_at_location'})
+        report = self.record('research_report', evidence_ids=[nid])
+        self.assertEqual(self.call('/api/records/' + nid, {'version': 1, 'quote': 'END'}, method='PUT').status_code, 200)
+        pinned = self.detail(report)['evidence_citations'][0]['snapshot']['evidence_snapshot_json']
+        self.assertEqual(json.loads(pinned)['attachment_anchor'], anchor)
+        files = self.exported(report)
+        coverage = json.loads(files['evidence-coverage.json'])
+        self.assertEqual(next(row for row in coverage['records'] if row['id'] == report)['citations'][0]['attachment_anchor'], anchor)
+        self.assertEqual(self.verify_files(files).returncode, 0)
+        for invalid in [True, -1, '3', 1000001]:
+            with self.subTest(offset=invalid), self.call('/api/records', {'kind': 'research_note', 'title': 'Invalid offset',
+                    'evidence_record_id': rid, 'evidence_attachment_id': aid, 'locator': '第 1 行', 'quote': 'ana',
+                    'evidence_selection_start': invalid}) as response:
+                self.assertEqual(response.status_code, 400)
 
     def test_pdf_docx_and_no_text_have_honest_location_checks(self):
         from pypdf import PdfWriter
