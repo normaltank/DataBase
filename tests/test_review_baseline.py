@@ -2,6 +2,7 @@ import io
 import json
 import unittest
 import zipfile
+from contextlib import closing
 
 from tests import test_workflow as fixture
 
@@ -120,7 +121,7 @@ class ReviewBaselineTests(unittest.TestCase):
         from platform_app.web import create_app
         rid = self.record()
         # Arrange the exact old revision shape: actor/time/version were saved, no review facts.
-        with connect(self.data_dir / 'platform.sqlite3') as db:
+        with closing(connect(self.data_dir / 'platform.sqlite3')) as db, db:
             snapshot = json.loads(db.execute('SELECT snapshot_json FROM revisions WHERE target_id=?', (rid,)).fetchone()[0])
             snapshot.update(version=2, status='verified')
             db.execute("UPDATE records SET version=2,status='verified' WHERE id=?", (rid,))
@@ -199,7 +200,7 @@ class ReviewBaselineTests(unittest.TestCase):
         before = self.clients['researcher'].get(url).json
         history = self.clients['researcher'].get('/api/history/source/' + sid).json
         # Inject a storage fault only; every assertion stays at the HTTP seam.
-        with connect(self.data_dir / 'platform.sqlite3') as db:
+        with closing(connect(self.data_dir / 'platform.sqlite3')) as db, db:
             db.execute("CREATE TRIGGER synthetic_review_failure BEFORE INSERT ON revisions BEGIN SELECT RAISE(ABORT, 'synthetic failure'); END")
         result = self.call('/api/review/source/' + sid, {'version': 1, 'review_scope': 'metadata_only', 'review_note': '不会部分写入'}, user='admin')
         self.assertEqual(result.status_code, 409, result.json)
