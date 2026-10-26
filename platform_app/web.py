@@ -15,6 +15,7 @@ from werkzeug.security import check_password_hash
 
 from .search import normalize, RecordSearch
 from .attachment_search import AttachmentIndex, original_path
+from .publication_dates import interval as publication_interval, query_range as publication_query_range
 from .store import connect, decoded, initialize, now, save_revision
 from .record_revisions import RecordRevisions, validate_text, check_version
 from . import source_catalog, workflow, evidence, identity, operations, reading, people, note_subjects, bylines, affiliations, person_identity, bulk, intake, saved_searches
@@ -201,6 +202,7 @@ def create_app(data_dir=None, testing=False):
 
     def filtered_records(args):
         args = saved_searches.resolve(db(), user()['id'], args)
+        date_from, date_to = publication_query_range(args)
         all_rows = db().execute("SELECT * FROM records ORDER BY published_on DESC, created_at DESC, id").fetchall()
         access = records()
         access.prefetched_records = {r['id']: r for r in all_rows}
@@ -271,10 +273,14 @@ def create_app(data_dir=None, testing=False):
                 continue
             if country and country not in r["countries"].casefold():
                 continue
-            if args.get("from") and (not r["published_on"] or r["published_on"] < args["from"]):
-                continue
-            if args.get("to") and (not r["published_on"] or r["published_on"] > args["to"]):
-                continue
+            if date_from or date_to:
+                possible = publication_interval(r["published_on"])
+                if possible is None:
+                    continue
+                if date_from and possible[1] < date_from:
+                    continue
+                if date_to and possible[0] > date_to:
+                    continue
             if q:
                 hay = " ".join(str(r[k]) for k in ["title", "original_title", "authors", "abstract", "keywords", "publication_title", "doi", "id", "aliases", "body_text", "coverage", "original_catalogue", "quote", "translation", "interpretation", "locator"]) + " " + " ".join(source_names.get(sid, "") for sid in [r["source_id"], r["serial_id"], *associated])
                 hay += " " + " ".join(g.record_search.bylines[r["id"]])
