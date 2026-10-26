@@ -302,13 +302,13 @@ class CitationContextTests(unittest.TestCase):
             self.assertNotIn("stance",[r[1] for r in db.execute("PRAGMA table_info(evidence_links)")])
             db.execute("DROP TRIGGER fail_citation_upgrade");db.commit()
         backups = list((legacy/"backups").glob("*.zip"))
-        self.assertEqual(len(backups),CURRENT_SCHEMA_VERSION-11)
+        self.assertEqual(len(backups),SCHEMA_VERSION-11)
         versions = set()
         for index,backup in enumerate(backups):
             restored = restore_backup(backup,Path(self.temp.name)/f"failed-backup-{index}")
             with closing(sqlite3.connect(restored/"platform.sqlite3")) as db:
                 versions.add(int(db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0]))
-        self.assertEqual(versions,set(range(11,CURRENT_SCHEMA_VERSION)))
+        self.assertEqual(versions,set(range(11,SCHEMA_VERSION)))
         app = create_app(legacy,testing=True)
         self.assertEqual(app.test_client().get("/health").json["schema"],CURRENT_SCHEMA_VERSION)
 
