@@ -40,8 +40,34 @@ class ContentExportTests(unittest.TestCase):
             self.assertEqual(pinned['attachment'], None)
             plain = next(c for c in row['citations'] if c['excerpt_id'] == ordinary)
             self.assertFalse(plain['original_metadata'])
-            self.assertIn('未保存引用时原件', plain['notice'])
+            self.assertIn('未建立固定原文依据', plain['notice'])
             self.assertIn('review.html', archive.namelist())
+
+    def test_metadata_only_original_and_ordinary_note_do_not_claim_retained_original(self):
+        import json
+        import zipfile
+        original = self.record(title='只有题录与外链', url='https://example.org/original?a=1&b=2', doi='10.1234/example')
+        ordinary = self.record('research_note', title='没有固定原文的普通笔记', body_html='<p>研究员自己的想法</p>')
+        output = self.clients['researcher'].get('/api/export/content')
+        self.assertEqual(output.status_code, 200)
+        with zipfile.ZipFile(io.BytesIO(output.data)) as archive:
+            coverage = json.loads(archive.read('evidence-coverage.json'))
+            row = next(r for r in coverage['records'] if r['id'] == original)
+            self.assertTrue(row['current']['metadata'])
+            self.assertFalse(row['current']['body'])
+            self.assertEqual(row['current']['attachments'], [])
+            self.assertEqual(row['current']['external_url'], 'https://example.org/original?a=1&b=2')
+            self.assertEqual(row['current']['doi'], '10.1234/example')
+            self.assertEqual(row['evidence']['notice'], '本条未登记固定原文依据。')
+            note = next(r for r in coverage['records'] if r['id'] == ordinary)
+            self.assertTrue(note['current']['body'])
+            self.assertFalse(note['evidence']['original_body'])
+            self.assertIn('普通笔记未建立固定原文依据', note['evidence']['notice'])
+            review = archive.read('review.html').decode()
+            self.assertIn('含题录；无网页正文', review)
+            self.assertIn('当前外部链接（不表示网页已留存）', review)
+            self.assertIn('href="https://example.org/original?a=1&amp;b=2"', review)
+            self.assertIn('当前 DOI：10.1234/example', review)
 
     def test_download_manifest_passes_standalone_verifier(self):
         import subprocess
