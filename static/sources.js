@@ -46,7 +46,7 @@ async function openSource(id,preview=false){
   const known=state.sources.find(source=>source.id===id);
   if(!preview&&known?.kind!=='portal'){
     const work=state.detail?.type==='record'?state.detail.data.id:state.bylineSourceReturn?.id===id?state.bylineSourceReturn.record:state.params.get('work');
-    if(closeModal()===false)return;
+    if(closeModal(false)===false)return;
     return go('sources',state.page==='sources'?parameters({id,work:work||'',note_page:'',content_published:'',content_associated:'',content_translations:'',content_outputs:''}):{id,...(work?{work}:{})});
   }
   const hash=location.hash,account=state.me?.id,loadId=state.loadId;

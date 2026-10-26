@@ -1,14 +1,17 @@
 'use strict';
 
-async function openResearchCollection(id) {
-  const c=await api('/api/collections/'+encodeURIComponent(id));state.detail={type:'collection',data:c};
+async function openResearchCollection(id,position=null) {
+  const generation=modalGeneration,account=state.me?.id,hash=location.hash;
+  const c=await api('/api/collections/'+encodeURIComponent(id));if(generation!==modalGeneration||account!==state.me?.id||hash!==location.hash)return;state.detail={type:'collection',data:c};
   const reports=c.items.filter(r=>['compilation','research_report'].includes(r.kind)),materials=c.items.filter(r=>!['compilation','research_report'].includes(r.kind));
   const row=r=>'<article class="topic-record"><div>'+typeBadge(r.kind)+linkButton(esc(r.title),'detail',r.id,'title-button')+'</div><button class="icon-button" data-action="topic-remove" data-id="'+esc(r.id)+'" data-collection="'+esc(c.id)+'" title="移出专题" aria-label="移出专题">'+icon('close')+'</button></article>';
   const chapters=[{id:'topic-question',label:'研究问题'},{id:'topic-content',label:'研究内容'},{id:'topic-reports',label:'报告与成果'},{id:'topic-materials',label:'资料与证据'}];
-  modal('研究专题','<article class="workspace-topic" data-section-scope><div class="row wrap"><span class="badge blue">'+(c.visibility==='shared'?'中心共享':'仅创建者可见')+'</span><span class="small muted">版本 '+c.version+'</span></div><h2 class="detail-title">'+esc(c.name)+'</h2>'+(c.description?'<p class="prose">'+esc(c.description)+'</p>':'')+'<div class="detail-actions">'+linkButton(icon('plus')+' 编写报告','new-topic-report',c.id,'button primary')+(c.can_edit?linkButton(icon('edit')+' 编辑研究内容','edit-research-collection',c.id):'')+'<details class="topic-tools"><summary>历史与导出</summary><div class="detail-actions">'+linkButton(icon('clock')+' 修改历史','topic-history',c.id)+'<button class="button" data-action="export-content" data-query="collection='+encodeURIComponent(c.id)+'">'+icon('down')+' 导出专题内容</button></div></details></div>'
+  modal('研究专题','<article class="workspace-topic" data-collection="'+esc(c.id)+'" data-section-scope><div class="row wrap"><span class="badge blue">'+(c.visibility==='shared'?'中心共享':'仅创建者可见')+'</span><span class="small muted">版本 '+c.version+'</span></div><h2 class="detail-title">'+esc(c.name)+'</h2>'+(c.description?'<p class="prose">'+esc(c.description)+'</p>':'')+'<div class="detail-actions">'+linkButton(icon('plus')+' 编写报告','new-topic-report',c.id,'button primary')+(c.can_edit?linkButton(icon('edit')+' 编辑研究内容','edit-research-collection',c.id):'')+'<details class="topic-tools"><summary>历史与导出</summary><div class="detail-actions">'+linkButton(icon('clock')+' 修改历史','topic-history',c.id)+'<button class="button" data-action="export-content" data-query="collection='+encodeURIComponent(c.id)+'">'+icon('down')+' 导出专题内容</button></div></details></div>'
     +sectionNavigation(chapters,'专题章节')
     +'<section class="detail-section"><h3 id="topic-question">研究问题</h3><p class="prose">'+esc(c.research_question||'尚未填写研究问题。')+'</p></section><section class="detail-section"><h3 id="topic-content">研究内容</h3><h4>比较笔记</h4>'+(c.comparison_html?'<div class="rich-prose">'+readRich(c.comparison_html)+'</div>':'<p class="muted">尚无比较笔记。</p>')+'<h4>阶段判断</h4><p class="prose">'+esc(c.stage_judgment||'尚未填写阶段判断。')+'</p></section>'
     +'<section class="detail-section"><h3 id="topic-reports">报告与成果</h3>'+(reports.map(row).join('')||'<p class="muted">暂无报告与成果。</p>')+'</section><section class="detail-section"><h3 id="topic-materials">资料与证据</h3><p class="small muted">移出专题只解除关联，资料仍保留。</p>'+(materials.map(row).join('')||'<p class="muted">暂无资料，可在下面查找并加入。</p>')+'<form data-form="topic-search" data-collection="'+esc(c.id)+'" class="section-gap"><label for="topic-record-search">查找资料 / 笔记</label><div class="row"><input id="topic-record-search" name="q" placeholder="题名、正文或作者"><button class="button" type="submit">查找并添加</button></div><div class="form-error" role="alert"></div><div data-topic-results></div></form></section></article>');
+  if(position){const form=document.querySelector('[data-form=topic-search]');form.elements.q.value=position.q||'';if(position.searched)await searchTopic(form,position.page||1);document.querySelector('#modal-root .drawer-body').scrollTop=position.scroll||0;}
+  if(typeof continuityRemember==='function')continuityRemember();
 }
 async function researchCollectionForm(id='',draftKey='') {
   const c=id?await api('/api/collections/'+encodeURIComponent(id)):{visibility:'shared',can_edit:true,can_manage_visibility:true};
@@ -58,7 +61,7 @@ document.addEventListener('click',async event=>{
     else if(a==='topic-history')await topicHistory(id);
     else if(a==='restore-topic'){await api('/api/collections/'+encodeURIComponent(b.dataset.collection)+'/restore/'+id,{method:'POST',body:{version:Number(b.dataset.version)}});await loadLookups();await openResearchCollection(b.dataset.collection);toast('专题版本已恢复');}
     else if(a==='new-topic-report'){await workflowRecordForm('','research_report','collection:'+id);const f=currentEditorForm();if(f)f.dataset.collectionId=id;}
-    else if(a==='topic-add'||a==='topic-remove'){const buttons=[...b.closest('.drawer').querySelectorAll('button')].map(el=>[el,el.disabled]);buttons.forEach(([el])=>el.disabled=true);try{await api('/api/collections/'+encodeURIComponent(b.dataset.collection)+'/items',{method:'POST',body:{record_id:id,remove:a==='topic-remove'}});await loadLookups();await route();await openResearchCollection(b.dataset.collection);}finally{buttons.forEach(([el,disabled])=>{if(el.isConnected)el.disabled=disabled;});}}
+    else if(a==='topic-add'||a==='topic-remove'){const buttons=[...b.closest('.drawer').querySelectorAll('button')].map(el=>[el,el.disabled]);buttons.forEach(([el])=>el.disabled=true);try{await api('/api/collections/'+encodeURIComponent(b.dataset.collection)+'/items',{method:'POST',body:{record_id:id,remove:a==='topic-remove'}});const position=topicPosition();await loadLookups();await openResearchCollection(b.dataset.collection,position);}finally{buttons.forEach(([el,disabled])=>{if(el.isConnected)el.disabled=disabled;});}}
     else if(a==='export-content')await downloadContent(b.dataset.query||'',b);
     else if(a==='manage-members')await membersView();
     else if(a==='new-member')memberForm();
@@ -68,11 +71,25 @@ document.addEventListener('click',async event=>{
 });
 document.addEventListener('submit',async event=>{
   const form=event.target,type=form.dataset.form;if(!['research-collection','topic-search','member','own-password'].includes(type))return;
-  event.preventDefault();const error=form.querySelector('.form-error'),button=form.querySelector('[type=submit]');button.disabled=true;error.textContent='';
+  event.preventDefault();const error=form.querySelector('.form-error'),button=form.querySelector('[type=submit]');button.disabled=type!=='topic-search';error.textContent='';
   try{
-    if(type==='topic-search'){const d=await api('/api/records?size=30&q='+encodeURIComponent(form.elements.q.value));form.querySelector('[data-topic-results]').innerHTML=d.items.map(r=>'<button class="detail-link" type="button" data-action="topic-add" data-id="'+esc(r.id)+'" data-collection="'+esc(form.dataset.collection)+'">'+icon('plus')+' '+esc(r.title)+' · '+esc(kinds[r.kind])+'</button>').join('')||'<p class="muted">没有匹配的内容。</p>';}
+    if(type==='topic-search'){await searchTopic(form);}
     else if(type==='research-collection'){if(form._draftOffer||form._conflictPending)throw new Error('请先恢复草稿或完成版本对照。');syncRichForm(form);const edit=form._editing,values=Object.fromEntries(new FormData(form));values.version=edit.version;values.visibility=form.elements.visibility.disabled?edit.original.visibility:form.elements.visibility.value;const r=await api('/api/collections'+(edit.id?'/'+encodeURIComponent(edit.id):''),{method:edit.id?'PUT':'POST',body:values});await clearEditorDraft(form);await loadLookups();await route();await openResearchCollection(r.id);toast('专题研究内容已保存');}
     else if(type==='member'){const values=Object.fromEntries(new FormData(form));if(!values.password)delete values.password;if(form.dataset.id)values.active=form.elements.active.checked;const r=await api('/api/members'+(form.dataset.id?'/'+encodeURIComponent(form.dataset.id):''),{method:form.dataset.id?'PUT':'POST',body:values});if(r.reauthenticate){state.me=null;state.loadId++;announceAccount();const session=await api('/api/session');state.csrf=session.csrf;showLogin();toast('账号信息已更新，请重新登录。');}else{await loadLookups();await membersView();toast('成员信息已保存');}}
     else{const values=Object.fromEntries(new FormData(form));if(values.new_password!==values.repeat_password)throw new Error('两次新密码不一致。');delete values.repeat_password;await api('/api/account/password',{method:'POST',body:values});closeModal();toast('密码已更新');}
   }catch(e){error.textContent=e.message;if(type==='research-collection'&&e.status===409)await collectionConflict(form);}finally{if(button.isConnected)button.disabled=false;}
 });
+
+let topicSearchEpoch=0;
+function topicPosition(){const form=document.querySelector('[data-form=topic-search]');return form?{id:form.dataset.collection,q:form.elements.q.value,page:Number(form.dataset.page||1),searched:form.dataset.searched==='true',scroll:document.querySelector('#modal-root .drawer-body').scrollTop}:null;}
+async function searchTopic(form,page=1){
+ const epoch=++topicSearchEpoch,q=form.elements.q.value.trim(),account=state.me?.id,el=form.querySelector('[data-topic-results]');form.dataset.searched='true';
+ el.innerHTML='<p role="status">正在查找资料…</p>';
+ try{const data=await api('/api/record-candidates?'+new URLSearchParams({purpose:'collection',target_collection:form.dataset.collection,size:30,q,page}));
+ if(epoch!==topicSearchEpoch||account!==state.me?.id||!form.isConnected||form.elements.q.value.trim()!==q)return;
+ form.dataset.page=data.page;el.innerHTML=candidatePager(data,'topic-page')+data.items.map(r=>'<button class="detail-link" type="button" data-action="topic-add" data-id="'+esc(r.id)+'" data-collection="'+esc(form.dataset.collection)+'">'+icon('plus')+' '+esc(r.title)+' · '+esc(kinds[r.kind])+'</button>').join('')+(data.total?'':'<p class="muted">没有匹配的可添加内容，已加入的资料不再列出。</p>');
+ if(typeof continuityRemember==='function')continuityRemember();
+ }catch(error){if(epoch===topicSearchEpoch&&form.isConnected&&form.elements.q.value.trim()===q)el.innerHTML='<p class="notice error" role="alert">'+esc(error.message)+'</p>';}
+}
+document.addEventListener('click',event=>{const b=event.target.closest('[data-action="topic-page"]');if(b)searchTopic(b.closest('form'),Number(b.dataset.page));});
+document.addEventListener('input',event=>{if(event.target.id==='topic-record-search'){topicSearchEpoch++;const form=event.target.form;form.dataset.searched='false';form.querySelector('[data-topic-results]').innerHTML='';if(typeof continuityRemember==='function')continuityRemember();}});

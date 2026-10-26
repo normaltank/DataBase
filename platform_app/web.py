@@ -279,6 +279,26 @@ def create_app(data_dir=None, testing=False):
             abort(400, "页码不正确。")
         return jsonify(items=[record_summary(r, favorites) for r in rows[(page - 1)*size:page*size]], total=len(rows), page=page, size=size)
 
+    @app.get("/api/record-candidates")
+    def record_candidates():
+        purpose = request.args.get("purpose")
+        if purpose not in {"original", "collection"}:
+            abort(400, "请选择有效的查找用途。")
+        rows, favorites = filtered_records(request.args)
+        excluded = set(request.args.getlist("exclude"))
+        if purpose == "collection":
+            cid = request.args.get("target_collection", "")
+            get_collection(cid)
+            excluded.update(r[0] for r in db().execute("SELECT record_id FROM collection_items WHERE collection_id=?", (cid,)))
+        rows = [r for r in rows if r["id"] not in excluded and (purpose != "original" or r["kind"] not in workflow.CONTENT_KINDS)]
+        try:
+            size = min(100, max(1, int(request.args.get("size", 15))))
+            page = max(1, int(request.args.get("page", 1)))
+        except ValueError:
+            abort(400, "页码不正确。")
+        page = min(page, max(1, (len(rows) + size - 1) // size))
+        return jsonify(items=[record_summary(r, favorites) for r in rows[(page-1)*size:page*size]], total=len(rows), page=page, size=size)
+
     @app.get("/api/records/<rid>")
     def record_detail(rid):
         row = get_record(rid)

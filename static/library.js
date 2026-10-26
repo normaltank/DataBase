@@ -79,7 +79,7 @@ function libraryCloseReader(restore=true) {
   document.querySelectorAll('.library-current').forEach(row=>row.classList.remove('library-current'));
   document.body.classList.remove('library-narrow-reading');
   libraryReaderBackground(false);
-  if(restore){let focus=libraryWorkspace.returnFocus;if(!focus?.isConnected)focus=[...document.querySelectorAll('.record-list [data-action]')].find(button=>button.dataset.id===libraryWorkspace.returnFocus?.dataset.id&&button.dataset.action===libraryWorkspace.returnFocus?.dataset.action);focus?.focus({preventScroll:true});window.scrollTo(0,libraryWorkspace.returnY);}
+  if(restore){let focus=libraryWorkspace.returnFocus;if(!focus?.isConnected)focus=[...document.querySelectorAll('.record-list [data-action]')].find(button=>button.dataset.id===libraryWorkspace.returnFocus?.dataset.id&&button.dataset.action===libraryWorkspace.returnFocus?.dataset.action);focus?.focus({preventScroll:true});window.scrollTo(0,libraryWorkspace.returnY);if(typeof continuityRemember==='function')continuityRemember();}
 }
 function libraryAfterRender() {
   if(!document.querySelector('.library-workspace'))return;
@@ -153,7 +153,7 @@ async function libraryOpenReader(id,origin=null,section='') {
     if(epoch!==libraryWorkspace.readerEpoch||account!==state.me?.id||!panel.isConnected){body.replaceChildren();return;}
     panel.scrollTop=0;body.scrollTop=0;
     if(firstOpen&&!libraryReaderMedia.matches){const workspace=panel.closest('.library-results-workspace');window.scrollTo(0,Math.max(0,window.scrollY+workspace.getBoundingClientRect().top-16));}
-    libraryWorkspace.readerRecord=record;
+    libraryWorkspace.readerRecord=record;if(typeof continuityRemember==='function')continuityRemember();
     const focus=section?body.querySelector(section):body.querySelector('.detail-title');
     if(focus){focus.tabIndex=-1;focus.focus({preventScroll:true});if(section)focus.scrollIntoView({block:'start'});}
     for(const row of document.querySelectorAll('[data-library-record]'))row.classList.toggle('library-current',row.dataset.libraryRecord===id);

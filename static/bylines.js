@@ -142,9 +142,9 @@ document.addEventListener('click',async event=>{
     if(action==='edit-bylines')await bylineForm(button.dataset.id);
     else if(action==='byline-history')await bylineHistory(button.dataset.id);
     else if(action==='byline-cancel'){if(closeModal()!==false)await openRecord(button.dataset.id);}
-    else if(action==='byline-back')await openRecord(button.dataset.id);
+    else if(action==='byline-back'){if(typeof continuityReturn!=='function'||!await continuityReturn(button.dataset.id))await openRecord(button.dataset.id);}
     else if(action==='byline-target'){
-      if(closeModal()===false)return;
+      if(closeModal(false)===false)return;
       if(button.dataset.type==='person')go('people',{id:button.dataset.id,work:button.dataset.record});
       else{state.bylineSourceReturn={id:button.dataset.id,record:button.dataset.record};await openSource(button.dataset.id);}
     } else if(action==='byline-add'){form.querySelector('[data-byline-rows]').insertAdjacentHTML('beforeend',bylineRow());syncBylineForm(form);form._dirty=true;saveEditorDraft(form,true);form.querySelector('[data-byline-row]:last-child textarea').focus();}
