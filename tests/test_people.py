@@ -224,6 +224,7 @@ class PeopleTests(unittest.TestCase):
         self.assertEqual(self.clients["researcher"].get("/api/people").json["total"], 0)
         for rid, before in expected["records"].items():
             new_defaults = {"research_subjects": []} if before["kind"] == "research_note" else {}
+            new_defaults.update(chinese_title="", chinese_abstract="", adopted_translation_id="", translations=[], translation_history=[])
             new_defaults.update(attachment_matches=[], can_manage_access=True, attachments=[
                 {**attachment, "index": {"status": "unindexed", "message": "尚未建立索引"}}
                 for attachment in before["attachments"]])
@@ -262,6 +263,7 @@ class PeopleTests(unittest.TestCase):
         self.assertEqual(self.clients["researcher"].get("/api/people").json["total"], 0)
         for rid, before in expected["records"].items():
             new_defaults = {"research_subjects": []} if before["kind"] == "research_note" else {}
+            new_defaults.update(chinese_title="", chinese_abstract="", adopted_translation_id="", translations=[], translation_history=[])
             new_defaults.update(attachment_matches=[], can_manage_access=True, attachments=[
                 {**attachment, "index": {"status": "unindexed", "message": "尚未建立索引"}}
                 for attachment in before["attachments"]])
