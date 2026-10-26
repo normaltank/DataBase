@@ -48,7 +48,7 @@ def validate(db, data, values, base, get_record, data_dir):
             from .attachment_anchor import capture
             saved = json.loads(values.get("evidence_snapshot_json") or base["evidence_snapshot_json"])
             occurrence = data.get("evidence_occurrence", 0)
-            if type(occurrence) is not int or not 0 <= occurrence <= 40000:
+            if type(occurrence) is not int or not 0 <= occurrence <= 1000000:
                 abort(400, "所选原句位置格式不正确。")
             saved["attachment_anchor"] = capture(db, data_dir, attached, values["quote"], values["locator"], occurrence)
             values["evidence_snapshot_json"] = json.dumps(saved, ensure_ascii=False)

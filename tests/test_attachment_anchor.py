@@ -179,6 +179,9 @@ class AttachmentAnchorTests(unittest.TestCase):
         anchor = self.detail(nid)['evidence_snapshot']['attachment_anchor']
         self.assertEqual(anchor['context_suffix'], ' there')
         self.assertEqual(anchor['context_prefix'], 'First quote here; second ')
+        large, file_id = self.original(b'q ' * 50000 + b'end')
+        last = self.excerpt(large, file_id, quote='q', locator='第 1 行', evidence_occurrence=49999)
+        self.assertEqual(self.detail(last)['evidence_snapshot']['attachment_anchor']['context_suffix'], ' end')
 
     def test_pdf_docx_and_no_text_have_honest_location_checks(self):
         from pypdf import PdfWriter
