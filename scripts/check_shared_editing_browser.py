@@ -25,6 +25,7 @@ def call(request, path, data=None, method="POST"):
 def open_record(page, rid):
     if page.locator('.drawer-head [data-action=close]').count():
         page.locator('.drawer-head [data-action=close]').click()
+        expect(page.get_by_role('dialog')).to_have_count(0)
     page.goto(URL + "/#library?q=共编验收")
     page.locator('[data-library-record="' + rid + '"] [data-action=detail]').first.click()
     expect(page.locator('.library-reader:visible')).to_have_count(1)
@@ -35,7 +36,22 @@ def edit(page, rid):
     page.locator('.library-reader .ux-maintenance > summary').click()
     page.locator('.library-reader .ux-maintenance [data-action=edit-record]').click()
     expect(page.locator('[data-form=record] [type=submit]')).to_be_enabled()
-    return page.locator('[data-rich-field=body_html] [data-rich-input]')
+    body = page.locator('[data-record-body]')
+    if body.get_attribute('open') is None:
+        body.locator('summary').click()
+    editor = page.locator('[data-rich-field=body_html] [data-rich-input]')
+    expect(editor).to_be_visible()
+    return editor
+
+
+def expect_saved_detail(page, rid, version, body_text):
+    # Routing clears the old editor/history before asynchronously reopening the
+    # detail. Its disappearance alone does not mean the next click is safe.
+    detail = page.locator('#modal-root .ux-reading-article')
+    expect(detail).to_be_visible()
+    expect(detail.locator('.ux-maintenance [data-action=edit-record][data-id="' + rid + '"]')).to_have_count(1)
+    expect(detail.locator('.ux-version')).to_have_text('版本 ' + str(version))
+    expect(detail.locator('.ux-main-body')).to_contain_text(body_text)
 
 
 def run():
@@ -61,7 +77,9 @@ def run():
                 call(context.request, "/api/login", {"username": who, "password": "LocalDemo2026!"})
             request = contexts["researcher"].request
             note = call(request, "/api/records", {"kind": "research_note", "title": "共编验收笔记", "body_html": "<p>笔记初稿</p>"})["id"]
-            raw = call(request, "/api/records", {"kind": "report", "title": "共编验收外部资料", "body_html": "<p>外部初稿</p>"})["id"]
+            # An external record without saved body starts with the optional
+            # body section collapsed, exercising the explicit expand action.
+            raw = call(request, "/api/records", {"kind": "report", "title": "共编验收外部资料"})["id"]
             personal = call(request, "/api/records", {"kind": "research_report", "title": "共编验收个人报告", "body_html": "<p>个人正文</p>"})["id"]
             private = call(request, "/api/records", {"kind": "research_note", "title": "共编验收受限笔记", "visibility": "restricted"})["id"]
             pages = {who: context.new_page() for who, context in contexts.items()}
@@ -76,28 +94,28 @@ def run():
             expect(second.locator('[data-author-new]')).to_be_hidden()
             editor.fill("成员乙保留的并发输入")
             first.locator('[data-form=record] [type=submit]').click()
-            expect(first.locator('[data-form=record]')).to_have_count(0)
+            expect_saved_detail(first, note, 2, "成员甲保存正文")
             second.locator('[data-form=record] [type=submit]').click()
             expect(second.locator('[data-conflict-panel]')).to_be_visible()
             expect(editor).to_have_text("成员乙保留的并发输入")
             second.screenshot(path=str(OUT / "conflict-input-preserved.png"))
             second.locator('[data-action=accept-latest-version]').click()
             second.locator('[data-form=record] [type=submit]').click()
-            expect(second.locator('[data-form=record]')).to_have_count(0)
+            expect_saved_detail(second, note, 3, "成员乙保留的并发输入")
             current = contexts["colleague"].request.get(URL + "/api/records/" + note).json()
             assert current["version"] == 3 and "成员乙保留的并发输入" in current["body_html"]
             open_record(second, note)
             second.locator('.library-reader .ux-maintenance > summary').click()
             second.locator('.library-reader [data-action=history]').click()
             second.locator('[data-action=restore]').last.click()
-            expect(second.locator('[data-action=restore]')).to_have_count(0)
+            expect_saved_detail(second, note, 4, "笔记初稿")
             restored = contexts["colleague"].request.get(URL + "/api/records/" + note).json()
             assert restored["version"] == 4 and restored["body_html"] == "<p>笔记初稿</p>"
             edit(second, raw).fill("另一成员维护外部资料")
             expect(second.locator('[data-access-fields]')).to_be_hidden()
             second.screenshot(path=str(OUT / "shared-editor-no-management.png"))
             second.locator('[data-form=record] [type=submit]').click()
-            expect(second.locator('[data-form=record]')).to_have_count(0)
+            expect_saved_detail(second, raw, 2, "另一成员维护外部资料")
             open_record(second, personal)
             expect(second.locator('.library-reader [data-action=edit-record]')).to_have_count(0)
             denied = contexts["colleague"].request.put(URL + "/api/records/" + personal, data={"version": 1, "body_html": "越权"},
@@ -108,7 +126,7 @@ def run():
             expect(second.locator('[data-library-record="' + private + '"]')).to_have_count(0)
             assert contexts["colleague"].request.get(URL + "/api/records/" + private).status == 404
             assert not errors, errors
-            result = {"passed": True, "checks": ["two member note edits", "conflict preserves input", "member restores initial note", "external content shared editing", "editor hides management controls", "personal report edit denied", "restricted note remains unreadable"], "javascript_errors": errors, "evidence": str(OUT)}
+            result = {"passed": True, "checks": ["two member note edits", "conflict preserves input", "member restores initial note", "collapsed optional body expanded", "external content shared editing", "editor hides management controls", "personal report edit denied", "restricted note remains unreadable"], "javascript_errors": errors, "evidence": str(OUT)}
             (OUT / "result.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
             print(json.dumps(result, ensure_ascii=False), flush=True)
             browser.close()
