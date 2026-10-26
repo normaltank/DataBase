@@ -229,6 +229,11 @@ class PeopleTests(unittest.TestCase):
                 for attachment in before["attachments"]])
             new_defaults.update({key: [{**item, "volume": "", "issue": "", "pages": "", "issn": "", "attachment_matches": [], "can_manage_access": True} for item in before[key]]
                                  for key in ["linked_records", "cited_by", "excerpts"]})
+            new_defaults["evidence_citations"] = [
+                {**citation, "stance": "unclassified", "claim_note": "", "staleness_reasons": [],
+                 "identity_baseline_status": "unknown", "identity_changes": [],
+                 "current_original_id": citation["snapshot"].get("evidence_record_id")}
+                for citation in before["evidence_citations"]]
             self.assertEqual(self.clients["researcher"].get("/api/records/" + rid).json, {**before, **new_defaults})
             self.assertEqual(self.clients["researcher"].get("/api/history/record/" + rid).json, expected["history"][rid])
             for attachment in before["attachments"]:
@@ -267,6 +272,11 @@ class PeopleTests(unittest.TestCase):
                 for attachment in before["attachments"]])
             new_defaults.update({key: [{**item, "volume": "", "issue": "", "pages": "", "issn": "", "attachment_matches": [], "can_manage_access": True} for item in before[key]]
                                  for key in ["linked_records", "cited_by", "excerpts"]})
+            new_defaults["evidence_citations"] = [
+                {**citation, "stance": "unclassified", "claim_note": "", "staleness_reasons": [],
+                 "identity_baseline_status": "unknown", "identity_changes": [],
+                 "current_original_id": citation["snapshot"].get("evidence_record_id")}
+                for citation in before["evidence_citations"]]
             self.assertEqual(self.clients["researcher"].get("/api/records/" + rid).json, {**before, **new_defaults})
         self.assertEqual(self.call("/api/records/" + next(iter(expected["records"])),
             {"version": 2, "title": "恢复旧版备份后继续修订"}, method="PUT").status_code, 200)

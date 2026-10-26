@@ -114,7 +114,7 @@ class RecordRevisions:
         self.db.execute("DELETE FROM record_links WHERE report_id=?", (rid,))
         self.db.executemany("INSERT INTO record_links VALUES (?,?)", [(rid, x) for x in linked])
         workflow.set_sources(self.db, rid, associated)
-        evidence.save_links(self.db, rid, cited, self.get, refresh)
+        evidence.save_links(self.db, rid, cited, self.get, refresh, self.visible)
 
     def _unique_doi(self, doi, rid=""):
         key = intake.normalize_doi(doi) or doi.casefold()
@@ -431,7 +431,7 @@ class RecordRevisions:
                 self.db.execute("DELETE FROM evidence_links WHERE report_id=?", (rid,))
                 for link in old["evidence_citations"]:
                     cited = self.get(link["excerpt_id"])
-                    self.db.execute("INSERT INTO evidence_links VALUES (?,?,?,?)", (rid, cited["id"], link["excerpt_version"], link["snapshot_json"]))
+                    self.db.execute("INSERT INTO evidence_links VALUES (?,?,?,?,?,?)", (rid, cited["id"], link["excerpt_version"], link["snapshot_json"], link.get("stance", "unclassified"), link.get("claim_note", "")))
             if "related_source_ids" in old:
                 workflow.set_sources(self.db, rid, sorted({self.source(sid)["id"] for sid in old["related_source_ids"]}))
             unseen_linked = {link[0] for link in self.db.execute("SELECT original_id FROM record_links WHERE report_id=?", (rid,))
@@ -515,9 +515,9 @@ class RecordRevisions:
         for link in links:
             report, excerpt = kid if link["report_id"] == did else link["report_id"], kid if link["excerpt_id"] == did else link["excerpt_id"]
             other = self.db.execute("SELECT * FROM evidence_links WHERE report_id=? AND excerpt_id=?", (report, excerpt)).fetchone()
-            if report == excerpt or (other and (other["snapshot_json"] != link["snapshot_json"] or other["excerpt_version"] != link["excerpt_version"])):
+            if report == excerpt or (other and (other["snapshot_json"] != link["snapshot_json"] or other["excerpt_version"] != link["excerpt_version"] or other["stance"] != link["stance"] or other["claim_note"] != link["claim_note"])):
                 abort(409, "合并会冲突于不同版本的证据引用，请先人工整理。")
-            self.db.execute("INSERT OR IGNORE INTO evidence_links VALUES (?,?,?,?)", (report, excerpt, link["excerpt_version"], link["snapshot_json"]))
+            self.db.execute("INSERT OR IGNORE INTO evidence_links VALUES (?,?,?,?,?,?)", (report, excerpt, link["excerpt_version"], link["snapshot_json"], link["stance"], link["claim_note"]))
         self.db.execute("DELETE FROM evidence_links WHERE report_id=? OR excerpt_id=?", (did, did))
         self._move_pair("record_links", "report_id", "original_id", did, kid)
         for table, owner in [("favorites", "user_id"), ("collection_items", "collection_id"), ("record_sources", "source_id")]:

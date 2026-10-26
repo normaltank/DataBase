@@ -274,9 +274,16 @@ def register(app, ctx):
                 if item["evidence_attachment_id"] in attachments:
                     attached = attachments[item["evidence_attachment_id"]]
                     content += '<p><a href="../attachments/' + attached["stored_name"] + '">引用时附件：' + html.escape(attached["name"]) + '</a></p>'
-                for citation in item["evidence_citations"]:
+                from .evidence import citation_description, citation_scope_notice, STANCE_LABELS
+                content += prose("引用登记范围", citation_scope_notice(item["evidence_citations"]))
+                previous_stance = None
+                for citation in sorted(item["evidence_citations"], key=lambda c: list(STANCE_LABELS).index(c["stance"])):
+                    if citation["stance"] != previous_stance:
+                        content += "<h2>引用用途：" + STANCE_LABELS[citation["stance"]] + "</h2>"
+                        previous_stance = citation["stance"]
                     snap = citation["snapshot"]
                     content += '<section><h2>引用证据 · 版本 ' + str(citation["excerpt_version"]) + '</h2>'
+                    content += prose("引用用途与变化提示（导出时）", citation_description(citation))
                     content += prose("笔记题名", snap.get("title")) + (snap.get("body_html") or "")
                     content += prose("摘录／译文／说明／定位", "\n\n".join(str(snap.get(k, "")) for k in ["quote", "translation", "interpretation", "locator"]))
                     content += original_snapshot(json.loads(snap.get("evidence_snapshot_json") or "{}"))
