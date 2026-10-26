@@ -326,7 +326,8 @@ def create_app(data_dir=None, testing=False):
             attachment["index"] = attachment_index().info(full)
         obj["evidence_citations"] = evidence.citations(db(), rid, visible)
         obj["excerpts"] = [record_summary(r) for r in db().execute("SELECT * FROM records WHERE evidence_record_id=? AND merged_into IS NULL", (rid,)) if visible(r)]
-        obj["evidence_snapshot"] = json.loads(row["evidence_snapshot_json"])
+        obj["evidence_snapshot"] = evidence.project_snapshot(db(), json.loads(row["evidence_snapshot_json"]), visible)
+        obj["evidence_snapshot_json"] = json.dumps(obj["evidence_snapshot"], ensure_ascii=False)
         obj["evidence_file_url"] = f"/api/records/{rid}/evidence-file" if row["evidence_attachment_id"] else ""
         obj["previous_ids"] = [x for x in identity.origins(db(), "records", rid) if x != rid]
         if row["kind"] == "research_note":
@@ -416,6 +417,10 @@ def create_app(data_dir=None, testing=False):
                     abort(404, "该历史证据对应的原始资料当前不可见。")
             snapshot["linked_ids"] = [rid for rid in snapshot.get("linked_ids", []) if (record := identity.resolve(db(), "records", rid)) and visible(record)]
             snapshot["evidence_citations"] = [link for link in snapshot.get("evidence_citations", []) if (record := identity.resolve(db(), "records", link["excerpt_id"])) and visible(record) and evidence.readable_snapshot(db(), json.loads(link["snapshot_json"]), visible)]
+        if row["target_type"] == "record":
+            snapshot = evidence.project_snapshot(db(), snapshot, visible)
+            for citation in snapshot.get("evidence_citations", []):
+                citation["snapshot_json"] = json.dumps(evidence.project_snapshot(db(), json.loads(citation["snapshot_json"]), visible), ensure_ascii=False)
         if row["target_type"] == "collection":
             snapshot["item_ids"] = [rid for rid in snapshot.get("item_ids", []) if (record := identity.resolve(db(), "records", rid)) and visible(record)]
         return jsonify(snapshot=snapshot, action=row["action"], target_id=row["target_id"])

@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 
 from flask import abort
 
-from . import affiliations, identity, note_subjects, person_identity
+from . import affiliations, identity, note_subjects, person_identity, evidence
 from .attachment_anchor import description as anchor_description
 from .people import PersonProfiles
 from .record_revisions import RECORD_FIELDS
@@ -206,6 +206,7 @@ def evidence_coverage(records, attachments):
             'original_body': body,
             'original_abstract': bool(original.get('abstract')),
             'original_version': snapshot.get('evidence_version'),
+            'original_identity_baseline': original.get('identity_baseline'),
             'quote': bool(snapshot.get('quote')),
             'translation': bool(snapshot.get('translation')),
             'interpretation': bool(snapshot.get('interpretation')),
@@ -224,13 +225,16 @@ def evidence_coverage(records, attachments):
                            'external_url': item.get('url') or '', 'doi': item.get('doi') or '',
                            'attachments': [{'id': a['id'], 'path': attachments[a['id']]['path']}
                                            for a in item['attachments'] if a['id'] in attachments]},
-               'evidence': retained(item, item.get('evidence_snapshot') or {}), 'citations': []}
+               'evidence': retained(item, item.get('evidence_snapshot') or {}), 'citations': [],
+               'citation_scope_notice': evidence.citation_scope_notice(item['evidence_citations'])}
         if not any(item.get(key) for key in ['evidence_record_id', 'evidence_url', 'evidence_snapshot', 'evidence_attachment_id']):
             row['evidence']['notice'] = ('普通笔记未建立固定原文依据；笔记正文不代表原文固定快照。'
                                          if item['kind'] == 'research_note' else '本条未登记固定原文依据。')
         for citation in item['evidence_citations']:
             snap = citation['snapshot']
             row['citations'].append({'excerpt_id': citation['excerpt_id'], 'excerpt_version': citation['excerpt_version'],
+                                    **{key: citation.get(key) for key in ['stance', 'claim_note', 'staleness_reasons', 'identity_changes', 'identity_baseline_status', 'current_original_id']},
+                                    'identity_baseline': snap.get('identity_baseline'),
                                     **retained(snap, json.loads(snap.get('evidence_snapshot_json') or '{}'))})
         rows.append(row)
     return {'format': 'research-evidence-coverage-v1', 'records': rows}
@@ -258,8 +262,13 @@ def coverage_html(coverage):
             content += '<p>当前 DOI：' + html.escape(row['current']['doi']) + '</p>'
         for attachment in row['current']['attachments']:
             content += '<p><a href="' + attachment['path'] + '">当前附件</a></p>'
+        if row.get('citation_scope_notice'):
+            content += '<p>' + html.escape(row['citation_scope_notice']) + '</p>'
         for label, evidence in [('该条记录的原文依据', row['evidence']), *[('固定采用笔记 ' + c['excerpt_id'] + ' · 版本 ' + str(c['excerpt_version']), c) for c in row['citations']]]:
             content += '<h3>' + html.escape(label) + '</h3><p>' + html.escape(evidence['notice']) + '</p>'
+            if 'stance' in evidence:
+                from .evidence import citation_description
+                content += '<pre>' + html.escape(citation_description(evidence)) + '</pre>'
             if evidence['original_version'] is not None:
                 content += '<p>所据原文版本：' + html.escape(str(evidence['original_version'])) + '</p>'
             if evidence['locator']:

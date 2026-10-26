@@ -99,6 +99,8 @@ def copy_text(record, citations=(), linked_records=()):
             content = excerpt(saved) if saved.get("evidence_record_id") else join([
                 note_header(saved), section("笔记正文", body_text(saved)),
                 section("笔记登记出处", citation({k: saved[k] for k in ["url", "doi", "published_on"] if k in saved}))])
+            from .evidence import citation_description
+            content = join([citation_description(adopted), content])
             parts.append("采用笔记版本：" + str(adopted["excerpt_version"]) + "\n" + content)
         return {"mode": "references", "text": join(parts) or "暂无可复制的引用。",
                 "notice": "仅包含当前可查看的引用；内容按报告采用时快照整理。"}
