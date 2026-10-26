@@ -2,9 +2,9 @@
 import json
 import sqlite3
 import uuid
-from datetime import date
 from pathlib import Path
 from .record_revisions import KINDS
+from .publication_dates import query_range
 from flask import abort, jsonify, request
 from .store import connect, now
 
@@ -39,6 +39,8 @@ def conditions(value):
     for key, item in value.items():
         if not isinstance(item, str) or len(item) > (1000 if key=='q' else 200):
             abort(400, '检索条件格式不正确或内容过长。')
+        if key in {'from', 'to'}:
+            query_range({key: item})
         if item.strip():
             result[key] = item.strip()
     enums = {'kind':KINDS,'sort':{'date','updated','title'},'status':{'pending','verified'},
@@ -48,15 +50,7 @@ def conditions(value):
     for key, allowed in enums.items():
         if key in result and result[key] not in allowed:
             abort(400, '检索条件的选项无效：'+key)
-    for key in ('from','to'):
-        if key in result:
-            try:
-                if date.fromisoformat(result[key]).isoformat()!=result[key]:
-                    raise ValueError()
-            except ValueError:
-                abort(400, '发布日期格式不正确。')
-    if result.get('from','') > result.get('to','9999-12-31'):
-        abort(400, '发布日期起止范围不正确。')
+    query_range(result)
     return result
 
 
