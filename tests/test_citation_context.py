@@ -192,6 +192,12 @@ class CitationContextTests(unittest.TestCase):
         version = self.detail(report)["version"]
         self.assertEqual(self.call(f"/api/history/{historical['id']}/restore",{"version":version}).status_code,200)
         self.assertIn("original_merged",self.detail(report)["evidence_citations"][0]["staleness_reasons"])
+        # Adopting a later note does not accept a new original baseline.
+        current = self.detail(report)
+        self.assertEqual(self.call("/api/records/"+report,{"version":current["version"],"evidence_ids":[note],"refresh_citations":True},method="PUT").status_code,200)
+        reasons = self.detail(report)["evidence_citations"][0]["staleness_reasons"]
+        self.assertIn("original_merged",reasons)
+        self.assertNotIn("original_updated",reasons)
 
     def test_different_roles_block_report_merge_atomically(self):
         note = self.record("research_note")
@@ -224,9 +230,12 @@ class CitationContextTests(unittest.TestCase):
         self.assertEqual(citation["identity_baseline_status"],"unknown")
         backups = list((target/"backups").glob("*.zip"))
         self.assertEqual(len(backups),CURRENT_SCHEMA_VERSION-11)
-        before = restore_backup(backups[0],Path(self.temp.name)/"before-upgrade")
-        with closing(sqlite3.connect(before/"platform.sqlite3")) as db:
-            self.assertEqual(db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0],"11")
+        archived_versions = set()
+        for index, backup in enumerate(backups):
+            before = restore_backup(backup,Path(self.temp.name)/f"before-upgrade-{index}")
+            with closing(sqlite3.connect(before/"platform.sqlite3")) as db:
+                archived_versions.add(int(db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0]))
+        self.assertEqual(archived_versions,set(range(11,CURRENT_SCHEMA_VERSION)))
         create_app(target,testing=True)
         self.assertEqual(len(list((target/"backups").glob("*.zip"))),len(backups))
         history = self.clients["researcher"].get("/api/history/record/"+report).json["items"][-1]
@@ -270,3 +279,91 @@ class CitationContextTests(unittest.TestCase):
         response = self.call("/api/records",{"kind":"research_report","title":"歧义引用","evidence_ids":[keep,old],
             "evidence_citations":[{"excerpt_id":keep,"stance":"supports"},{"excerpt_id":old,"stance":"contradicts"}]})
         self.assertEqual(response.status_code,400,response.json)
+
+    def test_citation_upgrade_failure_keeps_preddl_backup_and_retryable_database(self):
+        import sqlite3
+        from contextlib import closing
+        from pathlib import Path
+        from platform_app.web import create_app
+        from platform_app.evidence import SCHEMA_VERSION
+        from platform_app.maintenance import restore_backup
+        from platform_app.store import CURRENT_SCHEMA_VERSION
+        legacy = Path(self.temp.name)/"failed-upgrade"
+        legacy.mkdir();(legacy/"uploads").mkdir()
+        fixture = Path(__file__).parent/"fixtures/citations_v11.sql"
+        with closing(sqlite3.connect(legacy/"platform.sqlite3")) as db:
+            db.executescript(fixture.read_text())
+            db.execute(f"CREATE TRIGGER fail_citation_upgrade BEFORE UPDATE ON settings WHEN OLD.key='schema_version' AND NEW.value='{SCHEMA_VERSION}' BEGIN SELECT RAISE(ABORT,'synthetic citation migration failure'); END")
+            db.commit()
+        with self.assertRaises(sqlite3.IntegrityError):
+            create_app(legacy,testing=True)
+        with closing(sqlite3.connect(legacy/"platform.sqlite3")) as db:
+            self.assertEqual(int(db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0]),SCHEMA_VERSION-1)
+            self.assertNotIn("stance",[r[1] for r in db.execute("PRAGMA table_info(evidence_links)")])
+            db.execute("DROP TRIGGER fail_citation_upgrade");db.commit()
+        backups = list((legacy/"backups").glob("*.zip"))
+        self.assertEqual(len(backups),CURRENT_SCHEMA_VERSION-11)
+        versions = set()
+        for index,backup in enumerate(backups):
+            restored = restore_backup(backup,Path(self.temp.name)/f"failed-backup-{index}")
+            with closing(sqlite3.connect(restored/"platform.sqlite3")) as db:
+                versions.add(int(db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0]))
+        self.assertEqual(versions,set(range(11,CURRENT_SCHEMA_VERSION)))
+        app = create_app(legacy,testing=True)
+        self.assertEqual(app.test_client().get("/health").json["schema"],CURRENT_SCHEMA_VERSION)
+
+    def test_publication_snapshot_and_review_event_survive_citation_export_together(self):
+        original = self.record(publication_title="合成期刊",volume="7",issue="2",pages="12–19",issn="1234-5678")
+        note = self.record("research_note",evidence_record_id=original,quote="原句",locator="p12")
+        report = self.record("research_report",evidence_ids=[note],evidence_citations=[{"excerpt_id":note,"stance":"qualifies","claim_note":"限该卷期"}])
+        result = self.call("/api/review/record/"+report,{"version":1,"review_scope":"metadata_only","review_note":"核对合成题录"},user="admin")
+        self.assertEqual(result.status_code,200,result.json)
+        self.call("/api/records/"+original,{"version":1,"volume":"8"},method="PUT")
+        report_data = self.detail(report)
+        self.assertEqual(report_data["last_verified"]["version"],2)
+        pinned = json.loads(report_data["evidence_citations"][0]["snapshot"]["evidence_snapshot_json"])
+        self.assertEqual({key:pinned[key] for key in ["publication_title","volume","issue","pages","issn"]},
+                         {"publication_title":"合成期刊","volume":"7","issue":"2","pages":"12–19","issn":"1234-5678"})
+        output = self.clients["researcher"].get("/api/export/content?kind=research_report")
+        self.assertEqual(output.status_code,200)
+        with zipfile.ZipFile(io.BytesIO(output.data)) as archive:
+            data = json.loads(archive.read("content.json"))
+            rows = data["records"]
+            row = next(r for r in rows if r["id"]==report)
+            self.assertEqual(row["last_verified"]["review_note"],"核对合成题录")
+            self.assertEqual(row["evidence_citations"][0]["stance"],"qualifies")
+            coverage = json.loads(archive.read("evidence-coverage.json"))
+            row = next(r for r in coverage["records"] if r["id"]==report)
+            self.assertEqual(row["last_verified"]["version"],2)
+            self.assertEqual(row["citations"][0]["staleness_reasons"],["original_updated"])
+
+    def test_hidden_merged_origin_identity_details_and_changes_are_filtered_before_review(self):
+        public_person, hidden_person, corrected = self.person("公开身份"),self.person("隐藏身份"),self.person("隐藏纠正身份")
+        keep = self.record(title="公开后的主资料",visibility="restricted")
+        old = self.record(title="隐藏来历原资料",visibility="restricted")
+        self.save_byline(keep,public_person);self.save_byline(old,hidden_person)
+        self.assertEqual(self.merge_records(keep,old).status_code,200)
+        version = self.detail(keep)["version"]
+        self.assertEqual(self.call("/api/records/"+keep,{"version":version,"visibility":"shared"},method="PUT").status_code,200)
+        bylines = self.clients["researcher"].get("/api/records/"+keep+"/bylines").json
+        hidden_byline = next(row for row in bylines["items"] if row["target_id"]==hidden_person)
+        unit = self.source("隐藏来历署名单位","institution")
+        current_units = self.clients["researcher"].get("/api/records/"+keep+"/affiliations").json
+        result = self.call("/api/records/"+keep+"/affiliations",{**current_units,"items":[{"byline_id":hidden_byline["id"],"institution_id":unit,"evidence":"合成首页"}],"change_note":"登记单位"},method="PUT")
+        self.assertEqual(result.status_code,200,result.json)
+        note = self.record("research_note",evidence_record_id=keep,quote="可读原句",locator="段1")
+        report = self.record("research_report",evidence_ids=[note])
+        citation = self.detail(report,"colleague")["evidence_citations"][0]
+        public_json = json.dumps(citation)
+        self.assertNotIn(hidden_person,public_json);self.assertNotIn(old,public_json)
+        self.assertNotIn(hidden_byline["id"],public_json)
+        current = self.clients["researcher"].get("/api/records/"+keep+"/bylines").json
+        hidden = next(row for row in current["items"] if row["target_id"]==hidden_person)
+        hidden["target_id"]=corrected
+        result = self.call("/api/records/"+keep+"/bylines",{**current,"change_note":"纠正隐藏来历署名"},method="PUT")
+        self.assertEqual(result.status_code,200,result.json)
+        self.assertIn("identity_changed",self.detail(report)["evidence_citations"][0]["staleness_reasons"])
+        public = self.detail(report,"colleague")["evidence_citations"][0]
+        self.assertEqual(public["staleness_reasons"],[])
+        self.assertEqual(public["identity_changes"],[])
+        self.assertNotIn(corrected,json.dumps(public))

@@ -168,9 +168,16 @@ def identity_baseline(db, rid, original=False):
             "bylines": [dict(r) for r in db.execute("""SELECT id,origin_record_id,version,target_type,target_id,
                 selected_target_type,selected_target_id,status,removed_at FROM record_bylines
                 WHERE record_id=? ORDER BY id""", (rid,))],
-            "article_affiliations": [dict(r) for r in db.execute("""SELECT id,origin_record_id,version,byline_id,
-                institution_id,selected_institution_id,removed_at FROM record_affiliations
-                WHERE record_id=? ORDER BY id""", (rid,))],
+            "article_affiliations": [dict(r) for r in db.execute("""SELECT a.id,a.origin_record_id,a.version,a.byline_id,
+                a.institution_id,a.selected_institution_id,a.removed_at,
+                b.origin_record_id AS byline_origin_record_id,
+                o.origin_record_id AS original_byline_origin_record_id,
+                s.origin_record_id AS selected_byline_origin_record_id
+                FROM record_affiliations a
+                JOIN record_bylines b ON b.id=a.byline_id
+                JOIN record_bylines o ON o.id=a.original_byline_id
+                JOIN record_bylines s ON s.id=a.selected_byline_id
+                WHERE a.record_id=? ORDER BY a.id""", (rid,))],
         }
     return {"subjects": [dict(r) for r in db.execute("""SELECT id,original_note_id,version,subject_type,subject_id,status
               FROM research_subjects WHERE note_id=? ORDER BY id""", (rid,))]}
@@ -183,15 +190,16 @@ def review_changes(db, note, link, pinned, visible):
     reasons = []
     if note["version"] != link["excerpt_version"]:
         reasons.append("note_updated")
-    original_id = pinned.get("evidence_record_id")
+    original_snapshot = json.loads(pinned.get("evidence_snapshot_json") or "{}")
+    original_id = original_snapshot.get("id") or pinned.get("evidence_record_id")
+    original_version = original_snapshot.get("version", pinned.get("evidence_version"))
     original = resolve(db, "records", original_id) if original_id else None
     if original:
         if original["id"] != original_id:
             reasons.append("original_merged")
-        elif pinned.get("evidence_version") is not None and original["version"] != pinned["evidence_version"]:
+        elif original_version is not None and original["version"] != original_version:
             reasons.append("original_updated")
     note_baseline = pinned.get("identity_baseline")
-    original_snapshot = json.loads(pinned.get("evidence_snapshot_json") or "{}")
     original_baseline = original_snapshot.get("identity_baseline")
     known = note_baseline is not None and (not original_id or original_baseline is not None)
     identity_changes = []
@@ -218,9 +226,14 @@ def project_baseline(db, baseline, visible):
     for kind, rows in baseline.items():
         permitted = []
         for row in rows:
-            origin_id = row.get("origin_record_id") or row.get("original_note_id")
-            origin = db.execute("SELECT * FROM records WHERE id=?", (origin_id,)).fetchone() if origin_id else None
-            if not origin_id or (origin is not None and visible(origin)):
+            origins = [value for key, value in row.items() if key.endswith("origin_record_id") or key == "original_note_id"]
+            readable = True
+            for origin_id in origins:
+                origin = db.execute("SELECT * FROM records WHERE id=?", (origin_id,)).fetchone()
+                if origin is None or not visible(origin):
+                    readable = False
+                    break
+            if readable:
                 permitted.append(row)
         result[kind] = permitted
     return result
