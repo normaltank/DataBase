@@ -40,7 +40,7 @@ class IntakeFormBrowserTests(unittest.TestCase):
             return dict(url=url, content_type='application/json', text=json.dumps({'message': {
                 'DOI': cls.doi, 'title': [cls.title],
                 'author': [{'given': 'Ada', 'family': 'Form'}],
-                'container-title': ['Synthetic Form Journal'], 'language': 'en',
+                'container-title': ['Synthetic Form Journal'], 'language': cls.language,
                 'published': {'date-parts': [[2026, 10, 26]]},
                 'resource': {'primary': {'URL': 'https://example.org/'+cls.doi.split('/')[-1]}}, 'abstract': 'Synthetic form abstract'}}))
         intake.fetch_document = fetch
@@ -63,6 +63,7 @@ class IntakeFormBrowserTests(unittest.TestCase):
         type(self).doi = '10.5555/form-primary'
         type(self).title = 'Synthetic form article'
         type(self).failure = False
+        type(self).language = 'en'
         self.context = self.browser.new_context(viewport={'width': 1366, 'height': 900})
         self.addCleanup(self.context.close)
         self.page = self.context.new_page()
@@ -245,6 +246,38 @@ class IntakeFormBrowserTests(unittest.TestCase):
         expect(self.form.locator('[name=doi]')).to_have_value('')
         self.form.get_by_role('button', name='保存内容', exact=True).click()
         expect(self.form).to_have_count(0)
+
+    def test_nonpreset_language_survives_draft_restore_and_saved_record_edit(self):
+        type(self).doi = '10.5555/form-language-draft'
+        type(self).title = 'Synthetic Spanish language draft'
+        type(self).language = 'es'
+        self.fetch('10.5555/form-language-draft')
+        self.form.locator('[data-record-more]>summary').click()
+        expect(self.form.locator('[name=language]')).to_have_value('es')
+        self.form.locator('[data-action=close]').click()
+        self.page.locator('[data-action=new-record]').first.click()
+        expect(self.form).not_to_have_attribute('inert')
+        self.form.locator('[data-action=restore-draft]').click()
+        self.form.locator('[data-record-more]>summary').click()
+        expect(self.form.locator('[name=language]')).to_be_visible()
+        expect(self.form.locator('[name=language]')).to_have_value('es')
+        with self.page.expect_response(lambda response: response.url==URL+'/api/records' and response.request.method=='POST') as saved_response:
+            self.form.get_by_role('button', name='保存内容', exact=True).click()
+        expect(self.form).to_have_count(0)
+        saved = saved_response.value.json()
+        detail = self.context.request.get(URL+'/api/records/'+saved['id']).json()
+        self.assertEqual(detail['language'], 'es')
+        self.page.locator('.ux-maintenance>summary').click()
+        self.page.locator('[data-action=edit-record][data-id="'+saved['id']+'"]').click()
+        expect(self.form).not_to_have_attribute('inert')
+        self.form.locator('[data-record-more]>summary').click()
+        expect(self.form.locator('[name=language]')).to_have_value('es')
+        self.form.locator('[name=title]').fill('Spanish article with unrelated title edit')
+        self.form.get_by_role('button', name='保存修订', exact=True).click()
+        expect(self.form).to_have_count(0)
+        edited = self.context.request.get(URL+'/api/records/'+saved['id']).json()
+        self.assertEqual(edited['language'], 'es')
+        self.assertEqual(edited['title'], 'Spanish article with unrelated title edit')
 
 
 if __name__ == '__main__':
