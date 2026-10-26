@@ -65,7 +65,8 @@ def body_text(data):
 
 def citation(data):
     labels = [("title", "题名"), ("original_title", "原题名"), ("authors", "作者"),
-              ("published_on", "日期"), ("publication_title", "刊物／出处"), ("doi", "DOI"),
+              ("published_on", "日期"), ("publication_title", "刊物／出处"), ("volume", "卷"), ("issue", "期"),
+              ("pages", "页码"), ("issn", "ISSN"), ("doi", "DOI"),
               ("coverage", "覆盖范围"), ("id", "稳定编号"), ("version", "版本")]
     url = external_url(data.get("url"))
     return "\n".join(part for part in [fields(data, labels), "原文地址：" + url if url else ""] if part)

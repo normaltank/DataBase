@@ -1,7 +1,7 @@
 'use strict';
 
-const intakeLabels={title:'题名',authors:'原始署名',published_on:'发表日期',publication_title:'刊物名称',doi:'DOI',url:'原文链接',abstract:'摘要',language:'语言'};
-const intakeFieldOrder=['title','authors','publication_title','published_on','doi','url','language','abstract'];
+const intakeLabels={title:'题名',authors:'原始署名',published_on:'发表日期',publication_title:'刊物名称',volume:'卷',issue:'期',pages:'页码 / 文章编号',issn:'ISSN',doi:'DOI',url:'原文链接',abstract:'摘要',language:'语言'};
+const intakeFieldOrder=['title','authors','publication_title','volume','issue','pages','issn','published_on','doi','url','language','abstract'];
 function intakeReadableProvider(value){return /Crossref|DataCite/i.test(value||'')?value:'文章页';}
 function intakeResultKey(preview){return JSON.stringify({input:preview.input,fields:preview.fields,authors:preview.authors,identifiers:preview.identifiers,candidates:preview.candidates,provenance:preview.provenance});}
 function setIntakePreview(form,result){form._intakePreview=result;form.elements.intake_preview.value=JSON.stringify(result);form.elements.intake_preview_state.value='';form._intakeNextPreview=null;renderIntakePreview(form);}

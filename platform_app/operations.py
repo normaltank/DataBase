@@ -11,7 +11,7 @@ from pathlib import Path
 from flask import abort, jsonify, request, send_file, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from . import workflow, identity, content_export, bylines, affiliations
+from . import workflow, identity, content_export, bylines, affiliations, reading
 from .store import now, save_revision
 
 COLLECTION_FIELDS = ["name", "description", "visibility", "research_question", "comparison_html", "comparison_text", "stage_judgment"]
@@ -257,7 +257,7 @@ def register(app, ctx):
             for item in records.values():
                 rid = item["id"]
                 index += '<li><a href="' + paths[rid] + '">' + html.escape(item["title"]) + "</a></li>"
-                content = '<p><a href="../index.html">返回目录</a></p>' + prose("身份与出处", f"编号：{rid}\n署名：{item['authors']}\n日期：{item['published_on']}\n版本：{item['version']}\n覆盖范围：{item['coverage']}\n原目录出处：{item['original_catalogue']}\n原文链接：{item['url']}")
+                content = '<p><a href="../index.html">返回目录</a></p>' + prose("出版题录", reading.citation(item)) + prose("身份与出处", f"编号：{rid}\n署名：{item['authors']}\n日期：{item['published_on']}\n版本：{item['version']}\n覆盖范围：{item['coverage']}\n原目录出处：{item['original_catalogue']}\n原文链接：{item['url']}")
                 content += prose("摘要与说明", item["abstract"]) + "<section><h2>正文</h2>" + item["body_html"] + "</section>"
                 if item.get("intake_evidence"):
                     content += prose("辅助录入取得依据（题录，非全文或核对结论）", json.dumps(item["intake_evidence"], ensure_ascii=False, indent=2))

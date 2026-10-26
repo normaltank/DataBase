@@ -437,8 +437,8 @@ class BylineTests(unittest.TestCase):
             self.assertEqual(self.get("/health")["schema"], CURRENT_SCHEMA_VERSION)
             old_record = expected["records"][rid]
             self.assertEqual(self.get("/api/records/" + rid), {
-                **old_record, "attachment_matches": [], "can_manage_access": True,
-                **{key: [{**item, "attachment_matches": [], "can_manage_access": True} for item in old_record[key]]
+                **old_record, "volume": "", "issue": "", "pages": "", "issn": "", "attachment_matches": [], "can_manage_access": True,
+                **{key: [{**item, "volume": "", "issue": "", "pages": "", "issn": "", "attachment_matches": [], "can_manage_access": True} for item in old_record[key]]
                    for key in ["linked_records", "cited_by", "excerpts"]}, "attachments": [
                     {**attachment, "index": {"status": "unindexed", "message": "尚未建立索引"}}
                     for attachment in old_record["attachments"]]})

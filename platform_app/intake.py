@@ -221,12 +221,23 @@ def page_metadata(document):
     for field, keys in {
         "title": ["citation_title", "dc.title", "dcterms.title", "og:title"],
         "publication_title": ["citation_journal_title", "prism.publicationname"],
+        "volume": ["citation_volume", "prism.volume"],
+        "issue": ["citation_issue", "prism.number"],
+        "pages": ["citation_pages", "prism.pagerange"],
         "published_on": ["citation_publication_date", "citation_date", "dc.date.issued", "dc.date", "article:published_time"],
         "doi": ["citation_doi", "dc.identifier.doi", "prism.doi"],
         "language": ["citation_language", "dc.language"],
         "abstract": ["citation_abstract", "dc.description", "dcterms.abstract", "description", "og:description"],
     }.items():
         set_field(field, keys)
+    if not fields.get("pages") and meta.get("citation_firstpage"):
+        first = plain(meta["citation_firstpage"][0])
+        last = plain((meta.get("citation_lastpage") or [""])[0])
+        fields["pages"] = first + ("–" + last if last and last != first else "")
+        provenance["pages"] = "citation_firstpage / citation_lastpage"
+    if meta.get("citation_issn"):
+        fields["issn"] = "; ".join(plain(v) for v in meta["citation_issn"] if plain(v))
+        provenance["issn"] = "citation_issn"
     names = meta.get("citation_author") or meta.get("dc.creator") or []
     authors = [{"raw_name": plain(name), "identifiers": {}, "affiliations": []} for name in names if plain(name)][:100]
     affiliations = meta.get("citation_author_institution", [])
@@ -247,12 +258,22 @@ def page_metadata(document):
             warnings.append("JSON-LD 题名与页面标签不同，未混合该节点的作者与日期，请核对。")
             continue
         mappings = {"title": article.get("headline") or article.get("name"), "published_on": article.get("datePublished"),
-                    "abstract": article.get("abstract") or article.get("description"), "language": article.get("inLanguage")}
+                    "abstract": article.get("abstract") or article.get("description"), "language": article.get("inLanguage"),
+                    "volume": article.get("volumeNumber"), "issue": article.get("issueNumber"),
+                    "pages": article.get("pagination") or ((str(article.get("pageStart")) + ("–" + str(article["pageEnd"]) if article.get("pageEnd") else "")) if article.get("pageStart") else None)}
         part = article.get("isPartOf")
-        if isinstance(part, dict):
-            mappings["publication_title"] = part.get("name")
+        # Issue → volume → periodical nesting is common in scholarly JSON-LD.
+        for _ in range(6):
+            if not isinstance(part, dict):
+                break
+            for field, key in [("publication_title", "name"), ("volume", "volumeNumber"), ("issue", "issueNumber")]:
+                if part.get(key) and not mappings.get(field):
+                    mappings[field] = str(part[key])
             if part.get("issn"):
-                identifiers["issn"] = [part["issn"]] if isinstance(part["issn"], str) else part["issn"]
+                values = [part["issn"]] if isinstance(part["issn"], str) else part["issn"]
+                identifiers["issn"] = values
+                mappings["issn"] = "; ".join(plain(v) for v in values if plain(v))
+            part = part.get("isPartOf")
         for field, value in mappings.items():
             if isinstance(value, str) and plain(value):
                 value = plain(value, 40000 if field == "abstract" else 4000)
@@ -317,6 +338,8 @@ def registry_metadata(document, doi, provider):
                         "affiliations": [plain(v.get("name")) for v in a.get("affiliation", []) if isinstance(v, dict)]}
                        for a in item.get("author", [])[:100]]
             identifiers = {"issn": item.get("ISSN", []), "isbn": item.get("ISBN", [])}
+            fields.update(volume=plain(item.get("volume")), issue=plain(item.get("issue")), pages=plain(item.get("page")),
+                          issn="; ".join(plain(v) for v in item.get("ISSN", []) if plain(v)))
             hints = {"publisher": [plain(item.get("publisher"))], "volume": item.get("volume", ""),
                      "issue": item.get("issue", ""), "page": item.get("page", "")}
         else:
@@ -330,6 +353,11 @@ def registry_metadata(document, doi, provider):
             fields["abstract"] = next((plain(a.get("description"), 40000) for a in descriptions if a.get("descriptionType") == "Abstract"), "")
             container = item.get("container") or {}
             fields["publication_title"] = plain(container.get("title"))
+            fields.update(volume=plain(container.get("volume")), issue=plain(container.get("issue")))
+            first, last = plain(container.get("firstPage")), plain(container.get("lastPage"))
+            fields["pages"] = first + ("–" + last if last and last != first else "")
+            if container.get("identifierType", "").casefold() == "issn":
+                fields["issn"] = plain(container.get("identifier"))
             authors = [{"raw_name": plain(a.get("name") or " ".join([a.get("givenName", ""), a.get("familyName", "")])),
                         "identifiers": {v["nameIdentifierScheme"]: v["nameIdentifier"] for v in a.get("nameIdentifiers", []) if v.get("nameIdentifierScheme") and v.get("nameIdentifier")},
                         "affiliations": [plain(v.get("name") if isinstance(v, dict) else v) for v in a.get("affiliation", [])]}
