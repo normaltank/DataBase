@@ -25,7 +25,7 @@
 
 [规格 1.0](specs/链接与编号辅助录入.md)覆盖 DOI／文章网址的题录取得、预览核对、已有档案候选与保存，授权出处见[R017](需求讨论记录.md#r017链接与编号辅助录入开工)。[前期调研](../work/链接与编号辅助录入可行性.md)区分单篇录入与全站持续采集，保留当时未知项；实际支持范围以本轮验收为准。
 
-[原站有限抽样](../work/辅助录入原站抽样.md)记录一个 DOI、对应期刊页与两篇智库页的实际题录、缺项和访问差异，不代表覆盖率。实施及交付见[任务 #32](https://github.com/normaltank/DataBase/issues/32)／[PR #33](https://github.com/normaltank/DataBase/pull/33)。
+[原站有限抽样](../work/辅助录入原站抽样.md)记录一个 DOI、对应期刊页与两篇智库页的实际题录、缺项和访问差异，不代表覆盖率。[本轮验收](../work/链接与编号辅助录入验收.md)分别记录开发、独立页面与网络验证、双轴审查及修复；实施与本机交付见[任务 #32](https://github.com/normaltank/DataBase/issues/32)／[PR #33](https://github.com/normaltank/DataBase/pull/33)。
 
 ## 机构与期刊研究档案
 
