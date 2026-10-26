@@ -44,15 +44,28 @@ async function enhanceEvidenceForm(form,r,evidenceId='') {
   }).join('')+'</div></div><p class="form-help">保留引用时版本；笔记以后修改不会悄悄替换本报告的依据。原文、身份或笔记变化仅提示待评估。</p>'+(r.id&&existing.length?'<label class="check-label"><input type="checkbox" name="refresh_citations">明确更新所选笔记为当前版本（笔记仍固定旧原文时，原文提示继续保留）</label>':'');
   form.querySelector('[data-rich-field=body_html]').before(noteSection,citations);
   if(r.evidence_record_id||evidenceId)await setEvidenceOriginal(form,r.evidence_record_id||evidenceId,r.evidence_attachment_id,r.evidence_version);
-  for(const field of ['evidence_occurrence','evidence_selection_start'])if(Number.isInteger(r[field])){
-    const position=document.createElement('input');position.type='hidden';position.name=field;position.value=String(r[field]);noteSection.append(position);
-    for(const name of ['quote','locator','evidence_attachment_id'])form.elements[name].addEventListener('input',()=>position.remove());
-  }
+  const anchor=evidenceSnapshotData(r).attachment_anchor;
+  const retained=anchor?.quote_match?.status==='matched'&&anchor.id===r.evidence_attachment_id&&anchor.locator===r.locator&&anchor.quote===r.quote
+    ?{evidence_selection_start:anchor.selection_start,evidence_occurrence:anchor.occurrence}:{};
+  setEvidencePosition(form,{...retained,...r});
+  for(const type of ['input','change'])noteSection.addEventListener(type,event=>{
+    if(['quote','locator','evidence_attachment_id','evidence_record_id'].includes(event.target.name))setEvidencePosition(form);
+  });
   updateEvidenceMode(form);
+}
+function setEvidencePosition(form,values={}) {
+  const section=form.querySelector('[data-evidence-editor]');if(!section)return;
+  for(const field of ['evidence_occurrence','evidence_selection_start']){
+    section.querySelector('[name="'+field+'"]')?.remove();
+    const raw=values[field],value=typeof raw==='string'&&/^\d+$/u.test(raw)?Number(raw):raw;
+    if(!Number.isInteger(value)||value<0||value>1000000)continue;
+    const position=document.createElement('input');position.type='hidden';position.name=field;position.value=String(value);section.append(position);
+  }
 }
 function updateEvidenceMode(form){const kind=form.elements.kind.value;const note=form.querySelector('[data-evidence-editor]'),citations=form.querySelector('[data-evidence-picker]');if(note){note.hidden=kind!=='research_note';citations.hidden=!['compilation','research_report'].includes(kind);citations.querySelectorAll('[name=evidence_ids]').forEach(input=>{const context=input.closest('[data-source-choice]')?.querySelector('[data-citation-context]');if(context)context.hidden=!input.checked;});}}
 async function setEvidenceOriginal(form,id,attachment='',version=null) {
   const r=await api('/api/records/'+encodeURIComponent(id));if(!form.isConnected)return;
+  setEvidencePosition(form);
   form.elements.evidence_record_id.value=r.id;
   form.querySelector('[data-evidence-origin]').hidden=false;
   form.querySelector('[data-evidence-origin]').innerHTML='<strong>'+esc(r.title)+'</strong><p>所据版本 '+(version||r.version)+' · '+esc(r.authors)+'</p>';
@@ -60,7 +73,13 @@ async function setEvidenceOriginal(form,id,attachment='',version=null) {
   form.elements.evidence_attachment_id.innerHTML=selectOptions(options,attachment,'未选择附件');
   form.querySelector('[data-evidence-results]').innerHTML='';
 }
-async function prepareEvidenceDraft(form,values){if(values.evidence_record_id&&form.querySelector('[data-evidence-editor]')){try{await setEvidenceOriginal(form,values.evidence_record_id,values.evidence_attachment_id,form._editing.original.evidence_version);}catch(error){form.querySelector('.form-error').textContent=error.message+' 草稿输入继续保留。';}}}
+async function prepareEvidenceDraft(form,values){
+  setEvidencePosition(form);
+  if(values.evidence_record_id&&form.querySelector('[data-evidence-editor]')){
+    try{await setEvidenceOriginal(form,values.evidence_record_id,values.evidence_attachment_id,form._editing.original.evidence_version);setEvidencePosition(form,values);}
+    catch(error){form.querySelector('.form-error').textContent=error.message+' 草稿输入继续保留。';}
+  }
+}
 function evidenceSnapshotData(note) {
   let snapshot=note.evidence_snapshot??note.evidence_snapshot_json;
   if(typeof snapshot==='string'){try{snapshot=JSON.parse(snapshot);}catch{return {};}}
