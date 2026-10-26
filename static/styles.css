@@ -114,7 +114,7 @@ svg.icon{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.65;
 .field input{width:100%;padding:9px 11px;border:1px solid var(--control-border);border-radius:6px;background:var(--surface);color:var(--text);font-size:16px;min-height:42px;}
 .field select{width:100%;padding:9px 11px;border:1px solid var(--control-border);border-radius:6px;background:var(--surface);color:var(--text);font-size:16px;min-height:42px;}
 .field textarea{width:100%;padding:9px 11px;border:1px solid var(--control-border);border-radius:6px;background:var(--surface);color:var(--text);font-size:16px;min-height:105px;resize:vertical;}
-.filter-footer{grid-column:1/-1;display:flex;justify-content:space-between;align-items:center;font-size:var(--font-small);color:var(--text-muted);}
+.filter-footer{grid-column:1/-1;display:block;font-size:var(--font-small);color:var(--text-muted);}
 .results-head{display:flex;justify-content:space-between;align-items:center;margin:16px 0 10px;font-size:14px;gap:12px;flex-wrap:wrap;}
 .results-head select{padding:5px 8px;background:transparent;border:1px solid var(--border);border-radius:5px;color:var(--text-muted);font-size:14px;border-color:var(--control-border);min-height:34px;max-width:100%;}
 .record-list{display:grid;gap:10px;min-width:0;}
