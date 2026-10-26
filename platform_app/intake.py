@@ -10,7 +10,6 @@ import json
 import queue
 import re
 import socket
-import ssl
 import threading
 import time
 from html.parser import HTMLParser
@@ -20,7 +19,7 @@ from flask import abort, current_app, jsonify
 from itsdangerous import BadSignature, URLSafeSerializer
 
 from .store import now
-from .public_dns import resolve_proxy_alias
+from .public_dns import DeadlineConnection, resolve_proxy_alias
 
 MAX_BYTES = 1024 * 1024
 MAX_SECONDS = 15
@@ -63,6 +62,9 @@ def _resolve(host, port, deadline):
     # getaddrinfo has no Python timeout. A bounded daemon worker keeps the
     # request deadline real, including a stalled resolver.
     results = queue.Queue(maxsize=1)
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise AcquisitionError("解析站点超时；原链接仍可手工登记。")
     if not _dns_slots.acquire(blocking=False):
         raise AcquisitionError("域名解析繁忙，请稍后重试或继续手填。")
     def lookup():
@@ -74,7 +76,7 @@ def _resolve(host, port, deadline):
             _dns_slots.release()
     threading.Thread(target=lookup, daemon=True).start()
     try:
-        addresses = results.get(timeout=max(.01, deadline - time.monotonic()))
+        addresses = results.get(timeout=max(.001, deadline - time.monotonic()))
     except queue.Empty:
         raise AcquisitionError("解析站点超时；原链接仍可手工登记。") from None
     if isinstance(addresses, OSError):
@@ -89,23 +91,6 @@ def _resolve(host, port, deadline):
     return ips[0]
 
 
-class PublicConnection(http.client.HTTPConnection):
-    def __init__(self, host, port, ip, secure, deadline):
-        self.default_port = 443 if secure else 80
-        super().__init__(host, port, timeout=max(.01, deadline - time.monotonic()))
-        self.ip, self.secure, self.deadline = ip, secure, deadline
-
-    def connect(self):
-        self.sock = socket.create_connection((self.ip, self.port), self.timeout)
-        peer = self.sock.getpeername()[0]
-        if not _public_ip(peer) or ipaddress.ip_address(peer) != ipaddress.ip_address(self.ip):
-            self.close()
-            raise AcquisitionError("站点连接目标不安全，已停止提取。")
-        if self.secure:
-            self.sock = ssl.create_default_context().wrap_socket(self.sock, server_hostname=self.host)
-        self.sock.settimeout(max(.01, self.deadline - time.monotonic()))
-
-
 def fetch_document(url, deadline):
     """Public network boundary: validate every redirect, pin DNS and check peer."""
     for hop in range(4):
@@ -117,11 +102,13 @@ def fetch_document(url, deadline):
         if port not in {80, 443}:
             raise AcquisitionError("提取仅支持公开网站的 80 或 443 端口。")
         ip = _resolve(p.hostname, port, deadline)
-        connection = PublicConnection(p.hostname, port, ip, p.scheme == "https", deadline)
+        connection = DeadlineConnection(p.hostname, port, ip, p.scheme == "https", deadline)
+        response = None
         try:
             path = quote(p.path, safe="/%:@!$&'()*+,;=-._~") + ("?" + quote(p.query, safe="=&/%:@!$'()*+,;?-._~") if p.query else "")
             connection.request("GET", path, headers={"Accept": "text/html, application/json, application/ld+json", "Accept-Encoding": "identity", "User-Agent": "ResearchCommonsMetadata/1.0"})
             response = connection.getresponse()
+            connection.remaining()
             if response.status in {301, 302, 303, 307, 308}:
                 if hop == 3 or not response.getheader("Location"):
                     raise AcquisitionError("站点跳转过多或缺少目标；请直接粘贴文章地址。")
@@ -143,6 +130,7 @@ def fetch_document(url, deadline):
                 if connection.sock:
                     connection.sock.settimeout(remaining)
                 chunk = response.read1(min(65536, MAX_BYTES + 1 - size))
+                connection.remaining()
                 if not chunk:
                     break
                 chunks.append(chunk)
@@ -156,10 +144,14 @@ def fetch_document(url, deadline):
             except LookupError:
                 text = content.decode("utf-8", errors="replace")
             return {"url": canonical, "content_type": mime, "text": text}
-        except (OSError, http.client.HTTPException, UnicodeError) as error:
+        except (OSError, http.client.HTTPException, UnicodeError, ValueError) as error:
+            if isinstance(error, AcquisitionError):
+                raise
             raise AcquisitionError("站点连接失败或超时；原链接仍可手工登记。") from error
         finally:
-            connection.close()
+            if response:
+                response.close()
+            connection.finish()
     raise AcquisitionError("站点跳转过多，请继续手填。")
 
 

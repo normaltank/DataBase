@@ -7,6 +7,9 @@ supplies real addresses, which the caller must validate and pin as usual.
 import http.client
 import ipaddress
 import json
+import socket
+import ssl
+import threading
 import time
 from urllib.parse import quote
 
@@ -14,6 +17,72 @@ from urllib.parse import quote
 PROXY_ALIAS_RANGE = ipaddress.ip_network('198.18.0.0/15')
 DNS_BOOTSTRAP = '1.1.1.1'
 MAX_RESPONSE = 65536
+
+
+class DeadlineConnection(http.client.HTTPConnection):
+    """Pin a connection and interrupt all socket reads at one absolute deadline.
+
+    Keep the transport separately: HTTPConnection may drop its socket while an
+    HTTPResponse's makefile still owns it. close alone cannot interrupt that read.
+    The caller must finish() after closing its response, including on redirects.
+    """
+    def __init__(self, host, port, ip, secure, deadline):
+        self.default_port = 443 if secure else 80
+        super().__init__(host, port, timeout=max(.001, deadline - time.monotonic()))
+        self.ip, self.secure, self.deadline = ip, secure, deadline
+        self._transport = None
+        self._timer = None
+        self._expired = threading.Event()
+        self._transport_lock = threading.Lock()
+
+    def remaining(self):
+        remaining = self.deadline - time.monotonic()
+        if remaining <= 0 or self._expired.is_set():
+            raise TimeoutError('acquisition deadline exceeded')
+        return remaining
+
+    def _interrupt(self):
+        self._expired.set()
+        with self._transport_lock:
+            transport = self._transport
+            if transport:
+                try:
+                    transport.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+
+    def _track(self, transport):
+        with self._transport_lock:
+            self._transport = transport
+        self.remaining()
+
+    def connect(self):
+        self.sock = socket.create_connection((self.ip, self.port), self.remaining())
+        self._track(self.sock)
+        if ipaddress.ip_address(self.sock.getpeername()[0]) != ipaddress.ip_address(self.ip):
+            raise ValueError('站点连接目标不安全，已停止提取。')
+        self._timer = threading.Timer(self.remaining(), self._interrupt)
+        self._timer.daemon = True
+        self._timer.start()
+        if self.secure:
+            self.sock.settimeout(self.remaining())
+            # Register the SSL socket before starting its blocking handshake.
+            self.sock = ssl.create_default_context().wrap_socket(
+                self.sock, server_hostname=self.host, do_handshake_on_connect=False)
+            self._track(self.sock)
+            self.sock.settimeout(self.remaining())
+            handshake = getattr(self.sock, 'do_handshake', None)
+            if handshake:
+                handshake()
+        self.sock.settimeout(self.remaining())
+
+    def finish(self):
+        if self._timer:
+            self._timer.cancel()
+            self._timer.join()
+        self.close()
+        if self._transport:
+            self._transport.close()
 
 
 def resolve_proxy_alias(host, system_addresses, deadline):
@@ -31,7 +100,8 @@ def resolve_proxy_alias(host, system_addresses, deadline):
     remaining = deadline - time.monotonic()
     if remaining <= 0:
         raise ValueError('解析站点超时，请继续手填。')
-    connection = http.client.HTTPSConnection(DNS_BOOTSTRAP, timeout=min(5, remaining))
+    connection = DeadlineConnection(DNS_BOOTSTRAP, 443, DNS_BOOTSTRAP, True, deadline)
+    response = None
     try:
         # Numeric bootstrap and normal TLS certificate verification avoid a
         # dependency on the very system DNS answer being replaced.
@@ -41,6 +111,7 @@ def resolve_proxy_alias(host, system_addresses, deadline):
         connection.request('GET', '/dns-query?name=' + quote(name, safe='') + '&type=A',
                            headers={'Host': 'cloudflare-dns.com', 'Accept': 'application/dns-json', 'Accept-Encoding': 'identity'})
         response = connection.getresponse()
+        connection.remaining()
         if response.status != 200 or response.getheader('Content-Type', '').split(';')[0].strip() not in {'application/dns-json', 'application/json'}:
             raise ValueError('公开解析服务暂不可用，请稍后重试或继续手填。')
         chunks, size = [], 0
@@ -51,6 +122,7 @@ def resolve_proxy_alias(host, system_addresses, deadline):
             if connection.sock:
                 connection.sock.settimeout(min(5, remaining))
             chunk = response.read1(min(8192, MAX_RESPONSE + 1 - size))
+            connection.remaining()
             if not chunk:
                 break
             chunks.append(chunk)
@@ -82,6 +154,8 @@ def resolve_proxy_alias(host, system_addresses, deadline):
                 raise ValueError('站点解析包含非公开地址，已停止提取。')
         return addresses
     except (OSError, http.client.HTTPException, UnicodeError, json.JSONDecodeError, TypeError, AttributeError) as error:
-        raise ValueError('公开解析服务连接失败或响应无效，请稍后重试或继续手填。') from error
+        raise ValueError('公开解析服务连接失败、超时或响应无效，请稍后重试或继续手填。') from error
     finally:
-        connection.close()
+        if response:
+            response.close()
+        connection.finish()
