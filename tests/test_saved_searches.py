@@ -171,13 +171,13 @@ class SavedSearchTests(unittest.TestCase):
         upgraded=create_app(legacy,testing=True)
         self.assertEqual(upgraded.test_client().get('/health').json['schema'],CURRENT_SCHEMA_VERSION)
         backups=list((legacy/'backups').glob('*.zip'))
-        self.assertEqual(len(backups),CURRENT_SCHEMA_VERSION - 9,'Each migration must back up its input version.')
+        self.assertEqual(len(backups),CURRENT_SCHEMA_VERSION - 9,'Every upgrade must back up its input version.')
         v10_backup=None
         for index,backup in enumerate(backups):
             restored=restore_backup(backup,Path(self.temp.name)/('migration-backup-'+str(index)))
             with closing(sqlite3.connect(restored/'platform.sqlite3')) as db:
                 version=db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0]
-                if int(version) <= 10:
+                if int(version) < 11:
                     self.assertFalse(db.execute("SELECT name FROM sqlite_master WHERE name='saved_searches'").fetchone())
                 if version=='10':v10_backup=backup
             for name, info in expected['files'].items():

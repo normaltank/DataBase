@@ -1,5 +1,6 @@
 """Research scope through authenticated HTTP, portable export and new-directory restore."""
 import io
+from contextlib import closing
 import json
 import tempfile
 import unittest
@@ -27,8 +28,11 @@ class CollectionScopeTests(unittest.TestCase):
         client = self.clients[who]
         token = client.get('/api/session').json['csrf']
         response = client.open(path, method=method, json=data, headers={'X-CSRF-Token': token})
-        self.assertEqual(response.status_code, status, response.json)
-        return response.json
+        try:
+            self.assertEqual(response.status_code, status, response.json)
+            return response.json
+        finally:
+            response.close()
 
     def record(self, title='Synthetic material', **extra):
         return self.call('/api/records', {'kind': 'report', 'title': title, **extra}, 201)['id']
@@ -95,7 +99,6 @@ class CollectionScopeTests(unittest.TestCase):
 
     def test_old_snapshot_means_included_and_no_registered_search(self):
         import sqlite3
-        from contextlib import closing
         rid, cid = self.record(), self.topic()
         path = '/api/collections/' + cid
         self.call(path + '/items', {'record_id': rid})
@@ -125,7 +128,9 @@ class CollectionScopeTests(unittest.TestCase):
         self.call(path + '/items', {'record_id': hidden, 'version': 3, 'disposition': 'excluded', 'rationale': 'Hidden exclusion rationale'})
         response = self.clients['colleague'].get('/api/export/content?collection=' + cid)
         self.assertEqual(response.status_code, 200)
-        with zipfile.ZipFile(io.BytesIO(response.data)) as archive:
+        content = response.data
+        response.close()
+        with zipfile.ZipFile(io.BytesIO(content)) as archive:
             payload = json.loads(archive.read('content.json'))
             self.assertEqual(payload['selected_ids'], [included])
             self.assertEqual({r['id'] for r in payload['records']}, {included, excluded})
@@ -204,7 +209,7 @@ class CollectionScopeTests(unittest.TestCase):
             payloads = {name: source.read(name) for name in source.namelist()}
         copy = Path(self.temp.name) / 'tampered.sqlite3'
         copy.write_bytes(payloads['platform.sqlite3'])
-        with sqlite3.connect(copy) as db:
+        with closing(sqlite3.connect(copy)) as db, db:
             db.execute('UPDATE collections SET scope_log_json=? WHERE id=?', ('[{"source":"invalid"}]', cid))
         payloads['platform.sqlite3'] = copy.read_bytes()
         manifest = json.loads(payloads['manifest.json'])
@@ -229,7 +234,7 @@ class CollectionScopeTests(unittest.TestCase):
         legacy = Path(self.temp.name) / 'legacy-shape'
         legacy.mkdir()
         # Frozen non-empty schema and snapshots produced by the actual v11 application.
-        with sqlite3.connect(legacy / 'platform.sqlite3') as db:
+        with closing(sqlite3.connect(legacy / 'platform.sqlite3')) as db, db:
             db.executescript((fixture / 'collection_scope_v11.sql').read_text())
         legacy_backup = create_backup(legacy)
         restored = restore_backup(legacy_backup, Path(self.temp.name) / 'upgrade-v11')
@@ -237,10 +242,21 @@ class CollectionScopeTests(unittest.TestCase):
         self.assertEqual(app.test_client().get('/health').json['schema'], CURRENT_SCHEMA_VERSION)
         backups = list((restored / 'backups').glob('*.zip'))
         self.assertEqual(len(backups), CURRENT_SCHEMA_VERSION - 11)
-        before = restore_backup(backups[0], Path(self.temp.name) / 'before-upgrade')
-        with sqlite3.connect(before / 'platform.sqlite3') as db:
-            self.assertEqual(db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0], '11')
-            self.assertNotIn('disposition', [r[1] for r in db.execute('PRAGMA table_info(collection_items)')])
+        archived_versions = set()
+        for index, archive in enumerate(backups):
+            before = restore_backup(archive, Path(self.temp.name) / ('before-upgrade-' + str(index)))
+            with closing(sqlite3.connect(before / 'platform.sqlite3')) as db:
+                version = int(db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0])
+                archived_versions.add(version)
+                self.assertNotIn('disposition', [r[1] for r in db.execute('PRAGMA table_info(collection_items)')])
+                record_columns = {r[1] for r in db.execute('PRAGMA table_info(records)')}
+                citation_columns = {r[1] for r in db.execute('PRAGMA table_info(evidence_links)')}
+                self.assertEqual('volume' in record_columns, version >= 12)
+                self.assertEqual('stance' in citation_columns, version >= 13)
+            # Each genuine intermediate backup remains restorable and can finish the chain.
+            intermediate = create_app(before, testing=True)
+            self.assertEqual(intermediate.test_client().get('/health').json['schema'], CURRENT_SCHEMA_VERSION)
+        self.assertEqual(archived_versions, {11, 12, 13})
         create_app(restored, testing=True)
         self.assertEqual(len(list((restored / 'backups').glob('*.zip'))), len(backups))
         client = app.test_client()
@@ -253,12 +269,14 @@ class CollectionScopeTests(unittest.TestCase):
         self.assertEqual(historical['scope_log'], [])
         self.assertEqual(historical['item_details'], [{'record_id': rid, 'disposition': 'included', 'rationale': ''}])
         failed = restore_backup(legacy_backup, Path(self.temp.name) / 'failed-upgrade')
-        with sqlite3.connect(failed / 'platform.sqlite3') as db:
-            db.execute("CREATE TRIGGER fail_scope BEFORE UPDATE ON settings WHEN OLD.key='schema_version' AND NEW.value='12' BEGIN SELECT RAISE(ABORT,'synthetic migration failure'); END")
+        with closing(sqlite3.connect(failed / 'platform.sqlite3')) as db, db:
+            db.execute("CREATE TRIGGER fail_scope BEFORE UPDATE ON settings WHEN OLD.key='schema_version' AND NEW.value='14' BEGIN SELECT RAISE(ABORT,'synthetic migration failure'); END")
         with self.assertRaises(sqlite3.IntegrityError):
             create_app(failed, testing=True)
-        with sqlite3.connect(failed / 'platform.sqlite3') as db:
-            self.assertEqual(db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0], '11')
+        with closing(sqlite3.connect(failed / 'platform.sqlite3')) as db, db:
+            self.assertEqual(db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0], '13')
+            self.assertIn('volume', [r[1] for r in db.execute('PRAGMA table_info(records)')])
+            self.assertIn('stance', [r[1] for r in db.execute('PRAGMA table_info(evidence_links)')])
             self.assertNotIn('disposition', [r[1] for r in db.execute('PRAGMA table_info(collection_items)')])
             db.execute('DROP TRIGGER fail_scope')
         self.assertEqual(create_app(failed, testing=True).test_client().get('/health').json['schema'], CURRENT_SCHEMA_VERSION)

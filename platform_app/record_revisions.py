@@ -17,11 +17,11 @@ from urllib.parse import urlsplit
 
 from flask import abort
 
-from . import evidence, identity, source_catalog, workflow, note_subjects, bylines, affiliations, intake
+from . import evidence, identity, source_catalog, workflow, note_subjects, bylines, affiliations, intake, reviews
 from .store import now, save_revision
 
 RECORD_FIELDS = ["kind", "title", "original_title", "authors", "source_id", "serial_id", "publication_title",
-                 "published_on", "language", "abstract", "keywords", "countries", "doi", "url", "visibility", "unresolved_refs"] + list(workflow.RECORD_DEFAULTS) + workflow.EVIDENCE_FIELDS
+                 "volume", "issue", "pages", "issn", "published_on", "language", "abstract", "keywords", "countries", "doi", "url", "visibility", "unresolved_refs"] + list(workflow.RECORD_DEFAULTS) + workflow.EVIDENCE_FIELDS
 KINDS = {"research_article", "journal_article", "report", "compilation", "book_section", "book", "book_review",
          "conference_abstract", "thesis", "presentation", "speech", "policy", "news", "other"}
 KINDS |= workflow.CONTENT_KINDS
@@ -75,6 +75,7 @@ class RecordRevisions:
         self.actor = actor
         self.upload_dir = Path(upload_dir)
         self._new_files = None
+        self.prefetched_records = None
 
     @contextmanager
     def _transaction(self):
@@ -93,27 +94,27 @@ class RecordRevisions:
         finally:
             self._new_files = None
 
-    def _history(self, rid, action):
-        save_revision(self.db, "record", rid, action, self.actor["id"])
+    def _history(self, rid, action, review_event=None):
+        save_revision(self.db, "record", rid, action, self.actor["id"], review_event)
 
     def _initial_history(self, rid, action="导入初始版本", actor="admin"):
         if not self.db.execute("SELECT 1 FROM revisions WHERE target_type='record' AND target_id=?", (rid,)).fetchone():
             save_revision(self.db, "record", rid, action, actor)
 
-    def _finish(self, row, values, action):
+    def _finish(self, row, values, action, review_event=None):
         values = {**values, "version": row["version"] + 1, "updated_at": now()}
         changed = self.db.execute(
             f"UPDATE records SET {','.join(k+'=?' for k in values)} WHERE id=? AND version=?",
             [*values.values(), row["id"], row["version"]]).rowcount
         if not changed:
             abort(409, "内容已变化，请刷新。")
-        self._history(row["id"], action)
+        self._history(row["id"], action, review_event)
 
     def _relations(self, rid, linked, associated, cited, refresh=False):
         self.db.execute("DELETE FROM record_links WHERE report_id=?", (rid,))
         self.db.executemany("INSERT INTO record_links VALUES (?,?)", [(rid, x) for x in linked])
         workflow.set_sources(self.db, rid, associated)
-        evidence.save_links(self.db, rid, cited, self.get, refresh)
+        evidence.save_links(self.db, rid, cited, self.get, refresh, self.visible)
 
     def _unique_doi(self, doi, rid=""):
         key = intake.normalize_doi(doi) or doi.casefold()
@@ -124,7 +125,16 @@ class RecordRevisions:
     def visible(self, r):
         u = self.actor
         if r["evidence_record_id"]:
-            original = identity.resolve(self.db, "records", r["evidence_record_id"])
+            if self.prefetched_records is None:
+                original = identity.resolve(self.db, "records", r["evidence_record_id"])
+            else:
+                original = self.prefetched_records.get(r["evidence_record_id"])
+                seen = set()
+                while original and original["merged_into"]:
+                    if original["id"] in seen:
+                        abort(409, "编号转向存在循环，请检查合并记录。")
+                    seen.add(original["id"])
+                    original = self.prefetched_records.get(original["merged_into"])
             if not original or original["id"] == r["id"] or not self.visible(original):
                 return False
         return r["visibility"] == "shared" or u["role"] == "admin" or r["owner_id"] == u["id"] or r["author_id"] == u["id"] or (u["id"] in json.loads(r["editors"]) and (r["kind"] not in workflow.PERSONAL_KINDS or r["author_confirmed"]))
@@ -251,7 +261,7 @@ class RecordRevisions:
         associated = [self.source(sid)["id"] for sid in associated]
         if values["kind"] == "directory_translation" and not associated:
             abort(400, "请至少选择一个关联来源。")
-        cited = evidence.validate(self.db, data, values, base, self.get)
+        cited = evidence.validate(self.db, data, values, base, self.get, self.upload_dir.parent)
         return values, sorted(set(canonical_links)), sorted(set(associated)), cited
 
     def _upload(self, rid, data, current_ids, file):
@@ -384,8 +394,9 @@ class RecordRevisions:
                 abort(403, "此操作需要资料管理员权限。")
             row = self.get(rid)
             check_version(data, row)
+            event = reviews.facts(self.db, "record", row, self.actor, data)
             self._initial_history(row["id"])
-            self._finish(row, {"status": "verified"}, "完成信息核对")
+            self._finish(row, {"status": "verified"}, reviews.ACTION, event)
 
     def restore(self, revision_id, data):
         with self._transaction():
@@ -420,7 +431,7 @@ class RecordRevisions:
                 self.db.execute("DELETE FROM evidence_links WHERE report_id=?", (rid,))
                 for link in old["evidence_citations"]:
                     cited = self.get(link["excerpt_id"])
-                    self.db.execute("INSERT INTO evidence_links VALUES (?,?,?,?)", (rid, cited["id"], link["excerpt_version"], link["snapshot_json"]))
+                    self.db.execute("INSERT INTO evidence_links VALUES (?,?,?,?,?,?)", (rid, cited["id"], link["excerpt_version"], link["snapshot_json"], link.get("stance", "unclassified"), link.get("claim_note", "")))
             if "related_source_ids" in old:
                 workflow.set_sources(self.db, rid, sorted({self.source(sid)["id"] for sid in old["related_source_ids"]}))
             unseen_linked = {link[0] for link in self.db.execute("SELECT original_id FROM record_links WHERE report_id=?", (rid,))
@@ -504,9 +515,9 @@ class RecordRevisions:
         for link in links:
             report, excerpt = kid if link["report_id"] == did else link["report_id"], kid if link["excerpt_id"] == did else link["excerpt_id"]
             other = self.db.execute("SELECT * FROM evidence_links WHERE report_id=? AND excerpt_id=?", (report, excerpt)).fetchone()
-            if report == excerpt or (other and (other["snapshot_json"] != link["snapshot_json"] or other["excerpt_version"] != link["excerpt_version"])):
+            if report == excerpt or (other and (other["snapshot_json"] != link["snapshot_json"] or other["excerpt_version"] != link["excerpt_version"] or other["stance"] != link["stance"] or other["claim_note"] != link["claim_note"])):
                 abort(409, "合并会冲突于不同版本的证据引用，请先人工整理。")
-            self.db.execute("INSERT OR IGNORE INTO evidence_links VALUES (?,?,?,?)", (report, excerpt, link["excerpt_version"], link["snapshot_json"]))
+            self.db.execute("INSERT OR IGNORE INTO evidence_links VALUES (?,?,?,?,?,?)", (report, excerpt, link["excerpt_version"], link["snapshot_json"], link["stance"], link["claim_note"]))
         self.db.execute("DELETE FROM evidence_links WHERE report_id=? OR excerpt_id=?", (did, did))
         self._move_pair("record_links", "report_id", "original_id", did, kid)
         for item in self.db.execute("SELECT * FROM collection_items WHERE record_id=?", (did,)).fetchall():

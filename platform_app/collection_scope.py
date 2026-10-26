@@ -5,7 +5,7 @@ from flask import abort
 
 from .store import connect
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 14
 
 
 def migrate(data_dir):
