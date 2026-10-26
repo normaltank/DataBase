@@ -125,7 +125,8 @@ async function restoreEditorDraft(form) {
   const draft=form._draftOffer;if(!draft||draft.user_id!==state.me?.id)return;
   if(draft.type==='source'){state.editing.draftSpecific={...draft.specific,...draft.values,relationships:draft.relationships};form.querySelector('#source-specific-fields').innerHTML=sourceSpecific({...state.editing.draftSpecific,kind:draft.values.kind});}
   if(draft.type==='record'&&typeof prepareEvidenceDraft==='function')await prepareEvidenceDraft(form,draft.values);
-  for(const el of form.elements){if(!el.name||el.type==='file')continue;const value=draft.values[el.name];if(value===undefined)continue;if(['checkbox','radio'].includes(el.type))el.checked=Array.isArray(value)&&value.includes(el.value);else if(el.multiple)[...el.options].forEach(o=>o.selected=Array.isArray(value)&&value.includes(o.value));else el.value=value;}
+  for(const el of form.elements){if(!el.name||el.type==='file')continue;const value=draft.values[el.name];if(value===undefined)continue;if(el.matches('[data-source-values]'))restoreSourceSelection(el,value);else if(['checkbox','radio'].includes(el.type))el.checked=Array.isArray(value)&&value.includes(el.value);else if(el.multiple)[...el.options].forEach(o=>o.selected=Array.isArray(value)&&value.includes(o.value));else el.value=value;}
+  refreshSourcePickers(form);
   if(draft.type==='byline')restoreBylineDraft(form,draft);
   if(draft.type==='employment'||draft.type==='affiliation')restoreRelationshipDraft(form,draft);
   form.querySelectorAll('[data-rich-field]').forEach(field=>field.querySelector('[data-rich-input]').innerHTML=cleanRich(draft.values[field.dataset.richField]));
@@ -148,8 +149,9 @@ async function draftsPage(){
 }
 
 function sourcePicker(ids=[]) {
-  return '<section class="wide field source-picker"><label>关联来源（可多选）</label><input type="search" data-source-picker-search aria-label="筛选可关联来源" placeholder="查找机构、期刊或其他来源"><div class="source-pick-list">'+state.sources.map(s=>'<label class="check-label" data-source-choice="'+esc((s.name+' '+s.original_name).toLowerCase())+'"><input type="checkbox" name="related_source_ids" value="'+esc(s.id)+'" '+(ids.includes(s.id)?'checked':'')+'><span>'+esc(s.name)+' <small>'+esc(sourceKinds[s.kind])+'</small></span></label>').join('')+'</div><p class="form-help">在这些来源下展示同一份内容；发布机构另行登记。</p></section>';
+  return '<section class="wide">'+searchableSourceField('related_source_ids','关联来源（可多选）',ids,{multiple:true})+'<p class="form-help">在这些来源下展示同一份内容；发布机构另行登记。</p></section>';
 }
+
 function updateRecordFormMode(form) {
   const kind=form.elements.kind.value,directory=kind==='directory_translation',personal=personalKinds.has(kind),r=form._editing?.original||{};
   form.querySelector('[data-coverage]').hidden=!directory;form.elements.coverage.required=directory;form.elements.authors.required=directory;
@@ -168,7 +170,6 @@ async function workflowRecordForm(id='',kind='report',sourceId='',draftKey='',ev
   const r=id?await api('/api/records/'+encodeURIComponent(id)):{kind,visibility:'shared',editors:[],related_source_ids:state.sources.some(s=>s.id===sourceId)?[sourceId]:[],linked_records:[],author_id:state.me.id,...initial};
   if(id&&!r.can_edit){await workflowOpenRecord(id);toast('当前账号没有正文编辑授权。');return;}
   state.editing={type:'record',id,version:r.version,owner_id:r.owner_id,editors:r.editors,visibility:r.visibility,original:r};state.links=r.linked_records||[];
-  const sources=Object.fromEntries(state.sources.filter(isInstitution).map(s=>[s.id,s.name])),serials=Object.fromEntries(state.sources.filter(s=>['journal','serial'].includes(s.kind)).map(s=>[s.id,s.name]));
   const html='<form data-form="record" class="workflow-form"><div class="form-grid">'
     +inputField('title','题名 *',r.title,'',true)+selectField('kind','内容类型',kinds,r.kind)+'<div class="field"><label for="f-authors" data-signature-label>作者 / 编译者</label><input id="f-authors" name="authors" value="'+esc(r.authors)+'"></div>'
     +'<div class="wide" data-coverage>'+inputField('coverage','年份 / 卷期 / 覆盖范围 *',r.coverage,'例如：2026 年第 1–3 期',true)+'</div><div class="wide notice" data-directory-rule>目录译稿由全体有效成员共同编辑。</div>'
@@ -176,7 +177,7 @@ async function workflowRecordForm(id='',kind='report',sourceId='',draftKey='',ev
     +richEditor('body_html','正文',r.body_html)+textField('original_catalogue','原目录 / 原文出处',r.original_catalogue,'刊物、年份、卷期、页码或目录链接')+sourcePicker(r.related_source_ids||[])
     +'<details class="wide" '+(!isResearchContent(r.kind)?'open':'')+'><summary>题录与检索信息</summary><div class="form-grid section-gap">'
     +inputField('original_title','原文题名',r.original_title,'',true)+textField('aliases','别名 / 其他题名',r.aliases,'每行一个')+inputField('published_on','发表 / 编译日期',r.published_on,'YYYY、YYYY-MM 或 YYYY-MM-DD')+selectField('language','语言',languages,r.language,'待补充')
-    +selectField('source_id','发布机构',sources,r.source_id,'未登记')+selectField('serial_id','所属期刊 / 连续出版物',serials,r.serial_id,'未登记')+inputField('publication_title','刊物名称 / 出处补充',r.publication_title)+inputField('doi','DOI',r.doi)+inputField('url','原文链接',r.url,'https://…',true,'url')+inputField('countries','资料研究对象',r.countries)+inputField('keywords','关键词',r.keywords)+textField('abstract','摘要与说明',r.abstract)+'</div></details>'
+    +searchableSourceField('source_id','发布机构',r.source_id,{groups:['institution']})+searchableSourceField('serial_id','所属期刊 / 连续出版物',r.serial_id,{groups:['journal','publication']})+inputField('publication_title','刊物名称 / 出处补充',r.publication_title)+inputField('doi','DOI',r.doi)+inputField('url','原文链接',r.url,'https://…',true,'url')+inputField('countries','资料研究对象',r.countries)+inputField('keywords','关键词',r.keywords)+textField('abstract','摘要与说明',r.abstract)+'</div></details>'
     +'<section class="wide" id="reference-section"><h3>关联原始资料</h3><div class="field section-gap"><label for="link-search">查找原文</label><input id="link-search" placeholder="输入题名或作者"><div id="link-results" class="link-results"></div><div id="selected-links" class="selected-links"></div></div>'+textField('unresolved_refs','尚未入库的原文出处',r.unresolved_refs)+'</section>'
     +'<section class="wide attachment-editor"><h3>附件</h3>'+(r.attachments||[]).map(a=>'<p>'+icon('file')+' '+esc(a.name)+'</p>').join('')+'<label for="f-file">添加 Word、PDF 或文本文件（最多 20 MB）</label><input id="f-file" type="file" name="file" accept=".pdf,.docx,.txt,.md"><div data-file-status class="form-help"></div><label class="check-label"><input type="checkbox" name="sharing_confirmed">我确认本次附件可以在所选范围内共享。</label></section>'
     +'<section class="wide" data-access-fields><h3>可见范围与授权</h3>'+selectField('visibility','可见范围',{shared:'中心成员可见',restricted:'限有读取权限的成员'},r.visibility)+'<fieldset class="editor-grants"><legend>获授权共同编辑的成员</legend>'

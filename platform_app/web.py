@@ -207,6 +207,18 @@ def create_app(data_dir=None, testing=False):
         source_section = args.get("source_section")
         if source_section and (not selected_source or source_section not in {"published", "associated", "translations", "outputs"}):
             abort(400, "来源内容分区需指定来源及有效分区。")
+        source_group = args.get("source_group", "")
+        source_country = args.get("source_country", "").strip()
+        source_international = args.get("source_international", "")
+        if source_group not in {"", "institution", "journal", "publication"} or source_international not in {"", "yes", "no", "unknown"}:
+            abort(400, "来源类型或国际办刊定位不正确。")
+        if source_international and source_group not in {"", "journal"}:
+            abort(400, "国际办刊定位只适用于期刊。")
+        source_scope = None
+        if source_group or source_country or source_international:
+            source_scope = {sid for sid, source in source_catalog.catalog(db()).items()
+                            if source["group"] != "maintenance" and (not selected_source or sid == selected_source)
+                            and source_catalog.matches_scope(source, source_group, source_country, source_international)}
         for r in rows:
             if args.get("editable") == "1" and not editable(r):
                 continue
@@ -215,6 +227,8 @@ def create_app(data_dir=None, testing=False):
             if collection_ids is not None and r["id"] not in collection_ids:
                 continue
             associated = workflow.source_ids(db(), r["id"])
+            if source_scope is not None and not source_scope.intersection([r["source_id"], r["serial_id"], *associated]):
+                continue
             if selected_source and selected_source not in [r["source_id"], r["serial_id"], *associated]:
                 continue
             if source_section:
@@ -428,6 +442,8 @@ def create_app(data_dir=None, testing=False):
             rows = [r for r in rows if r["status"] == request.args["status"]]
         if request.args.get("scope") == "active":
             rows = [r for r in rows if not any(x in r["scope_status"] for x in ["out_of_scope", "historical", "discovery", "candidate"]) and r["kind"] not in ["portal", "registry_publication"]]
+        for source in rows:
+            source["previous_ids"] = [sid for sid in identity.origins(db(), "sources", source["id"]) if sid != source["id"]]
         return jsonify(items=[{k: v for k, v in r.items() if k != "raw_json"} for r in rows], total=len(rows), countries=countries)
 
     @app.get("/api/sources/<sid>")

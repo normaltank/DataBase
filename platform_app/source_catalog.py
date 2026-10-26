@@ -154,6 +154,9 @@ def catalog(db):
         s["candidate_countries"] = sorted(candidates)
         s["country_basis"] = basis
         s["country_gaps"] = missing
+        # One projection for source selection and record scope queries. Institution
+        # registration and publication host evidence retain their distinct rules.
+        s["filter_countries"] = ids(s["country"]) if s["kind"] in INSTITUTIONS else s["national_countries"] if s["kind"] in PUBLICATIONS else []
         publishers = [rows[i] for i in ids(s["publisher_id"]) if i in rows]
         s["publisher_countries"] = sorted({c for p in publishers for c in ids(p["country"])})
         for parent_id in ids(s["host_id"]) + ids(s["publisher_id"]):
@@ -170,6 +173,12 @@ def catalog(db):
             if parent_id in rows:
                 rows[parent_id]["related"].append({k: s[k] for k in ("id", "name", "kind")})
     return rows
+
+
+def matches_scope(source, group="", country="", international=""):
+    return (not group or source["group"] == group) and (
+        not country or (not source["filter_countries"] if country == "__pending__" else country in source["filter_countries"])) and (
+        not international or source["kind"] == "journal" and source["international_status"] == international)
 
 
 def validate_metadata(db, data, values, base=None):
