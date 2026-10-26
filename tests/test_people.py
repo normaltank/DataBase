@@ -224,10 +224,10 @@ class PeopleTests(unittest.TestCase):
         self.assertEqual(self.clients["researcher"].get("/api/people").json["total"], 0)
         for rid, before in expected["records"].items():
             new_defaults = {"research_subjects": []} if before["kind"] == "research_note" else {}
-            new_defaults.update(attachment_matches=[], can_manage_access=True, last_verified=None, review_history=[], attachments=[
+            new_defaults.update(volume="", issue="", pages="", issn="", attachment_matches=[], can_manage_access=True, last_verified=None, review_history=[], attachments=[
                 {**attachment, "index": {"status": "unindexed", "message": "尚未建立索引"}}
                 for attachment in before["attachments"]])
-            new_defaults.update({key: [{**item, "attachment_matches": [], "can_manage_access": True} for item in before[key]]
+            new_defaults.update({key: [{**item, "volume": "", "issue": "", "pages": "", "issn": "", "attachment_matches": [], "can_manage_access": True} for item in before[key]]
                                  for key in ["linked_records", "cited_by", "excerpts"]})
             self.assertEqual(self.clients["researcher"].get("/api/records/" + rid).json, {**before, **new_defaults})
             self.assertEqual(self.clients["researcher"].get("/api/history/record/" + rid).json, expected["history"][rid])
@@ -238,7 +238,7 @@ class PeopleTests(unittest.TestCase):
         expected_source = {**expected["source"], "filter_countries": [], "last_verified": None, "review_history": []}
         self.assertEqual(self.clients["researcher"].get("/api/sources/" + expected["source"]["id"]).json, expected_source)
         expected_collection = {**expected["collection"], "items": [
-            {**item, "attachment_matches": [], "can_manage_access": True} for item in expected["collection"]["items"]]}
+            {**item, "volume": "", "issue": "", "pages": "", "issn": "", "attachment_matches": [], "can_manage_access": True} for item in expected["collection"]["items"]]}
         self.assertEqual(self.clients["researcher"].get("/api/collections/" + expected["collection"]["id"]).json, expected_collection)
         backups = list((legacy / "backups").glob("*.zip"))
         self.assertEqual(len(backups), CURRENT_SCHEMA_VERSION - 5)
@@ -262,10 +262,10 @@ class PeopleTests(unittest.TestCase):
         self.assertEqual(self.clients["researcher"].get("/api/people").json["total"], 0)
         for rid, before in expected["records"].items():
             new_defaults = {"research_subjects": []} if before["kind"] == "research_note" else {}
-            new_defaults.update(attachment_matches=[], can_manage_access=True, last_verified=None, review_history=[], attachments=[
+            new_defaults.update(volume="", issue="", pages="", issn="", attachment_matches=[], can_manage_access=True, last_verified=None, review_history=[], attachments=[
                 {**attachment, "index": {"status": "unindexed", "message": "尚未建立索引"}}
                 for attachment in before["attachments"]])
-            new_defaults.update({key: [{**item, "attachment_matches": [], "can_manage_access": True} for item in before[key]]
+            new_defaults.update({key: [{**item, "volume": "", "issue": "", "pages": "", "issn": "", "attachment_matches": [], "can_manage_access": True} for item in before[key]]
                                  for key in ["linked_records", "cited_by", "excerpts"]})
             self.assertEqual(self.clients["researcher"].get("/api/records/" + rid).json, {**before, **new_defaults})
         self.assertEqual(self.call("/api/records/" + next(iter(expected["records"])),

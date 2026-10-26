@@ -115,7 +115,7 @@ class ReviewBaselineTests(unittest.TestCase):
                              self.clients['colleague'].get('/api/' + kind + '/' + target_id).json['last_verified'])
         self.assertEqual(restored_reader.get('/api/records/' + restricted).status_code, 404)
 
-    def test_legacy_review_facts_remain_unknown_after_reopening_schema11(self):
+    def test_legacy_review_facts_remain_unknown_after_reopening_history(self):
         from platform_app.store import connect
         from platform_app.web import create_app
         rid = self.record()
@@ -205,3 +205,36 @@ class ReviewBaselineTests(unittest.TestCase):
         self.assertEqual(result.status_code, 409, result.json)
         self.assertEqual(self.clients['researcher'].get(url).json, before)
         self.assertEqual(self.clients['researcher'].get('/api/history/source/' + sid).json, history)
+
+    def test_review_baseline_coexists_with_publication_and_attachment_anchor_snapshots(self):
+        original = self.call('/api/records', {'kind': 'journal_article', 'title': '题录与锚点共存',
+            'volume': '7', 'issue': 'S2', 'pages': '12–18', 'issn': '1234-5678',
+            'sharing_confirmed': True}, file=('anchor.txt', b'Before exact quotation after'))
+        self.assertEqual(original.status_code, 201, original.json)
+        rid = original.json['id']
+        aid = self.detail(rid)['attachments'][0]['id']
+        note = self.record(kind='research_note', evidence_record_id=rid, evidence_attachment_id=aid,
+                           quote='exact quotation', locator='第 1 行')
+        review = {'version': 1, 'review_scope': 'fulltext_and_bylines', 'review_note': '合成题录与指定附件位置'}
+        self.assertEqual(self.call('/api/review/record/' + note, review, user='admin').status_code, 200)
+        baseline = self.detail(note)['last_verified']
+        report = self.record(kind='research_report', evidence_ids=[note])
+        pinned = self.detail(report)['evidence_citations'][0]['snapshot']
+        self.assertEqual(self.call('/api/records/' + rid, {'version': 1, 'volume': '8', 'pages': 'e999'}, method='PUT').status_code, 200)
+        self.assertEqual(self.call('/api/records/' + note, {'version': 2, 'quote': 'different quote'}, method='PUT').status_code, 200)
+        self.assertEqual(self.detail(note)['last_verified'], baseline)
+        old = self.clients['researcher'].get('/api/history/' + str(baseline['revision_id'])).json['snapshot']
+        original_snapshot = json.loads(old['evidence_snapshot_json'])
+        self.assertEqual((original_snapshot['volume'], original_snapshot['issue'], original_snapshot['pages']), ('7', 'S2', '12–18'))
+        self.assertEqual(original_snapshot['attachment_anchor']['quote_match']['status'], 'matched')
+        self.assertEqual(old['review_event']['review_scope'], 'fulltext_and_bylines')
+        self.assertEqual(self.detail(report)['evidence_citations'][0]['snapshot'], pinned)
+        archive = zipfile.ZipFile(io.BytesIO(self.clients['researcher'].get('/api/export/content').data))
+        payload = json.loads(archive.read('content.json'))
+        exported_note = next(item for item in payload['records'] if item['id'] == note)
+        self.assertEqual(exported_note['last_verified'], baseline)
+        self.assertEqual(exported_note['evidence_snapshot']['attachment_anchor']['quote_match']['status'], 'not_matched')
+        exported_report = next(item for item in payload['records'] if item['id'] == report)
+        adopted = json.loads(exported_report['evidence_citations'][0]['snapshot']['evidence_snapshot_json'])
+        self.assertEqual((adopted['volume'], adopted['pages']), ('7', '12–18'))
+        self.assertEqual(adopted['attachment_anchor']['quote_match']['status'], 'matched')

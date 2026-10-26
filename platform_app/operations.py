@@ -11,7 +11,7 @@ from pathlib import Path
 from flask import abort, jsonify, request, send_file, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from . import workflow, identity, content_export, bylines, affiliations, reviews
+from . import workflow, identity, content_export, bylines, affiliations, reading, reviews
 from .store import now, save_revision
 
 COLLECTION_FIELDS = ["name", "description", "visibility", "research_question", "comparison_html", "comparison_text", "stage_judgment"]
@@ -243,6 +243,8 @@ def register(app, ctx):
                 return ""
             fields = [("title", "题名"), ("original_title", "原题名"), ("authors", "署名"), ("published_on", "日期"), ("id", "编号"), ("version", "版本"), ("url", "原文链接"), ("doi", "DOI")]
             details = "\n".join(label + "：" + str(snapshot[key]) for key, label in fields if snapshot.get(key) not in (None, ""))
+            from .attachment_anchor import description as anchor_description
+            details += "\n\n" + anchor_description(snapshot.get("attachment_anchor"))
             return '<section><h2>引用时的原始资料快照</h2><pre>' + html.escape(details) + '</pre>' + (snapshot.get("body_html") or "") + prose("原摘要", snapshot.get("abstract")) + '</section>'
 
         with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
@@ -257,7 +259,7 @@ def register(app, ctx):
             for item in records.values():
                 rid = item["id"]
                 index += '<li><a href="' + paths[rid] + '">' + html.escape(item["title"]) + "</a></li>"
-                content = '<p><a href="../index.html">返回目录</a></p>' + prose("身份与出处", f"编号：{rid}\n署名：{item['authors']}\n日期：{item['published_on']}\n版本：{item['version']}\n覆盖范围：{item['coverage']}\n原目录出处：{item['original_catalogue']}\n原文链接：{item['url']}")
+                content = '<p><a href="../index.html">返回目录</a></p>' + prose("出版题录", reading.citation(item)) + prose("身份与出处", f"编号：{rid}\n署名：{item['authors']}\n日期：{item['published_on']}\n版本：{item['version']}\n覆盖范围：{item['coverage']}\n原目录出处：{item['original_catalogue']}\n原文链接：{item['url']}")
                 content += reviews.html(item)
                 content += prose("摘要与说明", item["abstract"]) + "<section><h2>正文</h2>" + item["body_html"] + "</section>"
                 if item.get("intake_evidence"):
