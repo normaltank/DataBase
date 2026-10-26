@@ -12,6 +12,7 @@ import sys
 import tempfile
 import time
 import unittest
+import uuid
 import urllib.request
 
 from playwright.sync_api import sync_playwright, expect
@@ -123,6 +124,13 @@ class ProfileBrowserTests(unittest.TestCase):
         self.assertEqual(metrics["small"], [], name)
         self.capture(name)
 
+    def test_00_source_direct_route(self):
+        self.page.goto(URL + "/#sources?id=" + self.sample["source"])
+        expect(self.page.get_by_role("heading", name="来源介绍", exact=True)).to_be_visible()
+        self.assertEqual(self.page.get_by_role("dialog").count(), 0)
+        self.assertIn("id=" + self.sample["source"], self.page.url)
+        self.capture("source-page-direct")
+
     def test_01_person_chapters_preserve_route_and_query_return(self):
         page = self.page
         page.goto(URL + "/#people?q=合成人物")
@@ -155,7 +163,7 @@ class ProfileBrowserTests(unittest.TestCase):
         page.get_by_role("button", name="应用筛选", exact=True).click()
         expect(page.get_by_role("button", name="移除筛选：期刊主办国别：拉脱维亚", exact=True)).to_be_visible()
         expect(page.get_by_role("button", name="移除筛选：国际定位：是 · 有依据", exact=True)).to_be_visible()
-        expect(page.get_by_role("button", name="合成学刊｜语言政策与跨区域研究", exact=True)).to_be_visible()
+        expect(page.get_by_role("link", name="合成学刊｜语言政策与跨区域研究", exact=True)).to_be_visible()
         expect(page.get_by_label("期刊主办国别", exact=True)).not_to_be_visible()
         page.get_by_role("button", name="移除筛选：国际定位：是 · 有依据", exact=True).click()
         self.assertIn("country=", page.url)
@@ -170,8 +178,8 @@ class ProfileBrowserTests(unittest.TestCase):
     def test_03_source_chapters_keep_front_content_evidence_and_route(self):
         page = self.page
         page.goto(URL + "/#sources?group=institution")
-        page.locator('[data-action="source-detail"][data-id="' + self.sample["source"] + '"]').first.click()
-        dialog = page.get_by_role("dialog", name="来源详情", exact=True)
+        page.locator('[data-action="source-preview"][data-id="' + self.sample["source"] + '"]').first.click()
+        dialog = page.get_by_role("dialog", name="来源快速预览", exact=True)
         expect(dialog.get_by_role("heading", name="来源介绍", exact=True)).to_be_visible()
         self.capture("source-detail-1440")
         if BASELINE:
@@ -187,11 +195,192 @@ class ProfileBrowserTests(unittest.TestCase):
         expect(dialog.get_by_text("合成目录译稿｜2024—2026卷期", exact=True)).to_be_visible()
         page.keyboard.press("Escape")
         page.goto(URL + "/#sources?group=journal")
-        page.locator('[data-action="source-detail"][data-id="' + self.sample["journal"] + '"]').first.click()
-        dialog = page.get_by_role("dialog", name="来源详情", exact=True)
+        page.locator('[data-action="source-preview"][data-id="' + self.sample["journal"] + '"]').first.click()
+        dialog = page.get_by_role("dialog", name="来源快速预览", exact=True)
         dialog.get_by_role("navigation", name="来源章节", exact=True).get_by_role("button", name="依据与核查", exact=True).click()
         expect(dialog.get_by_text("主办国别的依据", exact=True)).to_be_visible()
         expect(dialog.get_by_text("国际定位依据", exact=True)).to_be_visible()
+
+    def test_03b_directory_profile_preview_refresh_and_cross_object_paths(self):
+        page = self.page
+        page.goto(URL + "/#sources?group=institution&q=合成研究中心")
+        expect(page.get_by_role("heading", name="来源目录", exact=True)).to_be_visible()
+        before = page.url
+        preview = page.locator('[data-action="source-preview"][data-id="' + self.sample["source"] + '"]')
+        preview.click()
+        dialog = page.get_by_role("dialog", name="来源快速预览", exact=True)
+        expect(dialog.get_by_role("heading", name="机构发布资料", exact=True)).to_be_visible()
+        self.assertEqual(page.url, before)
+        dialog.get_by_role("button", name="编辑来源", exact=True).click()
+        form = page.locator('form[data-form="source"]')
+        form.locator('[name="research_scope"]').fill("合成预览维护范围")
+        form.get_by_role("button", name="保存修订", exact=True).click()
+        expect(page.get_by_role("dialog", name="来源快速预览", exact=True)).to_contain_text("合成预览维护范围")
+        self.assertEqual(page.url, before)
+        page.keyboard.press("Escape")
+        expect(page.get_by_role("searchbox", name="来源关键词")).to_have_value("合成研究中心")
+        page.locator('.source-card h2 a').click()
+        expect(page.locator('.source-page h1')).to_be_visible()
+        self.assertIn("id=" + self.sample["source"], page.url)
+        page.reload()
+        expect(page.locator('.source-page h1')).to_be_visible()
+        self.assertEqual(page.get_by_role("dialog").count(), 0)
+        nav = page.get_by_role("navigation", name="来源章节", exact=True)
+        for label in ["来源信息", "关系与作品", "来源内容", "研究笔记", "依据与核查"]:
+            nav.get_by_role("button", name=label, exact=True).focus()
+            page.keyboard.press("Enter")
+            expect(page.get_by_role("heading", name=label, exact=True)).to_be_focused()
+        self.assertEqual(page.locator('.source-page').get_by_text("ISSN", exact=True).count(), 0)
+        page.get_by_role("link", name="← 返回来源目录", exact=True).click()
+        expect(page.get_by_role("searchbox", name="来源关键词")).to_have_value("合成研究中心")
+        page.goto(URL + "/#sources?id=" + self.sample["journal"])
+        expect(page.get_by_role("heading", name="刊物刊载资料", exact=True)).to_be_visible()
+        expect(page.locator('.source-page').get_by_text("ISSN", exact=True)).to_be_visible()
+        page.locator('.source-page').get_by_role("button", name="合成大学", exact=True).first.click()
+        expect(page.locator('.source-page h1')).to_have_text("合成大学")
+        page.go_back()
+        expect(page.get_by_role("heading", name="刊物刊载资料", exact=True)).to_be_visible()
+        page.get_by_role("button", name="合成目录译稿｜2024—2026卷期", exact=True).click()
+        expect(page.get_by_role("dialog")).to_contain_text("合成目录译稿｜2024—2026卷期")
+        page.keyboard.press("Escape")
+        expect(page.get_by_role("heading", name="刊物刊载资料", exact=True)).to_be_visible()
+        page.goto(URL + "/#sources?id=missing-synthetic-source")
+        expect(page.get_by_role("heading", name="无法打开来源档案", exact=True)).to_be_visible()
+
+    def test_03c_direct_profiles_reflow(self):
+        page = self.page
+        for width in [1440, 1024, 390, 320]:
+            page.set_viewport_size({"width":width,"height":900})
+            page.goto(URL + "/#sources?id=" + self.sample["source"])
+            expect(page.locator('.source-page h1')).to_be_visible()
+            self.audit("source-page-" + str(width))
+            table = page.get_by_role("region", name="内容表格 1，可横向滚动", exact=True).first
+            table.focus()
+            page.keyboard.press("ArrowRight")
+            self.assertGreater(table.evaluate("e=>e.scrollWidth"), table.evaluate("e=>e.clientWidth"))
+            page.get_by_role("navigation", name="来源章节").get_by_role("button", name="来源内容", exact=True).click()
+            expect(page.get_by_role("heading", name="来源内容", exact=True)).to_be_focused()
+            self.audit("source-page-content-" + str(width))
+            page.goto(URL + "/#sources?id=" + self.sample["journal"])
+            expect(page.locator('.source-page h1')).to_be_visible()
+            self.audit("journal-page-" + str(width))
+
+    def test_03d_standalone_edits_history_translations_notes_and_old_ids(self):
+        page = self.page
+        source_name = "合成独立维护机构-" + uuid.uuid4().hex[:6]
+        source = self.call(self.context.request, "POST", "/api/sources", {"kind":"institution", "name":source_name})["id"]
+        page.goto(URL + "/#sources?id=" + source)
+        page.get_by_role("button", name="编辑来源", exact=True).click()
+        form = page.locator('form[data-form="source"]')
+        form.locator('[name="name"]').fill(source_name + "修订")
+        form.locator('[data-rich-input]').fill("合成档案的背景沿革正文。")
+        page.get_by_role("button", name="关闭并保留草稿", exact=True).click()
+        expect(page.locator('.source-page h1')).to_have_text(source_name)
+        page.get_by_role("button", name="编辑来源", exact=True).click()
+        page.get_by_role("button", name="恢复草稿", exact=True).click()
+        expect(form.locator('[name="name"]')).to_have_value(source_name + "修订")
+        form.get_by_role("button", name="保存修订", exact=True).click()
+        expect(page.locator('.source-page h1')).to_have_text(source_name + "修订")
+        expect(page.get_by_text("合成档案的背景沿革正文。", exact=True)).to_be_visible()
+        page.get_by_role("button", name="新建目录译稿", exact=True).click()
+        form = page.locator('form[data-form="record"]')
+        expect(form).not_to_have_attribute("inert", "")
+        form.locator('[name="title"]').fill("合成维护目录译稿")
+        form.locator('[name="authors"]').fill("合成编译者")
+        form.locator('[name="coverage"]').fill("2026年第1期")
+        form.get_by_role("button", name="保存内容", exact=True).click()
+        expect(page.get_by_role("dialog")).to_contain_text("合成维护目录译稿")
+        page.keyboard.press("Escape")
+        expect(page.locator('[data-source-content="translations"]')).to_contain_text("合成维护目录译稿")
+        page.get_by_role("button", name="写研究笔记", exact=True).click()
+        form = page.locator('form[data-form="record"]')
+        expect(form).not_to_have_attribute("inert", "")
+        form.locator('[name="title"]').fill("合成明确研究对象笔记")
+        form.get_by_role("button", name="保存内容", exact=True).click()
+        expect(page.get_by_role("dialog")).to_contain_text("合成明确研究对象笔记")
+        page.keyboard.press("Escape")
+        expect(page.locator('.note-subject-profile')).to_contain_text("合成明确研究对象笔记")
+        self.sign_in(self.context.request, "admin")
+        page.reload()
+        expect(page.locator('.source-page h1')).to_be_visible()
+        page.get_by_text("历史与维护", exact=True).click()
+        # Closing a record reader must leave the source version as the review target.
+        page.get_by_role("button", name="合成维护目录译稿", exact=True).click()
+        expect(page.get_by_role("dialog")).to_contain_text("合成维护目录译稿")
+        page.keyboard.press("Escape")
+        page.get_by_role("button", name="标记已核对", exact=True).click()
+        expect(page.locator('.source-profile-heading').get_by_text("已核对", exact=True)).to_be_visible()
+        page.get_by_text("历史与维护", exact=True).click()
+        page.get_by_role("button", name="修改历史", exact=True).click()
+        page.get_by_role("button", name="恢复此版本", exact=True).last.click()
+        expect(page.locator('.source-page h1')).to_have_text(source_name)
+        duplicate = self.call(self.context.request, "POST", "/api/sources", {"name":"合成旧编号-" + uuid.uuid4().hex[:6], "kind":"institution"})["id"]
+        latest = self.context.request.get(URL + "/api/sources/" + source).json()
+        self.call(self.context.request, "POST", "/api/merge", {"type":"source", "keep_id":source, "duplicate_id":duplicate, "keep_version":latest["version"], "duplicate_version":1, "confirmed":True})
+        page.goto(URL + "/#sources?id=" + duplicate)
+        expect(page.locator('.source-page h1')).to_have_text(source_name)
+        expect(page.locator('.source-page .notice').first).to_contain_text("旧编号")
+        self.capture("source-old-id")
+
+    def test_03e_direct_login_publication_and_portal(self):
+        publication_name = "合成其他出版物-" + uuid.uuid4().hex[:6]
+        portal_name = "合成采集入口-" + uuid.uuid4().hex[:6]
+        publication = self.call(self.context.request, "POST", "/api/sources", {"name":publication_name, "kind":"serial"})["id"]
+        portal = self.call(self.context.request, "POST", "/api/sources", {"name":portal_name, "kind":"portal"})["id"]
+        self.page.goto(URL + "/#sources?id=" + publication)
+        expect(self.page.locator('.source-page h1')).to_have_text(publication_name)
+        expect(self.page.get_by_role("heading", name="刊物刊载资料", exact=True)).to_be_visible()
+        self.page.goto(URL + "/#sources?group=maintenance")
+        self.page.get_by_role("button", name=portal_name, exact=True).last.click()
+        expect(self.page.get_by_role("dialog", name="来源快速预览", exact=True)).to_contain_text(portal_name)
+        self.assertNotIn("id=" + portal, self.page.url)
+        fresh = self.browser.new_context()
+        try:
+            page = fresh.new_page()
+            page.goto(URL + "/#sources?id=" + publication)
+            expect(page.get_by_role("heading", name="登录知汇", exact=True)).to_be_visible()
+            page.get_by_role("button", name="研究员", exact=True).click()
+            expect(page.locator('.source-page h1')).to_have_text(publication_name)
+            self.assertIn("id=" + publication, page.url)
+        finally:
+            fresh.close()
+
+    def test_03f_visible_counts_and_pagination_in_page_and_preview(self):
+        page = self.page
+        request = self.context.request
+        source = self.call(request, "POST", "/api/sources", {"name":"合成分页研究所-" + uuid.uuid4().hex[:6], "kind":"institution"})["id"]
+        for index in range(15):
+            self.call(request, "POST", "/api/records", {"kind":"report", "title":"合成分页资料-%02d" % index, "source_id":source})
+        self.call(request, "POST", "/api/records", {"kind":"report", "title":"合成不可读资料", "source_id":source, "visibility":"restricted"})
+        for index in range(14):
+            self.call(request, "POST", "/api/records", {"kind":"research_note", "title":"合成分页对象笔记-%02d" % index, "author_id":"researcher", "research_subjects":[{"subject_type":"institution","subject_id":source}]})
+        self.call(request, "POST", "/api/records", {"kind":"research_note", "title":"合成不可读对象笔记", "author_id":"researcher", "visibility":"restricted", "research_subjects":[{"subject_type":"institution","subject_id":source}]})
+        self.sign_in(request, "colleague")
+        page.goto(URL + "/#sources?id=" + source)
+        records = page.locator('[data-source-content="published"]')
+        expect(records).to_contain_text("当前可阅读 15 份")
+        self.assertEqual(records.locator('.source-content-list article').count(), 12)
+        records.get_by_role("button", name="下一页", exact=True).click()
+        expect(records).to_contain_text("第 2 / 2 页")
+        self.assertEqual(records.locator('.source-content-list article').count(), 3)
+        notes = page.locator('.note-subject-profile')
+        expect(notes).to_contain_text("14 份")
+        notes.get_by_role("button", name="下一页", exact=True).click()
+        expect(notes).to_contain_text("第 2 / 2 页")
+        self.assertEqual(notes.locator('.note-subject-card').count(), 2)
+        self.assertNotIn("合成不可读", page.locator('.source-page').inner_text())
+        page.get_by_role("link", name="← 返回来源目录", exact=True).click()
+        page.locator('[data-action="source-preview"][data-id="' + source + '"]').click()
+        dialog = page.get_by_role("dialog", name="来源快速预览", exact=True)
+        preview_records = dialog.locator('[data-source-content="published"]')
+        expect(preview_records).to_contain_text("当前可阅读 15 份")
+        preview_records.get_by_role("button", name="下一页", exact=True).click()
+        expect(preview_records).to_contain_text("第 2 / 2 页")
+        preview_notes = dialog.locator('.note-subject-profile')
+        preview_notes.get_by_role("button", name="下一页", exact=True).click()
+        expect(preview_notes).to_contain_text("第 2 / 2 页")
+        self.assertEqual(page.get_by_role("heading", name="来源目录", exact=True).count(), 1)
+        self.capture("source-preview-pagination")
 
     def test_04_person_maintenance_remains_reachable_and_works_chapter_survives_search(self):
         page = self.page
@@ -218,8 +407,8 @@ class ProfileBrowserTests(unittest.TestCase):
             page.goto(URL + "/#sources")
             expect(page.get_by_role("heading", name="来源目录", exact=True)).to_be_visible()
             self.audit(f"sources-{width}")
-            page.locator('[data-action="source-detail"][data-id="' + self.sample["source"] + '"]').first.click()
-            dialog = page.get_by_role("dialog", name="来源详情", exact=True)
+            page.locator('[data-action="source-preview"][data-id="' + self.sample["source"] + '"]').first.click()
+            dialog = page.get_by_role("dialog", name="来源快速预览", exact=True)
             expect(dialog.get_by_role("navigation", name="来源章节", exact=True)).to_be_visible()
             self.audit(f"source-detail-{width}")
             table = dialog.get_by_role("region", name="内容表格 1，可横向滚动", exact=True).first
@@ -269,8 +458,7 @@ class ProfileBrowserTests(unittest.TestCase):
         try:
             for kind, rid in [("sources", self.sample["source"]), ("people", self.sample["person"])]:
                 if kind == "sources":
-                    page.goto(URL + "/#sources?group=institution")
-                    page.locator('[data-action="source-detail"][data-id="' + rid + '"]').first.click()
+                    page.goto(URL + "/#sources?group=institution&id=" + rid)
                     page.get_by_role("button", name="编辑来源", exact=True).click()
                 else:
                     page.goto(URL + "/#people?id=" + rid)

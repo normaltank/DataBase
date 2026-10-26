@@ -202,7 +202,11 @@ def create_app(data_dir=None, testing=False):
             get_collection(args["collection"])
             collection_ids = {r[0] for r in db().execute("SELECT record_id FROM collection_items WHERE collection_id=?", (args["collection"],))}
         results = []
-        selected_source = get_source(args["source"])["id"] if args.get("source") else None
+        selected_source_row = get_source(args["source"]) if args.get("source") else None
+        selected_source = selected_source_row["id"] if selected_source_row else None
+        source_section = args.get("source_section")
+        if source_section and (not selected_source or source_section not in {"published", "associated", "translations", "outputs"}):
+            abort(400, "来源内容分区需指定来源及有效分区。")
         for r in rows:
             if args.get("editable") == "1" and not editable(r):
                 continue
@@ -213,6 +217,17 @@ def create_app(data_dir=None, testing=False):
             associated = workflow.source_ids(db(), r["id"])
             if selected_source and selected_source not in [r["source_id"], r["serial_id"], *associated]:
                 continue
+            if source_section:
+                content_kind = r["kind"] in workflow.CONTENT_KINDS
+                publication_field = "source_id" if selected_source_row["kind"] in {"institution", "think_tank"} else "serial_id"
+                if source_section == "published" and (content_kind or r[publication_field] != selected_source):
+                    continue
+                if source_section == "associated" and (content_kind or selected_source not in associated):
+                    continue
+                if source_section == "translations" and r["kind"] != "directory_translation":
+                    continue
+                if source_section == "outputs" and r["kind"] not in workflow.PERSONAL_KINDS:
+                    continue
             if args.get("kind") and r["kind"] != args["kind"]:
                 continue
             if args.get("evidence_of") and r["evidence_record_id"] != args["evidence_of"]:

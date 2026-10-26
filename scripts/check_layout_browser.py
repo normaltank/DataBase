@@ -265,7 +265,7 @@ class LayoutBrowserTests(unittest.TestCase):
             audit(f"person-{width}")
             page.screenshot(path=str(self.evidence / f"after-person-{width}.png"),full_page=True)
             page.goto(URL + "#sources")
-            page.locator('[data-action="source-detail"]').first.click()
+            page.locator('[data-action="source-preview"]').first.click()
             expect(page.get_by_role("dialog")).to_be_visible()
             audit(f"source-detail-{width}")
             page.screenshot(path=str(self.evidence / f"after-source-detail-{width}.png"))
