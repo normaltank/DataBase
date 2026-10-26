@@ -3,6 +3,7 @@ import json
 import sqlite3
 import uuid
 from datetime import date
+from pathlib import Path
 from .record_revisions import KINDS
 from flask import abort, jsonify, request
 from .store import connect, now
@@ -13,14 +14,20 @@ CONDITION_KEYS = {'q','kind','source','source_section','source_group','source_co
 
 
 def migrate(data_dir):
-    db = connect(data_dir / 'platform.sqlite3')
+    db = connect(Path(data_dir) / 'platform.sqlite3')
     try:
         with db:
-            db.execute('''CREATE TABLE IF NOT EXISTS saved_searches (
+            db.execute('BEGIN IMMEDIATE')
+            if int(db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0]) >= SCHEMA_VERSION:
+                return
+            from .maintenance import create_backup
+            backup = create_backup(data_dir)
+            db.execute('''CREATE TABLE saved_searches (
                 id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES users(id), name TEXT NOT NULL,
                 name_key TEXT NOT NULL, conditions_json TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1,
                 created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(owner_id,name_key))''')
-            db.execute("UPDATE settings SET value='11' WHERE key='schema_version'")
+            db.execute("UPDATE settings SET value=? WHERE key='schema_version'",(str(SCHEMA_VERSION),))
+            db.execute("INSERT OR REPLACE INTO settings VALUES ('saved_searches_migration_backup',?)",(str(backup),))
     finally:
         db.close()
 

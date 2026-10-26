@@ -32,7 +32,7 @@ def main():
     after=snapshot(target/'platform.sqlite3')
     for name,rows in before.items():
         if name=='settings':
-            rows=[r for r in rows if r[0]!='schema_version'];actual=[r for r in after[name] if r[0]!='schema_version']
+            rows=[r for r in rows if r[0] not in {'schema_version','saved_searches_migration_backup'}];actual=[r for r in after[name] if r[0] not in {'schema_version','saved_searches_migration_backup'}]
         else:actual=after[name]
         assert rows==actual,name
     with zipfile.ZipFile(args.archive) as archive:
