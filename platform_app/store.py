@@ -114,7 +114,7 @@ def decoded(row):
     return obj
 
 
-def save_revision(db, kind, row_id, action, actor):
+def save_revision(db, kind, row_id, action, actor, review_event=None):
     table = {"record": "records", "source": "sources", "collection": "collections", "person": "people"}[kind]
     if kind == "record":
         from .record_revisions import snapshot as record_snapshot
@@ -123,5 +123,7 @@ def save_revision(db, kind, row_id, action, actor):
         snapshot = dict(db.execute(f"SELECT * FROM {table} WHERE id=?", (row_id,)).fetchone())
     if kind == "collection":
         snapshot["item_ids"] = [r[0] for r in db.execute("SELECT record_id FROM collection_items WHERE collection_id=? ORDER BY record_id", (row_id,))]
+    if review_event is not None:
+        snapshot["review_event"] = review_event
     db.execute("INSERT INTO revisions(target_type,target_id,action,actor_id,created_at,snapshot_json) VALUES (?,?,?,?,?,?)",
                (kind, row_id, action, actor, now(), json.dumps(snapshot, ensure_ascii=False)))

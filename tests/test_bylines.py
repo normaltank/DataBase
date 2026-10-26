@@ -438,6 +438,7 @@ class BylineTests(unittest.TestCase):
             old_record = expected["records"][rid]
             self.assertEqual(self.get("/api/records/" + rid), {
                 **old_record, "attachment_matches": [], "can_manage_access": True,
+                "last_verified": None, "review_history": [],
                 **{key: [{**item, "attachment_matches": [], "can_manage_access": True} for item in old_record[key]]
                    for key in ["linked_records", "cited_by", "excerpts"]}, "attachments": [
                     {**attachment, "index": {"status": "unindexed", "message": "尚未建立索引"}}

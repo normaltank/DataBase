@@ -16,7 +16,7 @@ from werkzeug.security import check_password_hash
 from .attachment_search import AttachmentIndex, original_path
 from .store import connect, decoded, initialize, now, save_revision
 from .record_revisions import RecordRevisions, validate_text, check_version
-from . import source_catalog, workflow, evidence, identity, operations, reading, people, note_subjects, bylines, affiliations, person_identity, bulk, intake, saved_searches
+from . import source_catalog, workflow, evidence, identity, operations, reading, people, note_subjects, bylines, affiliations, person_identity, bulk, intake, saved_searches, reviews
 
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE_FIELDS = ["name", "original_name", "kind", "classification", "location", "country", "research_scope",
@@ -310,8 +310,9 @@ def create_app(data_dir=None, testing=False):
             obj["intake_evidence"] = obj["raw_json"]["intake_evidence"]
         obj.update(record_summary(row))
         obj["owner_name"] = db().execute("SELECT name FROM users WHERE id=?", (row["owner_id"],)).fetchone()[0]
-        last = db().execute("SELECT u.name,r.created_at FROM revisions r JOIN users u ON u.id=r.actor_id WHERE target_type='record' AND target_id=? ORDER BY r.id DESC LIMIT 1", (rid,)).fetchone()
-        obj["last_modifier"] = dict(last) if last else None
+        last = reviews.last_modifier(db(), "record", rid)
+        obj["last_modifier"] = {key: last[key] for key in ["name", "created_at"]} if last else None
+        obj.update(reviews.summary(db(), "record", rid, visible))
         obj["linked_records"] = [record_summary(r) for r in db().execute("SELECT r.* FROM records r JOIN record_links l ON r.id=l.original_id WHERE l.report_id=?", (rid,)) if visible(r)]
         obj["cited_by"] = [record_summary(r) for r in db().execute("SELECT r.* FROM records r JOIN record_links l ON r.id=l.report_id WHERE l.original_id=?", (rid,)) if visible(r)]
         obj["attachments"] = [dict(a) for a in db().execute("SELECT id,name,bytes,created_at FROM attachments WHERE record_id=?", (rid,)) if a["id"] in obj["attachment_ids"]]
@@ -361,18 +362,19 @@ def create_app(data_dir=None, testing=False):
         if kind == "record":
             records().review(row_id, body())
             return jsonify(ok=True)
-        table = "sources"
-        row = get_source(row_id)
-        row_id = row["id"]
         data = body()
-        check_version(data, row)
         with db():
+            db().execute("BEGIN IMMEDIATE")
+            row = get_source(row_id)
+            row_id = row["id"]
+            check_version(data, row)
+            event = reviews.facts(db(), kind, row, user(), data)
             if not db().execute("SELECT 1 FROM revisions WHERE target_type=? AND target_id=?", (kind, row_id)).fetchone():
                 save_revision(db(), kind, row_id, "导入初始版本", "admin")
-            changed = db().execute(f"UPDATE {table} SET status='verified',version=version+1,updated_at=? WHERE id=? AND version=?", (now(), row_id, row["version"])).rowcount
+            changed = db().execute("UPDATE sources SET status='verified',version=version+1,updated_at=? WHERE id=? AND version=?", (now(), row_id, row["version"])).rowcount
             if not changed:
                 abort(409, "内容已变化，请刷新。")
-            save_revision(db(), kind, row_id, "完成信息核对", user()["id"])
+            save_revision(db(), kind, row_id, reviews.ACTION, user()["id"], event)
         return jsonify(ok=True)
 
     @app.get("/api/history/<kind>/<row_id>")
@@ -473,6 +475,7 @@ def create_app(data_dir=None, testing=False):
     def source_detail(sid):
         sid = get_source(sid)["id"]
         obj = source_catalog.catalog(db())[sid]
+        obj.update(reviews.summary(db(), "source", sid))
         obj["previous_ids"] = [x for x in identity.origins(db(), "sources", sid) if x != sid]
         return jsonify(obj)
 
