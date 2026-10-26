@@ -78,11 +78,12 @@ async function continuityReturn(id){
 function continuityClosed(){
   if(continuityRouting||continuityRestoring)return;
   const pos=history.state?.position;
-  if(pos?.account===state.me?.id&&pos.topic&&pos.record){
+  if(!state.me||!pos||pos.account!==state.me.id)return;
+  if(pos.topic&&pos.record){
     history.replaceState({position:{...pos,record:null}},'',location.href);
     openResearchCollection(pos.topic.id,pos.topic).catch(error=>toast(error.message));
   }else if(pos?.topic)history.replaceState({...history.state,position:null},'',location.href);
-  else if(pos?.account===state.me?.id&&pos.reader&&document.querySelector('.library-reader[hidden]'))libraryOpenReader(pos.reader).catch(error=>toast(error.message));
+  else if(pos.reader&&document.querySelector('.library-reader[hidden]'))libraryOpenReader(pos.reader).catch(error=>toast(error.message));
 }
 document.addEventListener('click',event=>{if(event.target.closest('[data-action="library-view"]'))queueMicrotask(continuityRemember);});
 document.addEventListener('scroll',()=>{if(!continuityRouting&&!continuityRestoring){const pos=history.state?.position;if(pos?.account===state.me?.id){const current=continuityPosition();if(current)history.replaceState({...history.state,position:{...pos,...current,record:pos.record}},'',location.href);}}},true);
