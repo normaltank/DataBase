@@ -11,7 +11,7 @@ from pathlib import Path
 import test_person_identity as identity_tests
 from platform_app.maintenance import create_backup, restore_backup
 from platform_app.web import create_app
-from platform_app.store import SCHEMA
+from platform_app.store import SCHEMA, CURRENT_SCHEMA_VERSION
 from werkzeug.security import generate_password_hash
 
 
@@ -188,7 +188,7 @@ class PersonRecoveryTests(unittest.TestCase):
                 target = restore_backup(create_backup(legacy), Path(self.temp.name) / f"upgraded-real-v{version}")
                 app = create_app(target, testing=True)
                 self.clients = {who: self.login(who, app) for who in self.clients}
-                self.assertEqual(self.get("/health")["schema"], 10)
+                self.assertEqual(self.get("/health")["schema"], CURRENT_SCHEMA_VERSION)
                 for path, response in expected["responses"].items():
                     self.assert_subset(response, self.get(path), path)
                 pid, work, note, report = [expected["ids"][key] for key in ["person", "work", "note", "report"]]
@@ -259,7 +259,7 @@ class PersonRecoveryTests(unittest.TestCase):
                 target = restore_backup(versions[version], Path(self.temp.name) / f"restored-generated-v{version}")
                 app = create_app(target, testing=True)
                 self.clients = {who: self.login(who, app) for who in self.clients}
-                self.assertEqual(self.get("/health")["schema"], 10)
+                self.assertEqual(self.get("/health")["schema"], CURRENT_SCHEMA_VERSION)
                 self.assertEqual(self.get("/api/people")["total"], 0)
                 original = self.get("/api/records/BASE-ORIGINAL")
                 self.assertEqual((original["id"], original["authors"]), ("BASE-ORIGINAL", "Original author text"))

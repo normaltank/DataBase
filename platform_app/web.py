@@ -16,7 +16,7 @@ from werkzeug.security import check_password_hash
 from .attachment_search import AttachmentIndex, original_path
 from .store import connect, decoded, initialize, now, save_revision
 from .record_revisions import RecordRevisions, validate_text, check_version
-from . import source_catalog, workflow, evidence, identity, operations, reading, people, note_subjects, bylines, affiliations, person_identity, bulk, intake
+from . import source_catalog, workflow, evidence, identity, operations, reading, people, note_subjects, bylines, affiliations, person_identity, bulk, intake, saved_searches
 
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE_FIELDS = ["name", "original_name", "kind", "classification", "location", "country", "research_scope",
@@ -192,6 +192,7 @@ def create_app(data_dir=None, testing=False):
         return obj
 
     def filtered_records(args):
+        args = saved_searches.resolve(db(), user()['id'], args)
         rows = [r for r in db().execute("SELECT * FROM records WHERE merged_into IS NULL ORDER BY published_on DESC, created_at DESC, id") if visible(r)]
         favorites = {r[0] for r in db().execute("SELECT record_id FROM favorites WHERE user_id=?", (user()["id"],))}
         q = args.get("q", "").strip().casefold()
@@ -687,6 +688,7 @@ def create_app(data_dir=None, testing=False):
         path = create_backup(data_dir)
         return send_file(path, as_attachment=True, download_name=path.name, mimetype="application/zip")
 
+    saved_searches.register(app, SimpleNamespace(db=db, user=user, body=body, filtered_records=filtered_records))
     intake.register(app, SimpleNamespace(db=db, user=user, body=body, records=records))
     bulk.register(app, SimpleNamespace(db=db, user=user, body=body, visible=visible, get_collection=get_collection, export_csv=export_csv))
     identity.register(app, db=db, body=body, records=records, validate_source=source_values)
