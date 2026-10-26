@@ -136,7 +136,7 @@ async function restoreEditorDraft(form) {
   let fileMissing=false;
   if(draft.file){try{const file=await draftFileOperation(form.dataset.draftKey,'get');if(form.dataset.draftUser!==state.me?.id)return;if(file){form._draftFile=file;showDraftFile(form);}else fileMissing=true;}catch{fileMissing=true;}}
   const latestVersion=form._editing.version;form._editing.version=draft.version;form._draftOffer=null;form._dirty=true;form.querySelector('.draft-offer')?.remove();form.querySelector('[type=submit]').disabled=false;
-  if(draft.type==='record')updateRecordFormMode(form);saveEditorDraft(form,true);
+  if(draft.type==='record'){updateRecordFormMode(form);form._updateInformationMode?.();}saveEditorDraft(form,true);
   if(fileMissing)draftStatus(form,'文字已恢复，附件草稿不可用，请重新选择附件。',true);
   if(form._editing.id&&(draft.version!==latestVersion||draft.conflict_pending||form._bylineBodyConflict||form._relationshipContextConflict))await showSaveConflict(form);
 }
@@ -152,6 +152,18 @@ async function draftsPage(){
 
 function sourcePicker(ids=[]) {
   return '<section class="wide">'+searchableSourceField('related_source_ids','关联来源（可多选）',ids,{multiple:true})+'<p class="form-help">在这些来源下展示同一份内容；发布机构另行登记。</p></section>';
+}
+
+function updateRecordInformationMode(form){
+  const research=isResearchContent(form.elements.kind.value),metadata=form.querySelector('[data-record-basic-metadata]');
+  form.querySelector('[data-record-required-help]').textContent=form.elements.kind.value==='directory_translation'?'请填写题名、编译者和覆盖范围；其余信息可按需要补充。':'题名必填；其余信息可按需要补充。';
+  if(research&&form._intakePending&&form._informationKind!==form.elements.kind.value){form._intakeGeneration=(form._intakeGeneration||0)+1;form._intakePending=false;form.querySelector('[data-intake-status]').textContent='已切换内容类型，旧请求不会应用；已有填写内容保留。';}
+  const target=form.querySelector(research?'[data-record-extra-metadata]':'[data-record-main-metadata]');
+  if(metadata&&target&&metadata.parentElement!==target)target.append(metadata);
+  const body=form.querySelector('[data-record-body]');
+  if(body&&form._informationKind!==form.elements.kind.value)body.open=research||!!form.elements.body_html.value;
+  const intake=form.querySelector('[data-intake-editor]');if(intake){intake.hidden=research&&!form.elements.intake_token.value;intake.querySelector('[data-intake-kind-warning]').hidden=!research;intake.querySelector('[data-intake-fetch]').disabled=research;}
+  form._informationKind=form.elements.kind.value;
 }
 
 function updateRecordFormMode(form) {
@@ -176,21 +188,25 @@ async function workflowRecordForm(id='',kind='report',sourceId='',draftKey='',ev
   if(id&&!r.can_edit){await workflowOpenRecord(id);toast('当前账号没有正文编辑授权。');return;}
   state.editing={type:'record',id,version:r.version,owner_id:r.owner_id,editors:r.editors,visibility:r.visibility,original:r};state.links=r.linked_records||[];
   const html='<form data-form="record" class="workflow-form"><div class="form-grid">'
+    +'<h3 class="wide record-info-heading">基本信息</h3><p class="wide form-help record-info-help" data-record-required-help>题名必填；其余信息可按需要补充。</p>'
     +inputField('title','题名 *',r.title,'',true)+selectField('kind','内容类型',kinds,r.kind)+'<div class="field"><label for="f-authors" data-signature-label>作者 / 编译者</label><input id="f-authors" name="authors" value="'+esc(r.authors)+'"></div>'
+    +'<div class="wide" data-record-main-metadata><div class="form-grid" data-record-basic-metadata>'+inputField('published_on','发表 / 编译日期',r.published_on,'YYYY、YYYY-MM 或 YYYY-MM-DD')+inputField('publication_title','刊物名称 / 出处',r.publication_title)+inputField('doi','DOI',r.doi)+inputField('url','原文链接',r.url,'https://…',false,'url')+'</div></div>'
     +'<div class="wide" data-coverage>'+inputField('coverage','年份 / 卷期 / 覆盖范围 *',r.coverage,'例如：2026 年第 1–3 期',true)+'</div><div class="wide notice" data-directory-rule>目录译稿由全体有效成员共同编辑。</div>'
     +'<div class="wide" data-author-new>'+selectField('author_id','负责作者账号',Object.fromEntries(state.users.map(u=>[u.id,u.name])),r.author_id||state.me.id,'请选择负责作者')+'<p class="form-help" data-proxy-note></p></div>'
-    +richEditor('body_html','正文',r.body_html)+textField('original_catalogue','原目录 / 原文出处',r.original_catalogue,'刊物、年份、卷期、页码或目录链接')+sourcePicker(r.related_source_ids||[])
-    +'<details class="wide" '+(!isResearchContent(r.kind)?'open':'')+'><summary>题录与检索信息</summary><div class="form-grid section-gap">'
-    +inputField('original_title','原文题名',r.original_title,'',true)+textField('aliases','别名 / 其他题名',r.aliases,'每行一个')+inputField('published_on','发表 / 编译日期',r.published_on,'YYYY、YYYY-MM 或 YYYY-MM-DD')+selectField('language','语言',languages,r.language,'待补充')
-    +searchableSourceField('source_id','发布机构',r.source_id,{groups:['institution']})+searchableSourceField('serial_id','所属期刊 / 连续出版物',r.serial_id,{groups:['journal','publication']})+inputField('publication_title','刊物名称 / 出处补充',r.publication_title)+inputField('doi','DOI',r.doi)+inputField('url','原文链接',r.url,'https://…',true,'url')+inputField('countries','资料研究对象',r.countries)+inputField('keywords','关键词',r.keywords)+textField('abstract','摘要与说明',r.abstract)+'</div></details>'
+    +'<details class="wide record-form-section" data-record-body><summary>正文（选填）</summary><div class="form-grid section-gap">'+richEditor('body_html','正文',r.body_html)+'</div></details>'
+    +'<details class="wide record-form-section" data-record-more><summary>更多信息（选填）</summary><div class="form-grid section-gap"><div class="wide" data-record-extra-metadata></div>'
+    +inputField('original_title','原文题名',r.original_title,'',true)+textField('aliases','其他题名',r.aliases,'每行一个')+selectField('language','语言',languages,r.language,'暂不填写')
+    +searchableSourceField('source_id','发布机构',r.source_id,{groups:['institution']})+searchableSourceField('serial_id','所属期刊 / 连续出版物',r.serial_id,{groups:['journal','publication']})+inputField('countries','研究的国家或地区',r.countries)+inputField('keywords','关键词',r.keywords)+textField('abstract','摘要与说明',r.abstract)+textField('original_catalogue','原目录 / 原文出处',r.original_catalogue,'刊物、年份、卷期、页码或目录链接')+sourcePicker(r.related_source_ids||[])+'</div></details>'
     +'<section class="wide" id="reference-section"><h3>关联原始资料</h3><div class="field section-gap"><label for="link-search">查找原文</label><input id="link-search" placeholder="输入题名或作者"><div id="link-results" class="link-results"></div><div id="selected-links" class="selected-links"></div></div>'+textField('unresolved_refs','尚未入库的原文出处',r.unresolved_refs)+'</section>'
-    +'<section class="wide attachment-editor"><h3>附件</h3>'+(r.attachments||[]).map(a=>'<p>'+icon('file')+' '+esc(a.name)+'</p>').join('')+'<label for="f-file">添加 Word、PDF 或文本文件（最多 20 MB）</label><input id="f-file" type="file" name="file" accept=".pdf,.docx,.txt,.md"><div data-file-status class="form-help"></div><label class="check-label"><input type="checkbox" name="sharing_confirmed">我确认本次附件可以在所选范围内共享。</label></section>'
-    +'<section class="wide" data-access-fields><h3>可见范围与授权</h3>'+selectField('visibility','可见范围',{shared:'中心成员可见',restricted:'限有读取权限的成员'},r.visibility)+'<fieldset class="editor-grants"><legend>获授权共同编辑的成员</legend>'
+    +'<details class="wide record-form-section" data-record-attachments '+(r.attachments?.length?'open':'')+'><summary>附件（选填）</summary><div class="attachment-editor section-gap">'+(r.attachments||[]).map(a=>'<p>'+icon('file')+' '+esc(a.name)+'</p>').join('')+'<label for="f-file">添加 Word、PDF 或文本文件（最多 20 MB）</label><input id="f-file" type="file" name="file" accept=".pdf,.docx,.txt,.md"><div data-file-status class="form-help"></div><label class="check-label"><input type="checkbox" name="sharing_confirmed">我确认本次附件可以在所选范围内共享。</label></div></details>'
+    +'<section class="wide" data-access-fields><h3>可见范围与权限</h3><p class="form-help" data-common-rule>当前有权读取的有效成员共同编辑；共同编辑不改变可见范围。</p>'+selectField('visibility','可见范围',{shared:'中心成员可见',restricted:'限有读取权限的成员'},r.visibility)+'<fieldset class="editor-grants"><legend data-grants-label>获授权共同编辑的成员</legend>'
     +state.users.filter(u=>u.id!==(r.author_id||state.me.id)).map(u=>'<label class="check-label"><input type="checkbox" name="editors" value="'+esc(u.id)+'" '+(r.editors?.includes(u.id)?'checked':'')+'>'+esc(u.name)+(u.role==='admin'?'（管理员）':'')+'</label>').join('')+'</fieldset><p class="form-help" data-acl-rule></p></section>'
     +'</div><div class="form-error" role="alert"></div><div class="form-actions"><button type="button" class="button" data-action="close">关闭并保留草稿</button><button type="submit" class="button primary">'+(id?'保存修订':'保存内容')+'</button></div></form>';
   modal(id?'修订内容':'新建'+(kinds[kind]||'资料'),html);
   const form=document.querySelector('[data-form=record]');form._editing=state.editing;if(sourceId.startsWith('collection:'))form.dataset.collectionId=sourceId.slice(11);
   if(typeof prepareIntakeForm==='function')prepareIntakeForm(form);
+  form._updateInformationMode=()=>updateRecordInformationMode(form);form._updateInformationMode();
+  form.addEventListener('change',event=>{if(event.target.name==='kind')form._updateInformationMode();});
   if(id&&isResearchContent(r.kind))form.elements.kind.disabled=true;
   renderSelectedLinks();updateRecordFormMode(form);form.inert=true;
   // Keep inputs unavailable until their draft protection and references are ready.
