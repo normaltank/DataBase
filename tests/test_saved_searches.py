@@ -154,5 +154,47 @@ class SavedSearchTests(unittest.TestCase):
         self.call('/api/favorites/'+record,{'saved':False})
         self.assertEqual(self.client.get('/api/records',query_string={'saved_search':saved['id']}).json['total'],0)
 
+    def test_upgrade_backs_up_v10_before_ddl_is_idempotent_and_rolls_back_failure(self):
+        import base64, json, sqlite3, zipfile
+        from platform_app.maintenance import restore_backup
+        legacy=Path(self.temp.name)/'legacy-v9'
+        legacy.mkdir()
+        fixtures=Path(__file__).parent/'fixtures'
+        with closing(sqlite3.connect(legacy/'platform.sqlite3')) as db:
+            db.executescript((fixtures/'person_delivery_v9.sql').read_text(encoding='utf-8'))
+        expected=json.loads((fixtures/'person_delivery_v9.json').read_text(encoding='utf-8'))
+        for name, info in expected['files'].items():
+            path=legacy/name
+            path.parent.mkdir(exist_ok=True)
+            path.write_bytes(base64.b64decode(info['base64']))
+        upgraded=create_app(legacy,testing=True)
+        self.assertEqual(upgraded.test_client().get('/health').json['schema'],11)
+        backups=list((legacy/'backups').glob('*.zip'))
+        self.assertEqual(len(backups),2,'Both 9→10 and 10→11 must back up their input version.')
+        v10_backup=None
+        for index,backup in enumerate(backups):
+            restored=restore_backup(backup,Path(self.temp.name)/('migration-backup-'+str(index)))
+            with closing(sqlite3.connect(restored/'platform.sqlite3')) as db:
+                version=db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0]
+                self.assertFalse(db.execute("SELECT name FROM sqlite_master WHERE name='saved_searches'").fetchone())
+                if version=='10':v10_backup=backup
+            for name, info in expected['files'].items():
+                self.assertEqual((restored/name).read_bytes(),base64.b64decode(info['base64']))
+        self.assertIsNotNone(v10_backup)
+        create_app(legacy,testing=True)
+        self.assertEqual(len(list((legacy/'backups').glob('*.zip'))),2)
+        failed=restore_backup(v10_backup,Path(self.temp.name)/'failed-migration')
+        with closing(sqlite3.connect(failed/'platform.sqlite3')) as db:
+            db.execute("CREATE TRIGGER fail_saved_upgrade BEFORE UPDATE ON settings WHEN OLD.key='schema_version' AND NEW.value='11' BEGIN SELECT RAISE(ABORT,'synthetic migration failure'); END")
+            db.commit()
+        with self.assertRaises(sqlite3.IntegrityError):create_app(failed,testing=True)
+        with closing(sqlite3.connect(failed/'platform.sqlite3')) as db:
+            self.assertEqual(db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0],'10')
+            self.assertFalse(db.execute("SELECT name FROM sqlite_master WHERE name='saved_searches'").fetchone())
+            db.execute('DROP TRIGGER fail_saved_upgrade')
+            db.commit()
+        recovered=create_app(failed,testing=True)
+        self.assertEqual(recovered.test_client().get('/health').json['schema'],11)
+
 if __name__=='__main__': unittest.main()
 

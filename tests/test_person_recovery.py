@@ -203,7 +203,7 @@ class PersonRecoveryTests(unittest.TestCase):
                 for name, info in expected["files"].items():
                     self.assertEqual(hashlib.sha256((target / name).read_bytes()).hexdigest(), info["sha256"])
                 backups = sorted((target / "backups").glob("*.zip"))
-                self.assertEqual(len(backups), 10 - version)
+                self.assertEqual(len(backups), CURRENT_SCHEMA_VERSION - version)
                 self.clients = {who: self.login(who, create_app(target, testing=True)) for who in self.clients}
                 self.assertEqual(sorted((target / "backups").glob("*.zip")), backups)
                 fixed = self.get(f"/api/records/{report}")["evidence_citations"][0]["snapshot"]
