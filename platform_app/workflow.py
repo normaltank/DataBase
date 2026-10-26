@@ -88,8 +88,8 @@ def clean_rich(value):
 
 
 def snippet(text, query, size=180):
-    words = query.strip().casefold().split()
-    start = min((text.casefold().find(w) for w in words if w in text.casefold()), default=0)
+    from .search import match_start
+    start = match_start(text, query)
     start = max(0, start - 45)
     return ("…" if start else "") + text[start:start + size] + ("…" if start + size < len(text) else "")
 

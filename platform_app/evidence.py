@@ -6,12 +6,12 @@ from flask import abort
 
 from . import workflow
 
-SNAPSHOT_FIELDS = ["id", "kind", "title", "original_title", "authors", "published_on", "url", "doi", "version",
+SNAPSHOT_FIELDS = ["id", "kind", "title", "original_title", "authors", "publication_title", "volume", "issue", "pages", "issn", "published_on", "url", "doi", "version",
                    "body_html", "body_text", "abstract", "quote", "translation", "interpretation", "locator",
                    "evidence_record_id", "evidence_version", "evidence_url", "evidence_attachment_id", "evidence_snapshot_json"]
 
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 STANCES = {"unclassified", "supports", "contradicts", "qualifies", "background"}
 
 
@@ -34,11 +34,12 @@ def migrate(data_dir):
 
 
 def snapshot(row, original=False, db=None):
-    fields = ["id", "kind", "title", "original_title", "authors", "published_on", "url", "doi", "version"] if original else SNAPSHOT_FIELDS
+    fields = ["id", "kind", "title", "original_title", "authors", "publication_title", "volume", "issue", "pages", "issn", "published_on", "url", "doi", "version"] if original else SNAPSHOT_FIELDS
     result = {key: row[key] for key in fields if key in row.keys()}
     if db is not None:
         result["identity_baseline"] = identity_baseline(db, row["id"], original)
     return result
+
 
 
 def readable_snapshot(db, snapshot_data, visible):

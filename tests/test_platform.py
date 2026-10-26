@@ -64,8 +64,8 @@ class PlatformTests(unittest.TestCase):
         rid = self.record()
         self.assertEqual(self.detail(rid, "colleague")["status"], "pending")
         self.assertEqual(self.call("colleague", "/api/records/" + rid, {"title": "共同修改", "version": 1}, "PUT").status_code, 200)
-        self.assertEqual(self.call("researcher", "/api/review/record/" + rid, {"version": 2}).status_code, 403)
-        self.assertEqual(self.call("admin", "/api/review/record/" + rid, {"version": 2}).status_code, 200)
+        self.assertEqual(self.call("researcher", "/api/review/record/" + rid, {"version": 2, "review_scope": "metadata_only", "review_note": "合成题录核对"}).status_code, 403)
+        self.assertEqual(self.call("admin", "/api/review/record/" + rid, {"version": 2, "review_scope": "metadata_only", "review_note": "合成题录核对"}).status_code, 200)
         self.assertEqual(self.detail(rid)["status"], "verified")
         self.assertEqual(self.call("researcher", "/api/records/" + rid, {"title": "修订题名", "version": 3}, "PUT").status_code, 200)
         self.assertEqual(self.detail(rid)["status"], "pending")
@@ -130,7 +130,7 @@ class PlatformTests(unittest.TestCase):
         self.assertEqual(s.status_code, 201)
         sid = s.json["id"]
         self.assertEqual(self.call("colleague", "/api/sources/"+sid, {"version": 1, "name": "共同维护的来源"}, "PUT").status_code, 200)
-        self.assertEqual(self.call("admin", "/api/review/source/"+sid, {"version": 2}).status_code, 200)
+        self.assertEqual(self.call("admin", "/api/review/source/"+sid, {"version": 2, "review_scope": "metadata_only", "review_note": "合成题录核对"}).status_code, 200)
         history = self.clients["researcher"].get("/api/history/source/"+sid).json["items"]
         self.assertEqual(self.call("researcher", f"/api/history/{history[-1]['id']}/restore", {"version": 3}).status_code, 200)
         self.assertEqual(self.call("admin", f"/api/history/{history[-1]['id']}/restore", {"version": 3}).status_code, 409)

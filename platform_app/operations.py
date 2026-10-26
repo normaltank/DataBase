@@ -11,7 +11,7 @@ from pathlib import Path
 from flask import abort, jsonify, request, send_file, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from . import workflow, identity, content_export, bylines, affiliations
+from . import workflow, identity, content_export, bylines, affiliations, reading, reviews
 from .store import now, save_revision
 
 COLLECTION_FIELDS = ["name", "description", "visibility", "research_question", "comparison_html", "comparison_text", "stage_judgment"]
@@ -200,6 +200,8 @@ def register(app, ctx):
         sources = [{key: value for key, value in dict(r).items() if key != "raw_json"}
                    for r in db().execute("SELECT * FROM sources WHERE merged_into IS NULL")
                    if relevant_sources is None or r["id"] in relevant_sources]
+        for source in sources:
+            source.update(reviews.summary(db(), "source", source["id"]))
         paths = {rid: "records/" + hashlib.sha256(rid.encode()).hexdigest()[:20] + ".html" for rid in records}
         source_paths = {s["id"]: "sources/" + hashlib.sha256(s["id"].encode()).hexdigest()[:20] + ".html" for s in sources}
         for rid, item in records.items():
@@ -222,7 +224,7 @@ def register(app, ctx):
         payload = {"format": "research-content-v1", "exported_at": now(), "selected_ids": [r["id"] for r in selected],
                    "records": list(records.values()), "sources": sources, "collections": collections, "attachments": list(attachments.values()),
                    "people": people, "avatars": list(avatars.values())}
-        coverage = content_export.evidence_coverage(records, attachments)
+        coverage = content_export.evidence_coverage(records, attachments, sources)
         output = io.BytesIO()
         style = "body{font:16px/1.7 system-ui,sans-serif;max-width:960px;margin:32px auto;padding:0 20px;color:#202f42}a{color:#234e78}pre{font:inherit;white-space:pre-wrap}section{margin:28px 0}"
         style += (Path(app.static_folder) / "reading.css").read_text(encoding="utf-8")
@@ -257,7 +259,8 @@ def register(app, ctx):
             for item in records.values():
                 rid = item["id"]
                 index += '<li><a href="' + paths[rid] + '">' + html.escape(item["title"]) + "</a></li>"
-                content = '<p><a href="../index.html">返回目录</a></p>' + prose("身份与出处", f"编号：{rid}\n署名：{item['authors']}\n日期：{item['published_on']}\n版本：{item['version']}\n覆盖范围：{item['coverage']}\n原目录出处：{item['original_catalogue']}\n原文链接：{item['url']}")
+                content = '<p><a href="../index.html">返回目录</a></p>' + prose("出版题录", reading.citation(item)) + prose("身份与出处", f"编号：{rid}\n署名：{item['authors']}\n日期：{item['published_on']}\n版本：{item['version']}\n覆盖范围：{item['coverage']}\n原目录出处：{item['original_catalogue']}\n原文链接：{item['url']}")
+                content += reviews.html(item)
                 content += prose("摘要与说明", item["abstract"]) + "<section><h2>正文</h2>" + item["body_html"] + "</section>"
                 if item.get("intake_evidence"):
                     content += prose("辅助录入取得依据（题录，非全文或核对结论）", json.dumps(item["intake_evidence"], ensure_ascii=False, indent=2))
@@ -310,6 +313,7 @@ def register(app, ctx):
             for source in sources:
                 index += '<li><a href="' + source_paths[source["id"]] + '">' + html.escape(source["name"]) + '</a></li>'
                 content = '<p><a href="../index.html">返回目录</a></p>' + source["introduction_html"]
+                content += reviews.html(source)
                 for key, label in [("id", "稳定编号"), ("original_name", "原名"), ("aliases", "别名"), ("website", "官网"), ("notes", "原始备注"), ("country_evidence", "国家依据"), ("host_evidence", "主办依据"), ("international_evidence", "国际定位依据")]:
                     content += prose(label, source[key])
                 for item in records.values():
