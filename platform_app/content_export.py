@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 from flask import abort
 
 from . import affiliations, identity, note_subjects, person_identity
+from .attachment_anchor import description as anchor_description
 from .people import PersonProfiles
 from .record_revisions import RECORD_FIELDS
 
@@ -200,6 +201,7 @@ def evidence_coverage(records, attachments):
         body = bool(original.get('body_html'))
         has_original = bool(original or snapshot.get('evidence_record_id') or snapshot.get('evidence_url') or aid)
         return {
+            'attachment_anchor': original.get('attachment_anchor'),
             'original_metadata': bool(original),
             'original_body': body,
             'original_abstract': bool(original.get('abstract')),
@@ -263,6 +265,8 @@ def coverage_html(coverage):
             if evidence['locator']:
                 content += '<p>原文定位：' + html.escape(evidence['locator']) + '</p>'
             content += '<p>' + '；'.join(label + ('：有' if evidence[key] else '：无') for key, label in [('original_metadata', '原文题录快照'), ('original_body', '历史正文'), ('original_abstract', '历史摘要'), ('quote', '摘录'), ('translation', '译文'), ('interpretation', '研究员解释')]) + '</p>'
+            if evidence.get('attachment_anchor') or evidence['attachment']:
+                content += '<pre>' + html.escape(anchor_description(evidence.get('attachment_anchor'))) + '</pre>'
             if evidence['attachment']:
                 content += '<p><a href="' + evidence['attachment']['path'] + '">明确指定的引用附件</a></p>'
         content += '</section>'

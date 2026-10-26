@@ -231,6 +231,7 @@ async function workflowSubmitRecord(form,data) {
   if(!authorControlledKinds.has(values.kind)||edit.id)delete values.author_id;
   values.linked_ids=isResearchContent(values.kind)?state.links.map(r=>r.id):[];values.related_source_ids=data.getAll('related_source_ids');values.sharing_confirmed=data.get('sharing_confirmed')==='on';values.version=edit.version;
   if(values.kind==='research_note')values.research_subjects=noteSubjectValues(form);delete values.research_subject_choices;
+  if(data.has('evidence_occurrence'))values.evidence_occurrence=Number(data.get('evidence_occurrence'));
   values.evidence_ids=['compilation','research_report'].includes(values.kind)?data.getAll('evidence_ids'):[];values.refresh_evidence=data.get('refresh_evidence')==='on';values.refresh_citations=data.get('refresh_citations')==='on';
   if(values.kind!=='research_note')for(const key of ['evidence_record_id','evidence_attachment_id','evidence_url','quote','translation','interpretation','locator'])delete values[key];
   if(form._conflictPending)throw new Error('请先对照最新版本，再继续保存。');

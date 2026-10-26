@@ -656,6 +656,17 @@ def create_app(data_dir=None, testing=False):
         a, path = current_attachment(aid)
         return send_file(path, as_attachment=True, download_name=a["name"])
 
+    @app.get("/api/attachments/<aid>/segment")
+    def attachment_segment(aid):
+        attached, _ = current_attachment(aid)
+        indexed = attachment_index().read(attached)
+        if indexed["status"] != "ready":
+            abort(409, "当前附件没有可用文字索引，请重建或手工填写摘录。")
+        segment = next((s for s in indexed["segments"] if s["locator"] == request.args.get("locator")), None)
+        if not segment:
+            abort(404, "附件索引中没有该位置。")
+        return jsonify(record_id=attached["record_id"], attachment_id=aid, name=attached["name"], **segment)
+
     @app.post("/api/attachments/<aid>/index")
     def rebuild_attachment_index(aid):
         attachment, _ = current_attachment(aid)

@@ -23,7 +23,7 @@ def readable_snapshot(db, snapshot_data, visible):
     return True
 
 
-def validate(db, data, values, base, get_record):
+def validate(db, data, values, base, get_record, data_dir):
     rid = values.get("evidence_record_id", "")
     if rid:
         original = get_record(rid)
@@ -40,6 +40,18 @@ def validate(db, data, values, base, get_record):
         if changed or refresh:
             values["evidence_version"] = original["version"]
             values["evidence_snapshot_json"] = json.dumps(snapshot(original, original=True), ensure_ascii=False)
+        text_changed = bool(base and any(values[key] != base[key] for key in ["quote", "locator"]))
+        if attachment and (changed or refresh or text_changed):
+            attached = db.execute("SELECT * FROM attachments WHERE id=? AND record_id=?", (attachment, original["id"])).fetchone()
+            if not attached:
+                abort(400, "引用附件不属于该原始资料。")
+            from .attachment_anchor import capture
+            saved = json.loads(values.get("evidence_snapshot_json") or base["evidence_snapshot_json"])
+            occurrence = data.get("evidence_occurrence", 0)
+            if type(occurrence) is not int or not 0 <= occurrence <= 1000000:
+                abort(400, "所选原句位置格式不正确。")
+            saved["attachment_anchor"] = capture(db, data_dir, attached, values["quote"], values["locator"], occurrence)
+            values["evidence_snapshot_json"] = json.dumps(saved, ensure_ascii=False)
     elif any(values.get(key) for key in ["quote", "locator", "evidence_attachment_id"]):
         abort(400, "请指定摘录对应的原始资料。")
     elif base and base["evidence_record_id"]:
