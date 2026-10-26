@@ -15,6 +15,23 @@ from platform_app.maintenance import restore_backup
 from platform_app.store import CURRENT_SCHEMA_VERSION
 
 
+def legacy_record_response(before):
+    """Fixed public response additions to the frozen v5 record fixture."""
+    new_defaults = {"research_subjects": []} if before["kind"] == "research_note" else {}
+    new_defaults.update(chinese_title="", chinese_abstract="", adopted_translation_id="", translations=[], translation_history=[])
+    new_defaults.update(volume="", issue="", pages="", issn="", attachment_matches=[], can_manage_access=True, last_verified=None, review_history=[], attachments=[
+        {**attachment, "index": {"status": "unindexed", "message": "尚未建立索引"}}
+        for attachment in before["attachments"]])
+    new_defaults.update({key: [{**item, "volume": "", "issue": "", "pages": "", "issn": "", "attachment_matches": [], "can_manage_access": True} for item in before[key]]
+                         for key in ["linked_records", "cited_by", "excerpts"]})
+    new_defaults["evidence_citations"] = [
+        {**citation, "stance": "unclassified", "claim_note": "", "staleness_reasons": [],
+         "identity_baseline_status": "unknown", "identity_changes": [],
+         "current_original_id": citation["snapshot"].get("evidence_record_id")}
+        for citation in before["evidence_citations"]]
+    return {**before, **new_defaults}
+
+
 class PeopleTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="person-wiki-test-")
@@ -223,19 +240,7 @@ class PeopleTests(unittest.TestCase):
         self.assertEqual(self.clients["researcher"].get("/health").json["schema"], CURRENT_SCHEMA_VERSION)
         self.assertEqual(self.clients["researcher"].get("/api/people").json["total"], 0)
         for rid, before in expected["records"].items():
-            new_defaults = {"research_subjects": []} if before["kind"] == "research_note" else {}
-            new_defaults.update(chinese_title="", chinese_abstract="", adopted_translation_id="", translations=[], translation_history=[])
-            new_defaults.update(volume="", issue="", pages="", issn="", attachment_matches=[], can_manage_access=True, last_verified=None, review_history=[], attachments=[
-                {**attachment, "index": {"status": "unindexed", "message": "尚未建立索引"}}
-                for attachment in before["attachments"]])
-            new_defaults.update({key: [{**item, "volume": "", "issue": "", "pages": "", "issn": "", "attachment_matches": [], "can_manage_access": True} for item in before[key]]
-                                 for key in ["linked_records", "cited_by", "excerpts"]})
-            new_defaults["evidence_citations"] = [
-                {**citation, "stance": "unclassified", "claim_note": "", "staleness_reasons": [],
-                 "identity_baseline_status": "unknown", "identity_changes": [],
-                 "current_original_id": citation["snapshot"].get("evidence_record_id")}
-                for citation in before["evidence_citations"]]
-            self.assertEqual(self.clients["researcher"].get("/api/records/" + rid).json, {**before, **new_defaults})
+            self.assertEqual(self.clients["researcher"].get("/api/records/" + rid).json, legacy_record_response(before))
             self.assertEqual(self.clients["researcher"].get("/api/history/record/" + rid).json, expected["history"][rid])
             for attachment in before["attachments"]:
                 self.assertEqual(self.download("/api/attachments/" + attachment["id"]), b"Synthetic legacy attachment.\n")
@@ -267,19 +272,7 @@ class PeopleTests(unittest.TestCase):
         self.clients = {name: self.login(name, recovered) for name in self.clients}
         self.assertEqual(self.clients["researcher"].get("/api/people").json["total"], 0)
         for rid, before in expected["records"].items():
-            new_defaults = {"research_subjects": []} if before["kind"] == "research_note" else {}
-            new_defaults.update(chinese_title="", chinese_abstract="", adopted_translation_id="", translations=[], translation_history=[])
-            new_defaults.update(volume="", issue="", pages="", issn="", attachment_matches=[], can_manage_access=True, last_verified=None, review_history=[], attachments=[
-                {**attachment, "index": {"status": "unindexed", "message": "尚未建立索引"}}
-                for attachment in before["attachments"]])
-            new_defaults.update({key: [{**item, "volume": "", "issue": "", "pages": "", "issn": "", "attachment_matches": [], "can_manage_access": True} for item in before[key]]
-                                 for key in ["linked_records", "cited_by", "excerpts"]})
-            new_defaults["evidence_citations"] = [
-                {**citation, "stance": "unclassified", "claim_note": "", "staleness_reasons": [],
-                 "identity_baseline_status": "unknown", "identity_changes": [],
-                 "current_original_id": citation["snapshot"].get("evidence_record_id")}
-                for citation in before["evidence_citations"]]
-            self.assertEqual(self.clients["researcher"].get("/api/records/" + rid).json, {**before, **new_defaults})
+            self.assertEqual(self.clients["researcher"].get("/api/records/" + rid).json, legacy_record_response(before))
         self.assertEqual(self.call("/api/records/" + next(iter(expected["records"])),
             {"version": 2, "title": "恢复旧版备份后继续修订"}, method="PUT").status_code, 200)
 

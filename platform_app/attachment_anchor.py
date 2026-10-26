@@ -4,7 +4,7 @@ import hashlib
 from .attachment_search import AttachmentIndex, original_path, VERSION
 
 
-def capture(db, data_dir, attachment, quote, locator, occurrence=0):
+def capture(db, data_dir, attachment, quote, locator, occurrence=0, selection_start=None):
     anchor = {key: attachment[key] for key in ['id', 'name', 'bytes', 'sha256']}
     anchor.update(locator=locator, quote=quote, context_prefix='', context_suffix='',
                   normalization='whitespace-v1', extractor_version=VERSION)
@@ -34,13 +34,21 @@ def capture(db, data_dir, attachment, quote, locator, occurrence=0):
                 normalized = ' '.join(quote.split())
                 for segment in segments:
                     text = ' '.join(segment['text'].split())
-                    start = text.find(normalized)
-                    for _ in range(occurrence):
-                        if start < 0:
-                            break
-                        start = text.find(normalized, start + len(normalized))
+                    if selection_start is not None:
+                        # Offsets count Unicode code points in whitespace-v1 text.
+                        start = selection_start if text[selection_start:selection_start + len(normalized)] == normalized else -1
+                    else:
+                        # Preserve the non-overlapping interpretation of old clients.
+                        start = text.find(normalized)
+                        for _ in range(occurrence):
+                            if start < 0:
+                                break
+                            start = text.find(normalized, start + len(normalized))
                     if normalized and start >= 0:
-                        anchor['occurrence'] = occurrence
+                        if selection_start is not None:
+                            anchor['selection_start'] = selection_start
+                        else:
+                            anchor['occurrence'] = occurrence
                         anchor['context_prefix'] = text[max(0, start - 160):start]
                         anchor['context_suffix'] = text[start + len(normalized):start + len(normalized) + 160]
                         result = {'status': 'matched', 'reason': 'at_location'}

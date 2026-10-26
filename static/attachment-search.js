@@ -1,5 +1,16 @@
 'use strict';
 
+function attachmentSelection(text,start,end) {
+  // Match Python str.split whitespace, including controls JS \s omits and
+  // excluding BOM; selection ranges use UTF-16, saved offsets use code points.
+  const whitespace='[\\u0009-\\u000d\\u001c-\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]';
+  const space=new RegExp(whitespace,'u');
+  while(start<end&&space.test(text[start]))start++;
+  while(end>start&&space.test(text[end-1]))end--;
+  const before=text.slice(0,start).replace(new RegExp(whitespace+'+','gu'),' ').replace(/^ /u,'');
+  return {quote:text.slice(start,end),start:Array.from(before).length};
+}
+
 function attachmentMatchSection(record) {
   const matches=record.attachment_matches||[];
   return matches.length?'<div class="attachment-matches" aria-label="附件命中">'+matches.map(match=>'<p><strong>附件命中</strong> · <a href="'+esc(match.url)+'" target="_blank" rel="noopener noreferrer">'+esc(match.name)+'</a><span class="attachment-locator">'+esc(match.locator)+'</span><span class="attachment-snippet">'+esc(match.snippet)+'</span><button type="button" class="button tiny" data-action="attachment-excerpt" data-id="'+esc(match.attachment_id)+'" data-locator="'+esc(match.locator)+'">查看片段并作为摘录</button></p>').join('')+'</div>':'';
@@ -43,12 +54,9 @@ document.addEventListener('click',async event=>{
       textarea.focus();textarea.setSelectionRange(0,segment.text.length);
     }else{
       const textarea=document.querySelector('[data-attachment-segment]'),segment=textarea._segment;
-      const quote=textarea.value.slice(textarea.selectionStart,textarea.selectionEnd).trim();
+      const selection=attachmentSelection(textarea.value,textarea.selectionStart,textarea.selectionEnd),quote=selection.quote;
       if(!quote||quote.length>40000){document.querySelector('[data-attachment-selection-status]').textContent='请选择1至40000字的原句。';return;}
-      const normalize=text=>text.trim().split(/\s+/u).join(' '),before=normalize(textarea.value.slice(0,textarea.selectionStart)),normalized=normalize(quote);
-      let occurrence=0,offset=0;
-      while((offset=before.indexOf(normalized,offset))>=0){occurrence++;offset+=normalized.length;}
-      await workflowRecordForm('','research_note','excerpt-'+segment.record_id,'',segment.record_id,{evidence_attachment_id:segment.attachment_id,locator:segment.locator,quote,evidence_occurrence:occurrence});
+      await workflowRecordForm('','research_note','excerpt-'+segment.record_id,'',segment.record_id,{evidence_attachment_id:segment.attachment_id,locator:segment.locator,quote,evidence_selection_start:selection.start});
     }
   }catch(error){toast(error.message);}
 },true);

@@ -44,9 +44,9 @@ async function enhanceEvidenceForm(form,r,evidenceId='') {
   }).join('')+'</div></div><p class="form-help">保留引用时版本；笔记以后修改不会悄悄替换本报告的依据。原文、身份或笔记变化仅提示待评估。</p>'+(r.id&&existing.length?'<label class="check-label"><input type="checkbox" name="refresh_citations">明确更新所选笔记为当前版本（笔记仍固定旧原文时，原文提示继续保留）</label>':'');
   form.querySelector('[data-rich-field=body_html]').before(noteSection,citations);
   if(r.evidence_record_id||evidenceId)await setEvidenceOriginal(form,r.evidence_record_id||evidenceId,r.evidence_attachment_id,r.evidence_version);
-  if(Number.isInteger(r.evidence_occurrence)){
-    const occurrence=document.createElement('input');occurrence.type='hidden';occurrence.name='evidence_occurrence';occurrence.value=String(r.evidence_occurrence);noteSection.append(occurrence);
-    for(const name of ['quote','locator','evidence_attachment_id'])form.elements[name].addEventListener('input',()=>occurrence.remove());
+  for(const field of ['evidence_occurrence','evidence_selection_start'])if(Number.isInteger(r[field])){
+    const position=document.createElement('input');position.type='hidden';position.name=field;position.value=String(r[field]);noteSection.append(position);
+    for(const name of ['quote','locator','evidence_attachment_id'])form.elements[name].addEventListener('input',()=>position.remove());
   }
   updateEvidenceMode(form);
 }
