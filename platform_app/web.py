@@ -175,6 +175,7 @@ def create_app(data_dir=None, testing=False):
         obj["source_name"] = source[0] if source else ""
         obj["favorite"] = r["id"] in favorite_ids if favorite_ids is not None else bool(db().execute("SELECT 1 FROM favorites WHERE user_id=? AND record_id=?", (user()["id"], r["id"])).fetchone())
         obj["can_edit"] = editable(r)
+        obj["can_manage_access"] = records().manages_access(r)
         obj["has_attachment"] = bool(json.loads(r["attachment_ids"]))
         obj["related_source_ids"] = workflow.source_ids(db(), r["id"])
         text = " ".join(r[k] or "" for k in ["title", "original_title", "aliases", "abstract", "body_text", "coverage"])
@@ -420,13 +421,12 @@ def create_app(data_dir=None, testing=False):
             abort(404)
         if row["target_type"] == "record":
             return jsonify(id=records().restore(revision_id, body()))
-        # Source graph validation and restoration retain their existing policy.
+        # Public source content uses the same member maintenance boundary as edits.
         db().execute("BEGIN IMMEDIATE")
         rid = row["target_id"]
         current = get_source(rid)
         if current["id"] != rid:
             abort(409, "此历史属于已合并的原记录，只供查阅；请在保留记录中手工修订。")
-        admin()
         check_version(body(), current)
         old = json.loads(row["snapshot_json"])
         values = source_values({k: old[k] for k in SOURCE_FIELDS + list(source_catalog.DEFAULTS) if k in old}, current)

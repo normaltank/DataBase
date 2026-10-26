@@ -1,6 +1,7 @@
 'use strict';
 
 const personalKinds = new Set(['compilation', 'research_note', 'research_report']);
+const authorControlledKinds = new Set(['compilation', 'research_report']);
 const draftPrefix = 'zhihui:draft:v1:';
 const draftTypeLabels = {collection:'研究专题',person:'人物档案',byline:'作品署名',employment:'任职经历',affiliation:'文章署名单位',source:'来源介绍'};
 function draftTypeLabel(draft) { return draftTypeLabels[draft.type] || kinds[draft.kind] || '内容'; }
@@ -154,16 +155,19 @@ function sourcePicker(ids=[]) {
 }
 
 function updateRecordFormMode(form) {
-  const kind=form.elements.kind.value,directory=kind==='directory_translation',personal=personalKinds.has(kind),r=form._editing?.original||{};
+  const kind=form.elements.kind.value,directory=kind==='directory_translation',personal=authorControlledKinds.has(kind),r=form._editing?.original||{};
   form.querySelector('[data-coverage]').hidden=!directory;form.elements.coverage.required=directory;form.elements.authors.required=directory;
   form.querySelector('[data-author-new]').hidden=!personal||!!r.id;
-  form.querySelector('[data-access-fields]').hidden=directory;form.querySelector('[data-directory-rule]').hidden=!directory;
   const manages=canManageRecordAccess(r),proxy=personal&&!r.id&&form.elements.author_id.value!==state.me.id;
+  form.querySelector('[data-access-fields]').hidden=directory||!manages;form.querySelector('[data-directory-rule]').hidden=!directory;
+  const common=form.querySelector('[data-common-rule]');if(common)common.hidden=personal||directory;
+  const grants=form.querySelector('.editor-grants');if(grants)grants.hidden=!personal&&form.elements.visibility.value!=='restricted';
+  const grantsLabel=form.querySelector('[data-grants-label]');if(grantsLabel)grantsLabel.textContent=personal?'获授权共同编辑的成员':'获授权读取的成员';
   form.querySelectorAll('[name=editors]').forEach(el=>el.disabled=directory||!manages||proxy);
   form.elements.visibility.disabled=directory||!manages;
-  form.querySelector('[data-acl-rule]').textContent=personal?'只有负责作者可以调整可见范围与编辑授权，管理员需获得作者授权。':'由提交者或资料管理员维护可见范围与编辑授权。';
+  form.querySelector('[data-acl-rule]').textContent=personal?'只有负责作者可以调整可见范围与编辑授权，管理员需获得作者授权。':kind==='research_note'?'所有可读成员共同编辑；原有可见范围仍由已确认负责作者管理。':'所有可读成员共同编辑；可见范围由提交者或资料管理员维护。';
   form.querySelector('#reference-section').hidden=!isResearchContent(kind);
-  form.querySelector('[data-signature-label]').textContent=directory?'编译者 *':personal?'作者 / 编译者署名':'原文作者';
+  form.querySelector('[data-signature-label]').textContent=directory?'编译者 *':personalKinds.has(kind)?'作者 / 编译者署名':'原文作者';
   form.querySelector('[data-proxy-note]').textContent=proxy?'保存后等待负责作者本人确认；确认前不开放正文修订。':'本人提交直接生效。';
   if(typeof updateNoteSubjectMode==='function')updateNoteSubjectMode(form);if(typeof updateEvidenceMode==='function')updateEvidenceMode(form);if(form.dataset.readingNote){form.querySelector('[data-evidence-editor]')?.setAttribute('hidden','');form.querySelector('[data-evidence-picker]')?.setAttribute('hidden','');form.querySelector('#reference-section').hidden=true;}
 }
@@ -204,7 +208,7 @@ async function workflowSubmitRecord(form,data) {
   values.kind=form.elements.kind.value;values.editors=data.getAll('editors');values.visibility=form.elements.visibility.value;
   if(edit.id&&!canManageRecordAccess(edit.original)){values.editors=edit.editors;values.visibility=edit.visibility;}
   if(values.kind==='directory_translation'){values.visibility='shared';values.editors=[];}
-  if(!personalKinds.has(values.kind)||edit.id)delete values.author_id;
+  if(!authorControlledKinds.has(values.kind)||edit.id)delete values.author_id;
   values.linked_ids=isResearchContent(values.kind)?state.links.map(r=>r.id):[];values.related_source_ids=data.getAll('related_source_ids');values.sharing_confirmed=data.get('sharing_confirmed')==='on';values.version=edit.version;
   if(values.kind==='research_note')values.research_subjects=noteSubjectValues(form);delete values.research_subject_choices;
   values.evidence_ids=['compilation','research_report'].includes(values.kind)?data.getAll('evidence_ids'):[];values.refresh_evidence=data.get('refresh_evidence')==='on';values.refresh_citations=data.get('refresh_citations')==='on';
@@ -222,11 +226,14 @@ async function workflowSubmitRecord(form,data) {
   }finally{delete form.dataset.saving;if(form.isConnected)form.inert=false;}
 }
 function authorPanel(r) {
+  const note=r.kind==='research_note';
+  if(note&&r.author_confirmed)return '<section class="author-panel"><strong>当前有权读取的有效成员共同编辑</strong><span>原负责作者：'+esc(r.author_name)+'（已确认）</span></section>';
   if(!personalKinds.has(r.kind))return '';
   if(r.author_confirmed)return '<section class="author-panel"><strong>负责作者：'+esc(r.author_name)+'</strong><span>已由本人确认</span>'+(r.author_id===state.me.id?'<p>可在编辑中授权或撤销共同编辑成员。</p>':'')+'</section>';
   const canChoose=r.owner_id===state.me.id,canConfirm=r.author_id===state.me.id;
-  return '<section class="author-panel notice"><h3>'+(r.author_id?'等待负责作者确认':'负责作者尚未确认')+'</h3><p>'+(r.author_id?esc(r.author_name)+' 确认后可修订正文。':'历史提交身份不代表作者身份，请明确确认。')+'</p>'
-    +(canChoose?'<form data-form="author-assignment" data-record="'+esc(r.id)+'" data-version="'+r.version+'">'+selectField('author_id','负责作者',Object.fromEntries(state.users.map(u=>[u.id,u.name])),r.author_id||state.me.id,'请选择')+'<label class="check-label"><input type="checkbox" name="confirm">如选择本人，我确认由本人负责</label><div class="form-error" role="alert"></div><button type="submit" class="button tiny">保存作者安排</button></form>':canConfirm?'<button type="button" class="button primary" data-action="confirm-author" data-id="'+esc(r.id)+'" data-version="'+r.version+'">确认本人为负责作者</button>':'')+'</section>';
+  const actions=canChoose?'<form data-form="author-assignment" data-record="'+esc(r.id)+'" data-version="'+r.version+'">'+selectField('author_id','负责作者',Object.fromEntries(state.users.map(u=>[u.id,u.name])),r.author_id||state.me.id,'请选择')+'<label class="check-label"><input type="checkbox" name="confirm">如选择本人，我确认由本人负责</label><div class="form-error" role="alert"></div><button type="submit" class="button tiny">保存作者安排</button></form>':canConfirm?'<button type="button" class="button primary" data-action="confirm-author" data-id="'+esc(r.id)+'" data-version="'+r.version+'">确认本人为负责作者</button>':'';
+  return '<section class="author-panel notice"><h3>'+(note?'当前有权读取的有效成员共同编辑':r.author_id?'等待负责作者确认':'负责作者尚未确认')+'</h3><p>'+(note?'历史负责作者'+(r.author_name?'：'+esc(r.author_name):'')+'尚未确认；这不影响共同编辑。原有可见范围管理仍按负责作者规则维护。':r.author_id?esc(r.author_name)+' 确认后可修订正文。':'历史提交身份不代表作者身份，请明确确认。')+'</p>'
+    +(note&&actions?'<details><summary>维护历史负责作者安排</summary>'+actions+'</details>':actions)+'</section>';
 }
 async function workflowOpenRecord(id) {
   const generation=modalGeneration,account=state.me?.id,hash=location.hash;
@@ -276,7 +283,7 @@ document.addEventListener('input',event=>{
 document.addEventListener('change',event=>{
   const form=event.target.closest('form[data-draft-key]');if(!form)return;
   if(event.target.matches('[data-rich-format]')){const editor=event.target.closest('[data-rich-field]').querySelector('[data-rich-input]');restoreSelection(editor);document.execCommand('formatBlock',false,event.target.value);}
-  if(form.dataset.form==='record'&&['kind','author_id'].includes(event.target.name))updateRecordFormMode(form);
+  if(form.dataset.form==='record'&&['kind','author_id','visibility'].includes(event.target.name))updateRecordFormMode(form);
   if(event.target.type==='file'){persistSelectedFile(form,event.target.files[0]);return;}
   form._dirty=true;saveEditorDraft(form);
 });

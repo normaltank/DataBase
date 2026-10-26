@@ -71,7 +71,7 @@ class BylineTests(unittest.TestCase):
         return {"raw_name": fragment, "target_type": target_type, "target_id": target_id,
                 "status": "confirmed", "evidence": "合成作品署名页 https://example.org/byline"}
 
-    def test_member_confirms_ordered_people_institution_and_pending_without_body_permission(self):
+    def test_member_confirms_ordered_people_institution_and_pending_with_shared_content(self):
         person, other = self.person(), self.person()
         institution, publisher = self.source(), self.source("合成发布机构")
         rid = self.record(source_id=publisher)
@@ -80,7 +80,7 @@ class BylineTests(unittest.TestCase):
         self.assertEqual(initial["items"], [])
         self.assertEqual(initial["raw_authors"], "A. Smith; Example Institute & 未知作者")
         self.assertTrue(initial["can_edit"])
-        self.assertFalse(self.get("/api/records/" + rid, "colleague")["can_edit"])
+        self.assertTrue(self.get("/api/records/" + rid, "colleague")["can_edit"])
         response = self.save(rid, [self.confirmed("A. Smith", person),
             self.confirmed("Example Institute", institution, "institution"),
             {"raw_name": "未知作者", "status": "pending"}, self.confirmed("A. Smith（共同署名）", person)],
@@ -104,7 +104,7 @@ class BylineTests(unittest.TestCase):
         self.assertEqual(original["authors"], initial["raw_authors"])
         self.assertEqual(original["body_html"], "<p>原始正文</p>")
         self.assertEqual(self.call("/api/records/" + rid, {"version": original["version"],
-            "body_html": "<p>越权正文</p>"}, "colleague", "PUT").status_code, 403)
+            "body_html": "<p>共同修订正文</p>"}, "colleague", "PUT").status_code, 200)
 
     def test_correction_pending_removal_and_relation_restore_keep_identity_and_history(self):
         first, second = self.person("第一人物"), self.person("第二人物")
@@ -437,8 +437,8 @@ class BylineTests(unittest.TestCase):
             self.assertEqual(self.get("/health")["schema"], CURRENT_SCHEMA_VERSION)
             old_record = expected["records"][rid]
             self.assertEqual(self.get("/api/records/" + rid), {
-                **old_record, "attachment_matches": [],
-                **{key: [{**item, "attachment_matches": []} for item in old_record[key]]
+                **old_record, "attachment_matches": [], "can_manage_access": True,
+                **{key: [{**item, "attachment_matches": [], "can_manage_access": True} for item in old_record[key]]
                    for key in ["linked_records", "cited_by", "excerpts"]}, "attachments": [
                     {**attachment, "index": {"status": "unindexed", "message": "尚未建立索引"}}
                     for attachment in old_record["attachments"]]})

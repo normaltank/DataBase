@@ -129,7 +129,7 @@ class AffiliationTests(unittest.TestCase):
         rid = self.record(source_id=publisher)
         bylines = self.bylines(rid, [first, second])
         self.assertEqual(self.save_employments(first, [self.employment(old, start="2010", end="2019")]).status_code, 200)
-        self.assertFalse(self.get(f"/api/records/{rid}", "colleague")["can_edit"])
+        self.assertTrue(self.get(f"/api/records/{rid}", "colleague")["can_edit"])
         result = self.save_affiliations(rid, [self.unit(bylines[0]["id"], old), self.unit(bylines[0]["id"], concurrent),
             self.unit(bylines[1]["id"], old)], user="colleague")
         self.assertEqual(result.status_code, 200, result.json)
@@ -146,7 +146,7 @@ class AffiliationTests(unittest.TestCase):
         record = self.get(f"/api/records/{rid}")
         self.assertEqual(record["body_html"], "<p>原始正文</p>")
         self.assertEqual(record["version"], 1)
-        self.assertEqual(self.call(f"/api/records/{rid}", {"version": 1, "body_html": "<p>越权</p>"}, "colleague", "PUT").status_code, 403)
+        self.assertEqual(self.call(f"/api/records/{rid}", {"version": 1, "body_html": "<p>共同修订</p>"}, "colleague", "PUT").status_code, 200)
 
     def test_rejected_dates_stale_edits_and_relation_restore_keep_versions_and_removal_history(self):
         person, institution = self.person(), self.source()

@@ -63,11 +63,11 @@ class PlatformTests(unittest.TestCase):
     def test_shared_submission_editing_and_review(self):
         rid = self.record()
         self.assertEqual(self.detail(rid, "colleague")["status"], "pending")
-        self.assertEqual(self.call("colleague", "/api/records/" + rid, {"title": "不允许修改", "version": 1}, "PUT").status_code, 403)
-        self.assertEqual(self.call("researcher", "/api/review/record/" + rid, {"version": 1}).status_code, 403)
-        self.assertEqual(self.call("admin", "/api/review/record/" + rid, {"version": 1}).status_code, 200)
+        self.assertEqual(self.call("colleague", "/api/records/" + rid, {"title": "共同修改", "version": 1}, "PUT").status_code, 200)
+        self.assertEqual(self.call("researcher", "/api/review/record/" + rid, {"version": 2}).status_code, 403)
+        self.assertEqual(self.call("admin", "/api/review/record/" + rid, {"version": 2}).status_code, 200)
         self.assertEqual(self.detail(rid)["status"], "verified")
-        self.assertEqual(self.call("researcher", "/api/records/" + rid, {"title": "修订题名", "version": 2}, "PUT").status_code, 200)
+        self.assertEqual(self.call("researcher", "/api/records/" + rid, {"title": "修订题名", "version": 3}, "PUT").status_code, 200)
         self.assertEqual(self.detail(rid)["status"], "pending")
         self.assertEqual(self.call("researcher", "/api/records/" + rid, {"title": "过期覆盖", "version": 2}, "PUT").status_code, 409)
 
@@ -125,15 +125,15 @@ class PlatformTests(unittest.TestCase):
         self.assertEqual((current["title"],current["version"],current["visibility"],current["status"]), ("测试资料",3,"restricted","pending"))
         self.assertEqual(self.clients["colleague"].get("/api/records/"+rid).status_code, 404)
 
-    def test_source_collaboration_and_admin_restore(self):
+    def test_source_collaboration_and_member_restore(self):
         s = self.call("researcher", "/api/sources", {"name": "测试来源", "kind": "think_tank", "website": "https://example.org"})
         self.assertEqual(s.status_code, 201)
         sid = s.json["id"]
         self.assertEqual(self.call("colleague", "/api/sources/"+sid, {"version": 1, "name": "共同维护的来源"}, "PUT").status_code, 200)
         self.assertEqual(self.call("admin", "/api/review/source/"+sid, {"version": 2}).status_code, 200)
         history = self.clients["researcher"].get("/api/history/source/"+sid).json["items"]
-        self.assertEqual(self.call("researcher", f"/api/history/{history[-1]['id']}/restore", {"version": 3}).status_code, 403)
-        self.assertEqual(self.call("admin", f"/api/history/{history[-1]['id']}/restore", {"version": 3}).status_code, 200)
+        self.assertEqual(self.call("researcher", f"/api/history/{history[-1]['id']}/restore", {"version": 3}).status_code, 200)
+        self.assertEqual(self.call("admin", f"/api/history/{history[-1]['id']}/restore", {"version": 3}).status_code, 409)
         self.assertEqual(self.clients["colleague"].get("/api/sources/"+sid).json["name"], "测试来源")
 
     def test_collections_and_favorites_are_personal(self):
