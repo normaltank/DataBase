@@ -8,14 +8,15 @@ import subprocess
 import sys
 import time
 import urllib.request
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, expect
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def verify_selection(page, api, base):
+    # Numeric fragments can also match searchable random record IDs.
     for i in range(40):
-        assert api('/api/records',{'title':'Probe %02d'%i,'kind':'report'})['status']==201
+        assert api('/api/records',{'title':'Probe item-%02d'%i,'kind':'report'})['status']==201
     saved=api('/api/saved-searches',{'name':'Probe selection','conditions':{'q':'Probe','sort':'title'}})['body']
     page.goto(base+'/#library?saved_search='+saved['id'])
     page.get_by_text('检索：Probe selection',exact=True).wait_for()
@@ -26,23 +27,25 @@ def verify_selection(page, api, base):
     page.get_by_text('已选 1 条',exact=True).wait_for(timeout=3000)
     page.go_back()
     page.get_by_text('第 1 / 4 页',exact=True).wait_for()
-    assert page.locator('[data-library-select]').first.is_checked()
+    expect(page.locator('[data-library-select]').first).to_be_checked()
     page.go_forward()
     page.get_by_text('第 2 / 4 页',exact=True).wait_for()
     page.get_by_text('已选 1 条',exact=True).wait_for()
     # Updating the same persisted search changes its effective scope and clears selection.
     current=api('/api/saved-searches/'+saved['id'],None,'GET')['body']
-    assert api('/api/saved-searches/'+saved['id'],{'version':current['version'],'conditions':{'q':'Probe 00','sort':'title'}},'PUT')['status']==200
+    assert api('/api/saved-searches/'+saved['id'],{'version':current['version'],'conditions':{'q':'Probe item-00','sort':'title'}},'PUT')['status']==200
     page.get_by_role('button',name='上一页',exact=True).click()
     page.get_by_text('已选 0 条',exact=True).wait_for()
-    page.get_by_role('button',name='Probe 00',exact=True).wait_for()
-    assert page.locator('[data-library-select]').count()==1
+    page.get_by_role('button',name='Probe item-00',exact=True).wait_for()
+    expect(page.locator('[data-library-select]')).to_have_count(1)
+    expect(page.locator('.record-list .record-title')).to_have_text(['Probe item-00'])
     page.locator('[data-library-select]').first.check()
-    page.get_by_label('资料关键词',exact=True).fill('Probe 01')
+    page.get_by_label('资料关键词',exact=True).fill('Probe item-01')
     page.locator('[data-form=library-search]').get_by_role('button',name='搜索',exact=True).click()
     page.get_by_text('已选 0 条',exact=True).wait_for()
-    page.get_by_role('button',name='Probe 01',exact=True).wait_for()
-    assert page.locator('[data-library-select]').count()==1
+    page.get_by_role('button',name='Probe item-01',exact=True).wait_for()
+    expect(page.locator('[data-library-select]')).to_have_count(1)
+    expect(page.locator('.record-list .record-title')).to_have_text(['Probe item-01'])
     return ['saved search id-only first open retains selection across pages and history',
             'persisted condition/version update and explicit filter changes clear selection']
 
