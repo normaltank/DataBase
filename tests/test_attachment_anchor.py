@@ -83,9 +83,9 @@ class AttachmentAnchorTests(unittest.TestCase):
         self.assertEqual(match, {'status': 'unchecked', 'reason': 'unindexed'})
         self.assertEqual(self.call('/api/attachments/' + aid + '/index').status_code, 200)
         cached = next((self.data_dir / 'attachment-index').glob('*.json'))
-        stale = json.loads(cached.read_text())
+        stale = json.loads(cached.read_text(encoding="utf-8"))
         stale['sha256'] = '0' * 64
-        cached.write_text(json.dumps(stale))
+        cached.write_text(json.dumps(stale), encoding="utf-8")
         unchecked = self.excerpt(rid, aid)
         self.assertEqual(self.detail(unchecked)['evidence_snapshot']['attachment_anchor']['quote_match'], {'status': 'unchecked', 'reason': 'unindexed'})
         self.assertEqual(self.call('/api/attachments/' + aid + '/index').status_code, 200)

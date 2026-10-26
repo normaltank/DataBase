@@ -177,11 +177,11 @@ class TranslationTests(unittest.TestCase):
         from contextlib import closing
         import sqlite3
         fixtures = Path(__file__).parent / 'fixtures'
-        expected = json.loads((fixtures / 'collection_scope_v11.json').read_text())
+        expected = json.loads((fixtures / 'collection_scope_v11.json').read_text(encoding="utf-8"))
         legacy = Path(self.temp.name) / 'genuine-v11'
         legacy.mkdir()
         with closing(sqlite3.connect(legacy / 'platform.sqlite3')) as db:
-            db.executescript((fixtures / 'collection_scope_v11.sql').read_text())
+            db.executescript((fixtures / 'collection_scope_v11.sql').read_text(encoding="utf-8"))
         restored = restore_backup(create_backup(legacy), Path(self.temp.name) / 'upgrade-to-15')
         with closing(connect(restored / 'platform.sqlite3')) as db:
             db.execute("CREATE TRIGGER reject_translation_upgrade BEFORE UPDATE ON settings WHEN NEW.value='15' BEGIN SELECT RAISE(ABORT,'synthetic failure'); END")
