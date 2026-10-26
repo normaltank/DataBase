@@ -145,7 +145,7 @@ class PersonIdentityTests(unittest.TestCase):
         self.assertEqual([row["target_id"] for row in self.get(f"/api/records/{work}/bylines")["items"]], [second, fourth])
         self.assertEqual([self.get(f"/api/people/{pid}")["id"] for pid in [first, second, fourth]], [first, second, fourth])
 
-    def test_private_added_note_edges_wait_for_the_author_without_blocking_or_leaking(self):
+    def test_private_added_note_edges_allow_readable_member_review_without_blocking_or_leaking(self):
         first, second, third = self.person(), self.person("人物乙"), self.person("确定的其他人物")
         institute = self.source()
         journal = self.call("/api/sources", {"name": "合成期刊", "kind": "journal"}).json["id"]
@@ -181,9 +181,11 @@ class PersonIdentityTests(unittest.TestCase):
             self.assertEqual(next(s for s in self.get(f"/api/records/{rid}")["research_subjects"] if s["subject_id"] == first)["status"], "needs_review")
         for user in ["colleague", "admin"]:
             current = self.get(f"/api/records/{notes[0]}")
-            self.assertIn(self.call(f"/api/records/{notes[0]}/research-subjects", {"version": current["version"],
-                "research_subjects": []}, user, "PUT").status_code, [403, 404])
-        # Confirm original, choose the restored person, and remove are separate explicit author choices.
+            response = self.call(f"/api/records/{notes[0]}/research-subjects", {"version": current["version"],
+                "research_subjects": current["research_subjects"]}, user, "PUT")
+            self.assertEqual(response.status_code, 404 if user == "colleague" else 200, response.json)
+        # Readable members explicitly confirm, replace or remove; saving alone
+        # still cannot silently confirm an ambiguous identity edge.
         for rid, decision in zip(notes, ["original", "replace", "remove"]):
             current = self.get(f"/api/records/{rid}")
             subjects = current["research_subjects"]
@@ -191,7 +193,8 @@ class PersonIdentityTests(unittest.TestCase):
                 subjects = [s for s in subjects if s["subject_id"] != first]
             else:
                 next(s for s in subjects if s["subject_id"] == first).update(confirm=True, subject_id=first if decision == "original" else second)
-            response = self.call(f"/api/records/{rid}/research-subjects", {"version": current["version"], "research_subjects": subjects}, method="PUT")
+            response = self.call(f"/api/records/{rid}/research-subjects", {"version": current["version"], "research_subjects": subjects},
+                                 user="admin" if decision == "replace" else "researcher", method="PUT")
             self.assertEqual(response.status_code, 200, response.json)
             actual = self.get(f"/api/records/{rid}")["research_subjects"]
             self.assertEqual(len(actual), 3 if decision == "remove" else 4)
@@ -199,7 +202,7 @@ class PersonIdentityTests(unittest.TestCase):
         self.assertEqual(self.get(f"/api/records/{report}")["evidence_citations"][0]["snapshot"], citation)
         self.assertNotIn("隐藏", json.dumps(self.get(f"/api/people/{first}/identity-history", "colleague"), ensure_ascii=False))
 
-    def test_new_works_and_employment_are_allocated_without_overwriting_later_employment_fields(self):
+    def test_new_works_employment_and_readable_note_allocations_preserve_later_fields_and_hidden_notes(self):
         first, second, institute = self.person(), self.person("人物乙"), self.source()
         original = self.call(f"/api/people/{second}/employments", {"version": 0, "change_note": "原任职",
             "items": [{"institution_id": institute, "role": "研究员", "start_date": "2020", "end_date": "", "evidence": "原履历"}]}, method="PUT").json["items"][0]
@@ -214,18 +217,24 @@ class PersonIdentityTests(unittest.TestCase):
         new_bylines = self.bylines(work, [first, first])["items"]
         note = self.record(kind="research_note", research_subjects=[{"subject_type": "person", "subject_id": first}])
         subject = self.get(f"/api/records/{note}")["research_subjects"][0]
+        private = self.record(kind="research_note", title="不可读关系分配笔记", visibility="restricted",
+                              research_subjects=[{"subject_type": "person", "subject_id": first}])
+        private_subject = self.get(f"/api/records/{private}")["research_subjects"][0]
         preview = self.call(f"/api/people/identity-events/{merged['event_id']}/split-preview", user="colleague").json
         self.assertEqual({r["id"]: r["classification"] for r in preview["changes"]["employments"]},
                          {original["id"]: "transferred", added_job["id"]: "added"})
-        self.assertFalse(preview["changes"]["subjects"][0]["can_assign"])
+        self.assertTrue(preview["changes"]["subjects"][0]["can_assign"])
+        self.assertNotIn(private, json.dumps(preview))
+        self.assertNotIn(private_subject["id"], json.dumps(preview))
         payload = self.split_intent(merged["event_id"], user="colleague")
         rejected = self.call("/api/people/split", payload, "colleague")
         self.assertEqual(rejected.status_code, 400, rejected.json)
         payload["allocations"] = {"employments": {added_job["id"]: "duplicate"}, "bylines": {new_bylines[0]["id"]: "duplicate"}}
-        for user in ["colleague", "admin"]:
-            forbidden = {**self.split_intent(merged["event_id"], key="forbidden-" + user, user=user),
-                "allocations": {**payload["allocations"], "subjects": {subject["id"]: "duplicate"}}}
-            self.assertEqual(self.call("/api/people/split", forbidden, user).status_code, 403)
+        forbidden = {**self.split_intent(merged["event_id"], key="forbidden-hidden-note", user="colleague"),
+            "allocations": {**payload["allocations"], "subjects": {private_subject["id"]: "duplicate"}}}
+        self.assertEqual(self.call("/api/people/split", forbidden, "colleague").status_code, 403)
+        self.assertEqual(self.clients["colleague"].get(f"/api/records/{private}").status_code, 404)
+        payload["allocations"]["subjects"] = {subject["id"]: "duplicate"}
         result = self.call("/api/people/split", payload, "colleague")
         self.assertEqual(result.status_code, 200, result.json)
         second_jobs = self.get(f"/api/people/{second}/employments")["items"]
@@ -236,7 +245,9 @@ class PersonIdentityTests(unittest.TestCase):
         self.assertEqual([(r["target_id"], r["status"]) for r in current], [(second, "confirmed"), (first, "pending")])
         self.assertEqual(self.get(f"/api/people/{first}/works")["total"], 0)
         self.assertEqual(self.get(f"/api/people/{second}/works")["total"], 1)
-        self.assertEqual(self.get(f"/api/records/{note}")["research_subjects"][0]["status"], "needs_review")
+        assigned = self.get(f"/api/records/{note}")["research_subjects"][0]
+        self.assertEqual((assigned["subject_id"], assigned["status"]), (second, "confirmed"))
+        self.assertEqual(self.get(f"/api/records/{private}")["research_subjects"][0]["status"], "needs_review")
 
     def test_field_only_edits_do_not_disambiguate_added_employment_or_byline_identity(self):
         first, second, institute = self.person(), self.person("人物乙"), self.source()
@@ -532,9 +543,11 @@ class PersonIdentityTests(unittest.TestCase):
         self.assertEqual(self.get(f"/api/records/{report}")["evidence_citations"][0]["snapshot"], citation["snapshot"])
         event = merged.json["event_id"]
         self.assertNotIn(private, json.dumps(self.get(f"/api/people/{first}/identity-history", "colleague")))
-        denied = self.call(f"/api/records/{note}/research-subjects", {"version": self.get(f"/api/records/{note}")["version"],
-            "research_subjects": []}, "colleague", "PUT")
-        self.assertEqual(denied.status_code, 403)
+        current_note = self.get(f"/api/records/{note}")
+        shared_edit = self.call(f"/api/records/{note}/research-subjects", {"version": current_note["version"],
+            "research_subjects": current_note["research_subjects"]}, "colleague", "PUT")
+        self.assertEqual(shared_edit.status_code, 200, shared_edit.json)
+        self.assertEqual(self.clients["colleague"].get(f"/api/records/{private}").status_code, 404)
         restored = self.call("/api/people/split", self.split_intent(event, user="colleague"), "colleague")
         self.assertEqual(restored.status_code, 200, restored.json)
         self.assertEqual([row["target_id"] for row in self.get(f"/api/records/{work}/bylines")["items"]], [first, second])

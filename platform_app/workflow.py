@@ -7,6 +7,9 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 PERSONAL_KINDS = {"compilation", "research_note", "research_report"}
+# Keep authored-content classification and legacy note visibility independent
+# from the narrower set whose body still requires author authorization.
+AUTHOR_CONTROLLED_KINDS = {"compilation", "research_report"}
 CONTENT_KINDS = PERSONAL_KINDS | {"directory_translation"}
 RECORD_DEFAULTS = {
     "body_html": "", "body_text": "", "coverage": "", "original_catalogue": "", "aliases": "",

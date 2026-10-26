@@ -103,35 +103,35 @@ class NoteSubjectTests(unittest.TestCase):
         self.assertEqual(self.notes("person", second)["total"], 0)
         self.assertEqual(len(self.detail(rid)["research_subjects"]), 3)
 
-    def test_subject_editing_and_existing_note_picker_follow_current_author_authorization(self):
+    def test_subject_editing_and_picker_follow_reading_access_without_author_confirmation(self):
         pid = self.person()
         rid = self.record(author_id="colleague", editors=["researcher", "admin"],
                           research_subjects=self.subjects(("person", pid)))
-        for who in self.clients:
-            denied = self.call("/api/records/" + rid + "/research-subjects", {
-                "version": 1, "research_subjects": []}, who=who, method="PUT")
-            self.assertEqual(denied.status_code, 403, denied.json)
-            self.assertEqual(self.clients[who].get("/api/records?kind=research_note&editable=1").json["total"], 0)
-        confirm = self.call("/api/records/" + rid + "/author", {"version": 1, "confirm": True}, who="colleague")
+        for version, who in enumerate(self.clients, 1):
+            changed = self.call("/api/records/" + rid + "/research-subjects", {
+                "version": version, "research_subjects": self.subjects(("person", pid))}, who=who, method="PUT")
+            self.assertEqual(changed.status_code, 200, changed.json)
+            self.assertEqual(self.clients[who].get("/api/records?kind=research_note&editable=1").json["total"], 1)
+        confirm = self.call("/api/records/" + rid + "/author", {"version": 4, "confirm": True}, who="colleague")
         self.assertEqual(confirm.status_code, 200, confirm.json)
         self.assertEqual(self.clients["colleague"].get("/api/records?kind=research_note&editable=1").json["total"], 1)
-        self.assertEqual(self.clients["admin"].get("/api/records?kind=research_note&editable=1").json["total"], 0)
-        grant = self.call("/api/records/" + rid, {"version": 2, "editors": ["researcher"]}, who="colleague", method="PUT")
+        self.assertEqual(self.clients["admin"].get("/api/records?kind=research_note&editable=1").json["total"], 1)
+        grant = self.call("/api/records/" + rid, {"version": 5, "editors": ["researcher"]}, who="colleague", method="PUT")
         self.assertEqual(grant.status_code, 200, grant.json)
         changed = self.call("/api/records/" + rid + "/research-subjects", {
-            "version": 3, "research_subjects": []}, method="PUT")
+            "version": 6, "research_subjects": []}, method="PUT")
         self.assertEqual(changed.status_code, 200, changed.json)
         history = self.clients["researcher"].get("/api/records/" + rid + "/research-subjects/history")
         self.assertEqual(history.status_code, 200, history.json)
         self.assertEqual([h["action"] for h in history.json["items"]], ["removed", "created"])
-        revoke = self.call("/api/records/" + rid, {"version": 4, "editors": [], "visibility": "restricted"},
+        revoke = self.call("/api/records/" + rid, {"version": 7, "editors": [], "visibility": "restricted"},
                            who="colleague", method="PUT")
         self.assertEqual(revoke.status_code, 200, revoke.json)
         self.assertEqual(self.call("/api/records/" + rid + "/research-subjects", {
-            "version": 5, "research_subjects": self.subjects(("person", pid))}, method="PUT").status_code, 403)
-        self.assertEqual(self.clients["researcher"].get("/api/records/" + rid + "/research-subjects/history").status_code, 403)
+            "version": 8, "research_subjects": self.subjects(("person", pid))}, method="PUT").status_code, 200)
+        self.assertEqual(self.clients["researcher"].get("/api/records/" + rid + "/research-subjects/history").status_code, 200)
         for who in ["researcher", "admin"]:
-            self.assertEqual(self.clients[who].get("/api/records?kind=research_note&editable=1").json["total"], 0)
+            self.assertEqual(self.clients[who].get("/api/records?kind=research_note&editable=1").json["total"], 1)
 
     def test_subject_history_conflict_and_content_restore_preserve_stable_relations(self):
         first, second = self.person(), self.person("合成人物乙")

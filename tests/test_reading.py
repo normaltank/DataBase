@@ -197,7 +197,7 @@ class ReadingTests(unittest.TestCase):
         self.assertEqual(inaccessible["text"], "暂无可复制的引用。")
         self.assertIn("原采用秘密摘录", self.copy(report, "admin")["text"])
 
-    def test_reading_note_uses_existing_links_author_acl_and_current_provenance(self):
+    def test_reading_note_uses_existing_links_shared_editing_and_current_provenance(self):
         original = self.record(title="公开关联原题名", authors="原作者")
         hidden = self.record(title="不应复制的私密关联", visibility="restricted", url="https://example.org/private")
         note = self.record("research_note", title="为何值得读", authors="研究员署名", linked_ids=[original, hidden], body_html="<h2>用途</h2><p>阅读说明<strong>可以复用</strong></p><table><tr><th>限制</th><td>样本小</td></tr></table><script>不应出现脚本内容</script>")
@@ -205,8 +205,8 @@ class ReadingTests(unittest.TestCase):
         related = next(r for r in origin_detail["cited_by"] if r["id"] == note)
         self.assertEqual(related["author_name"], "研究员 · 林")
         self.assertEqual(related["evidence_record_id"], "")
-        self.assertFalse(self.detail(note, "colleague")["can_edit"])
-        self.assertEqual(self.call("/api/records/" + note, {"version": 1, "body_html": "未经授权"}, user="colleague", method="PUT").status_code, 403)
+        self.assertTrue(self.detail(note, "colleague")["can_edit"])
+        self.assertFalse(self.detail(note, "colleague")["can_manage_access"])
         self.assertEqual(self.call("/api/records/" + original, {"version": 1, "title": "关联资料最新题名"}, method="PUT").status_code, 200)
         copied = self.copy(note, "colleague")
         self.assertEqual(copied["mode"], "note")

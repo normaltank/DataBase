@@ -131,11 +131,18 @@ class RecordRevisions:
 
     def editable(self, r):
         u = self.actor
-        if r["kind"] == "directory_translation":
-            return True
-        if r["kind"] in workflow.PERSONAL_KINDS:
+        if not self.visible(r):
+            return False
+        if r["kind"] in workflow.AUTHOR_CONTROLLED_KINDS:
             return bool(r["author_confirmed"]) and (r["author_id"] == u["id"] or u["id"] in json.loads(r["editors"]))
-        return u["role"] == "admin" or r["owner_id"] == u["id"] or u["id"] in json.loads(r["editors"])
+        return True
+
+    def manages_access(self, r):
+        if r["kind"] == "directory_translation":
+            return False
+        if r["kind"] in workflow.PERSONAL_KINDS:
+            return bool(r["author_confirmed"]) and r["author_id"] == self.actor["id"]
+        return r["owner_id"] == self.actor["id"] or self.actor["role"] == "admin"
 
     def get(self, rid, edit=False):
         r = identity.resolve(self.db, "records", rid)
@@ -168,6 +175,8 @@ class RecordRevisions:
             abort(400, str(error))
         if base and base["kind"] != values["kind"] and (base["kind"] in workflow.CONTENT_KINDS or values["kind"] == "directory_translation"):
             abort(400, "已保存内容的维护类型不能改变；请分别新建，避免改变既有编辑责任。")
+        if base and base["kind"] != values["kind"] and values["kind"] in workflow.PERSONAL_KINDS and not self.manages_access(base):
+            abort(403, "共同编辑不包含重新指定负责作者或改变可见范围的权限。")
         if values["kind"] == "directory_translation":
             if values["visibility"] != "shared" or data.get("editors", []):
                 abort(400, "目录译稿由中心全体有效成员共同维护。")
@@ -206,29 +215,36 @@ class RecordRevisions:
         editors = data.get("editors", json.loads(base["editors"]) if base else [])
         if not isinstance(editors, list) or not all(isinstance(x, str) for x in editors):
             abort(400, "授权同事格式不正确。")
-        manages_acl = (base["author_confirmed"] and base["author_id"] == self.actor["id"]) if base and base["kind"] in workflow.PERSONAL_KINDS else (not base or self.actor["id"] == base["owner_id"] or self.actor["role"] == "admin")
+        manages_acl = not base or self.manages_access(base)
         if base and not manages_acl:
             if set(editors) != set(json.loads(base["editors"])) or values["visibility"] != base["visibility"]:
                 abort(403, "只有负责作者可调整个人成果授权；其他资料由提交者或管理员调整。")
         if values["kind"] in workflow.PERSONAL_KINDS and not base and not values["author_confirmed"]:
             editors = []
         valid_users = {r[0] for r in self.db.execute("SELECT id FROM users WHERE active=1")}
-        if not set(editors) <= valid_users:
+        retained_editors = set(json.loads(base["editors"])) if base else set()
+        if not set(editors) <= valid_users | retained_editors:
             abort(400, "授权人员不存在。")
         values["editors"] = json.dumps(sorted(set(editors)))
+        existing_linked = [r[0] for r in self.db.execute("SELECT original_id FROM record_links WHERE report_id=?", (base["id"],))] if base else []
+        unseen_linked = {rid for rid in existing_linked if (original := identity.resolve(self.db, "records", rid)) and not self.visible(original)}
         linked = data.get("linked_ids", None)
         if linked is None:
-            linked = [r[0] for r in self.db.execute("SELECT original_id FROM record_links WHERE report_id=?", (base["id"],))] if base else []
+            linked = [rid for rid in existing_linked if rid not in unseen_linked]
         if not isinstance(linked, list) or not all(isinstance(x, str) for x in linked) or len(linked) > 100:
             abort(400, "原文关联格式不正确。")
         if linked and values["kind"] not in workflow.CONTENT_KINDS:
             abort(400, "编译成果可以关联原始资料。")
-        canonical_links = []
+        # The editor receives only readable relations. Omitting a hidden existing
+        # relation cannot silently remove it while saving unrelated common text.
+        canonical_links = list(unseen_linked)
         for rid in set(linked):
             original = self.get(rid)
             if original["kind"] in workflow.CONTENT_KINDS or (base and rid == base["id"]):
                 abort(400, "请关联原始资料，不可关联成果本身。")
             canonical_links.append(original["id"])
+        if len(set(canonical_links)) > 100:
+            abort(400, "原文关联最多保留 100 条。")
         associated = data.get("related_source_ids", workflow.source_ids(self.db, base["id"]) if base else [])
         if not isinstance(associated, list) or len(associated) > 100 or not all(isinstance(s, str) for s in associated):
             abort(400, "关联来源格式不正确。")
@@ -393,7 +409,7 @@ class RecordRevisions:
             for key in ["source_id", "serial_id"]:
                 if values.get(key):
                     values[key] = self.source(values[key])["id"]
-            if current["kind"] in workflow.CONTENT_KINDS and values["kind"] != current["kind"]:
+            if values["kind"] != current["kind"] and (current["kind"] in workflow.CONTENT_KINDS or values["kind"] in workflow.AUTHOR_CONTROLLED_KINDS):
                 abort(409, "历史类型不符合当前维护责任，请手工修订内容。")
             if values.get("evidence_record_id"):
                 original = self.get(values["evidence_record_id"])
@@ -407,8 +423,13 @@ class RecordRevisions:
                     self.db.execute("INSERT INTO evidence_links VALUES (?,?,?,?)", (rid, cited["id"], link["excerpt_version"], link["snapshot_json"]))
             if "related_source_ids" in old:
                 workflow.set_sources(self.db, rid, sorted({self.source(sid)["id"] for sid in old["related_source_ids"]}))
+            unseen_linked = {link[0] for link in self.db.execute("SELECT original_id FROM record_links WHERE report_id=?", (rid,))
+                             if (original := identity.resolve(self.db, "records", link[0])) and not self.visible(original)}
             self.db.execute("DELETE FROM record_links WHERE report_id=?", (rid,))
+            self.db.executemany("INSERT INTO record_links VALUES (?,?)", [(rid, original_id) for original_id in unseen_linked])
             for linked_id in old.get("linked_ids", []):
+                if linked_id in unseen_linked:
+                    continue
                 original = self.get(linked_id)
                 if original["kind"] in workflow.CONTENT_KINDS:
                     abort(409, "历史关联对象的类型已改变，请手工修订。")
@@ -439,7 +460,7 @@ class RecordRevisions:
             if keep["kind"] != duplicate["kind"]:
                 return "资料类型不同，不能合并。"
             if keep["kind"] in workflow.PERSONAL_KINDS:
-                if not self.editable(keep) or not self.editable(duplicate):
+                if not all(row["author_confirmed"] and (row["author_id"] == self.actor["id"] or self.actor["id"] in json.loads(row["editors"])) for row in [keep, duplicate]):
                     return "合并个人内容需要两条记录的作者编辑授权。"
             elif self.actor["role"] != "admin":
                 return "公共资料合并需要资料管理员执行。"

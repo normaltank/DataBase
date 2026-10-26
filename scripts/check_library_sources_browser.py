@@ -13,7 +13,8 @@ import urllib.request
 from playwright.sync_api import sync_playwright, expect
 
 ROOT = Path(__file__).resolve().parents[1]
-URL = 'http://127.0.0.1:8874'
+PORT = int(os.environ.get('DATABASE_LIBRARY_SOURCES_PORT', '8874'))
+URL = 'http://127.0.0.1:'+str(PORT)
 
 
 class LibrarySourcesBrowserTests(unittest.TestCase):
@@ -21,10 +22,10 @@ class LibrarySourcesBrowserTests(unittest.TestCase):
     def setUpClass(cls):
         cls.evidence = Path(tempfile.mkdtemp(prefix='library-source-browser-'))
         with socket.socket() as probe:
-            if probe.connect_ex(('127.0.0.1', 8874)) == 0:
-                raise RuntimeError('8874 occupied; refusing to reuse an unknown service')
+            if probe.connect_ex(('127.0.0.1', PORT)) == 0:
+                raise RuntimeError(f'{PORT} occupied; refusing to reuse an unknown service')
         cls.output = (cls.evidence / 'server.log').open('w', encoding='utf-8')
-        cls.server = subprocess.Popen([sys.executable, str(ROOT/'app.py'), '--no-import', '--port', '8874', '--data-dir', str(cls.evidence/'data')], cwd=ROOT, stdout=cls.output, stderr=subprocess.STDOUT,
+        cls.server = subprocess.Popen([sys.executable, str(ROOT/'app.py'), '--no-import', '--port', str(PORT), '--data-dir', str(cls.evidence/'data')], cwd=ROOT, stdout=cls.output, stderr=subprocess.STDOUT,
                                       creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
         for _ in range(100):
             try:
@@ -146,6 +147,7 @@ class LibrarySourcesBrowserTests(unittest.TestCase):
         form = page.locator('form[data-form=record]')
         expect(form).not_to_have_attribute('inert')
         form.get_by_label('题名 *', exact=True).fill('来源选择保存试验')
+        form.locator('[data-record-more]>summary').click()
         serial=form.locator('[data-source-select]').filter(has=page.get_by_label('搜索所属期刊 / 连续出版物',exact=True))
         serial.locator('summary').click()
         self.assertEqual(serial.locator('[data-source-group] option').all_text_contents(),['全部类型','期刊','其他出版物'])
@@ -177,7 +179,7 @@ class LibrarySourcesBrowserTests(unittest.TestCase):
         expect(form.get_by_label('题名 *', exact=True)).to_have_value('来源选择保存试验')
         expect(form.locator('[data-source-values][name=source_id]')).to_have_value(self.lv)
         self.assertEqual(set(form.locator('[name=related_source_ids]').evaluate('(s)=>[...s.selectedOptions].map(o=>o.value)')),{self.lv,self.journal})
-        expect(form.locator('[data-source-selected]').first).to_contain_text('多国合成期刊')
+        expect(related.locator('[data-source-selected]')).to_contain_text('多国合成期刊')
         form.get_by_role('button', name='保存内容', exact=True).click()
         expect(form).not_to_be_visible()
         result = self.context.request.get(URL+'/api/records?q=来源选择保存试验').json()['items']
@@ -203,7 +205,9 @@ class LibrarySourcesBrowserTests(unittest.TestCase):
         form = page.locator('form[data-form=record]')
         expect(form).not_to_have_attribute('inert')
         form.get_by_label('题名 *', exact=True).fill('合并后恢复来源草稿')
+        form.locator('[data-record-body]>summary').click()
         form.locator('[data-rich-field=body_html] [data-rich-input]').fill('保持这份合成正文。')
+        form.locator('[data-record-more]>summary').click()
         for label, query in [('发布机构','草稿旧机构'),('所属期刊 / 连续出版物','草稿旧期刊'),('关联来源（可多选）','草稿旧')]:
             picker = form.locator('[data-source-select]').filter(has=page.get_by_label('搜索'+label, exact=True))
             picker.locator('summary').click()
@@ -230,8 +234,9 @@ class LibrarySourcesBrowserTests(unittest.TestCase):
         expect(form.locator('[name=source_id]')).to_have_value(keep_institution)
         expect(form.locator('[name=serial_id]')).to_have_value(keep_journal)
         self.assertEqual(set(form.locator('[name=related_source_ids]').evaluate('(s)=>[...s.selectedOptions].map(o=>o.value)')), {keep_institution,keep_journal})
-        expect(form.locator('[data-source-selected]').first).to_contain_text('草稿现机构')
-        expect(form.locator('[data-source-selected]').first).to_contain_text('草稿现期刊')
+        related=form.locator('[data-source-select]').filter(has=page.get_by_label('搜索关联来源（可多选）',exact=True))
+        expect(related.locator('[data-source-selected]')).to_contain_text('草稿现机构')
+        expect(related.locator('[data-source-selected]')).to_contain_text('草稿现期刊')
         form.get_by_role('button', name='保存内容', exact=True).click()
         expect(form).not_to_be_visible()
         result = self.context.request.get(URL+'/api/records?q=合并后恢复来源草稿').json()['items']

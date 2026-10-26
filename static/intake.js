@@ -15,14 +15,20 @@ function intakeEvidenceHtml(evidence){
   return '<details class="intake-evidence"><summary>辅助录入取得依据</summary><p class="form-help">以下为取得时的题录，当前字段可能经过人工修改。仅取得题录，不代表已保存全文、附件或完成核对。</p>'+evidence.map(e=>'<section><p>输入：'+esc(e.input)+'<br>取得时间：'+esc(e.retrieved_at)+'</p>'+(e.sources||[]).map(s=>'<p>'+esc(s.provider)+' · '+externalLink(s.url,'取得来源')+'</p>').join('')+'<details><summary>原始题录与外部标识</summary><pre>'+esc(JSON.stringify(e,null,2))+'</pre></details></section>').join('')+'</details>';
 }
 function prepareIntakeForm(form){
-  if(form._editing.id||isResearchContent(form.elements.kind.value))return;
+  if(form._editing.id)return;
   const section=document.createElement('section');section.className='intake-editor wide';section.dataset.intakeEditor='';
-  section.innerHTML='<h3>粘贴 DOI 或文章链接</h3><p class="form-help">取得后先预览，再选择应用。缺失或失败时可继续手填。</p><label for="intake-input">DOI / 公开文章网址</label><div class="intake-input-row"><input id="intake-input" name="intake_input" placeholder="10.… 或 https://…" autocomplete="off"><button type="button" class="button" data-intake-fetch>取得题录</button></div><div data-intake-status role="status" aria-live="polite"></div><div data-intake-preview></div><input type="hidden" name="intake_token"><input type="hidden" name="intake_preview"><input type="hidden" name="intake_byline_json"><input type="hidden" name="intake_preview_state">';
+  section.innerHTML='<h3>用 DOI 或文章链接填写</h3><p class="form-help">识别后补全空白信息，保留你写的内容。只需填写题名即可保存，其余信息可以以后补充。</p><label for="intake-input">DOI 或公开文章链接</label><div class="intake-input-row"><input id="intake-input" name="intake_input" placeholder="10.… 或 https://…" autocomplete="off"><button type="button" class="button primary" data-intake-fetch>识别并填写</button></div><div data-intake-status role="status" aria-live="polite"></div><div data-intake-preview></div><input type="hidden" name="intake_token"><input type="hidden" name="intake_preview"><input type="hidden" name="intake_byline_json"><input type="hidden" name="intake_preview_state"><input type="hidden" name="intake_autofilled">';
   form.querySelector('.form-grid').prepend(section);
+  const kindWarning=document.createElement('p');kindWarning.className='notice';kindWarning.dataset.intakeKindWarning='';kindWarning.hidden=true;kindWarning.textContent='本次识别依据用于外部资料。若要保存为研究内容，请先取消本次识别依据；已填写内容会保留。';section.prepend(kindWarning);
   section.addEventListener('click',async event=>{
+    if(event.target.closest('[data-intake-detach]')){
+      form._intakeGeneration=(form._intakeGeneration||0)+1;form._intakePreview=null;form._intakeNextPreview=null;form._intakePending=false;
+      for(const name of ['intake_token','intake_preview','intake_byline_json','intake_preview_state','intake_autofilled'])form.elements.namedItem(name).value='';
+      form.querySelector('[data-intake-preview]').innerHTML='';form.querySelector('[data-intake-status]').textContent='已取消本次识别依据，填写内容保留，可继续手填保存。';form._updateInformationMode?.();form._dirty=true;saveEditorDraft(form,true);return;
+    }
     if(event.target.closest('[data-intake-fetch]'))await requestIntake(form);
     if(event.target.closest('[data-intake-apply]'))applyIntake(form);
-    if(event.target.closest('[data-intake-new-result]')&&form._intakeNextPreview){setIntakePreview(form,form._intakeNextPreview);form.querySelector('[data-intake-status]').textContent='已改用新结果，请重新核对预览选择；表单已有内容保留。';form._dirty=true;saveEditorDraft(form,true);}
+    if(event.target.closest('[data-intake-new-result]')&&form._intakeNextPreview){setIntakePreview(form,form._intakeNextPreview);fillIntakeBlanks(form);form.querySelector('[data-intake-status]').textContent='已改用新结果，更新之前自动填写的信息；人工内容保留，请核对是否属于这篇资料后保存。';form._dirty=true;saveEditorDraft(form,true);}
     if(event.target.closest('[data-intake-keep-result]')){form._intakeNextPreview=null;form.querySelector('[data-intake-status]').textContent='已保留当前预览与人工修改。';}
     if(event.target.closest('[data-intake-use-link]')){
       if(!form.elements.url.value.trim()){
@@ -31,10 +37,11 @@ function prepareIntakeForm(form){
       form._dirty=true;saveEditorDraft(form,true);
     }
   });
+  section.addEventListener('keydown',event=>{if(event.target.name==='intake_input'&&event.key==='Enter'&&!event.isComposing){event.preventDefault();if(!isResearchContent(form.elements.kind.value))requestIntake(form);}});
   section.addEventListener('input',event=>{
     if(event.target.name==='intake_input'){
       form._intakeGeneration=(form._intakeGeneration||0)+1;
-      if(form._intakeNextPreview)form.querySelector('[data-intake-status]').textContent='输入已更改，当前预览和修改保留；请重新取得题录。';
+      if(form._intakePreview)form.querySelector('[data-intake-status]').textContent='输入已更改，已有信息与取得依据仍来自当前结果；请重新识别，再明确选择是否改用。';
       form._intakeNextPreview=null;
       if(form._intakePending)form.querySelector('[data-intake-status]').textContent='输入已更改，旧请求不会应用；请重新取得题录。';
     }
@@ -55,15 +62,16 @@ function restoreIntakeForm(form){
 async function requestIntake(form){
   if(form._draftOffer){form.querySelector('[data-intake-status]').textContent='请先恢复或舍弃已有草稿。';return;}
   const value=form.elements.intake_input.value.trim(),account=state.me?.id,generation=(form._intakeGeneration||0)+1;
-  form._intakeGeneration=generation;form._intakePending=true;const status=form.querySelector('[data-intake-status]');status.textContent='正在取得题录，可继续手填；结果先进入预览。';
-  const active=()=>form.isConnected&&state.me?.id===account&&form._intakeGeneration===generation&&form.elements.intake_input.value.trim()===value;
+  form._intakeGeneration=generation;form._intakePending=true;const status=form.querySelector('[data-intake-status]');status.textContent='正在识别，可继续手填；取得后补全空白信息。';
+  const active=()=>form.isConnected&&state.me?.id===account&&!isResearchContent(form.elements.kind.value)&&form._intakeGeneration===generation&&form.elements.intake_input.value.trim()===value;
   try{
     const result=await api('/api/intake/preview',{method:'POST',body:{input:value}});
     if(!active())return;
     if(form._intakePreview){
       if(intakeResultKey(form._intakePreview)===intakeResultKey(result)){status.textContent='已再次取得相同题录；当前预览中的人工修改和选择已保留。';}
       else{form._intakeNextPreview=result;showIntakeNextResult(form);}
-    }else{setIntakePreview(form,result);status.textContent='题录已取得，请核对后应用。';}
+    }else{setIntakePreview(form,result);fillIntakeBlanks(form);status.textContent='已填写取得的基本信息，人工内容保留。请核对后保存；身份和来源可以稍后确认。';
+      if(document.activeElement?.matches('[data-intake-fetch],[name=intake_input]')){form.elements.title.focus({preventScroll:true});form.elements.title.scrollIntoView({block:'center'});}}
     form._dirty=true;saveEditorDraft(form,true);
   }catch(error){if(active()){status.textContent=error.message+' 已有输入保留，可继续手填。';status.insertAdjacentHTML('beforeend',' <button type="button" class="button tiny" data-intake-use-link>将输入链接填到空白原文链接</button>');}}
   finally{if(form._intakeGeneration===generation)form._intakePending=false;}
@@ -71,29 +79,54 @@ async function requestIntake(form){
 function renderIntakePreview(form){
   const p=form._intakePreview,holder=form.querySelector('[data-intake-preview]');if(!p||!holder)return;
   let selection={};try{selection=JSON.parse(form.elements.intake_preview_state.value||'{}');}catch{}
-  let saved=selection.authors||[];
-  holder.innerHTML='<section class="intake-preview"><h4>取得预览</h4><p class="form-help">只填入空白字段；勾选某字段才替换已有内容。姓名匹配只是线索，身份关联需要明确确认。</p>'
+  const saved=selection.authors||[],reviewOpen=holder.querySelector('[data-intake-review]')?.open,confirmed=saved.filter(row=>row.status==='confirmed').length;
+  holder.innerHTML='<section class="intake-preview"><p class="intake-result-title"><strong>当前结果：</strong>'+esc(p.fields.title||'题名缺失')+'</p>'
     +(p.warnings||[]).map(w=>'<p class="notice">'+esc(w)+'</p>').join('')
     +(p.duplicates?.length?'<div class="notice"><strong>已收录候选</strong>'+p.duplicates.map(d=>'<button type="button" class="detail-link" data-action="detail" data-id="'+esc(d.id)+'">'+esc(d.title)+' · '+esc(d.basis)+'</button>').join('')+'<p>请先查看，保存时仍会检查重复。</p></div>':'')
-    +'<div class="intake-fields">'+intakeFieldOrder.filter(key=>p.fields[key]).map(key=>'<div class="intake-field"><strong>'+esc(intakeLabels[key])+'</strong><div><p>'+esc(p.fields[key])+'</p><span class="intake-field-source">'+esc(intakeReadableProvider(p.provenance[key]))+'</span>'+(form.elements.namedItem(key)?.value.trim()?'<label class="check-label"><input type="checkbox" data-intake-replace="'+esc(key)+'" '+(selection.replace?.includes(key)?'checked':'')+'>替换已有'+esc(intakeLabels[key])+'</label>':'')+'</div></div>').join('')+'</div>'
+    +'<p class="form-help">基本信息已在下方表单，可直接核对保存。'+(confirmed?'已核对 '+confirmed+' 条署名身份；其余署名保持待确认。':'作者暂按原始署名保存，尚未确认人物身份。')+'</p><details data-intake-review '+(reviewOpen?'open':'')+'><summary>核对作者身份、来源或替换已有信息（选填）</summary><p class="form-help">只有明确勾选的字段才替换人工内容。身份和来源候选需要人工确认，可以以后再补。</p>'
+    +'<div class="intake-fields">'+intakeFieldOrder.filter(key=>p.fields[key]).map(key=>'<div class="intake-field"><strong>'+esc(intakeLabels[key])+'</strong><div><p>'+esc(p.fields[key])+'</p><span class="intake-field-source">'+esc(intakeReadableProvider(p.provenance[key]))+'</span>'+(form.elements.namedItem(key)?.value.trim()&&form.elements.namedItem(key).value!==p.fields[key]?'<label class="check-label"><input type="checkbox" data-intake-replace="'+esc(key)+'" '+(selection.replace?.includes(key)?'checked':'')+'>替换已有'+esc(intakeLabels[key])+'</label>':'')+'</div></div>').join('')+'</div>'
     +'<fieldset class="intake-authors"><legend>原始署名与身份核对</legend>'+p.authors.map((author,index)=>{
       const row=saved[index],choices=p.candidates?.authors?.[index]?.items||[];
-      return '<section data-intake-author="'+index+'"><label>原始署名<input data-intake-name value="'+esc(row?.raw_name||author.raw_name)+'"></label>'
+      return '<section data-intake-author="'+index+'"><label>原始署名<input data-intake-name value="'+esc(row?.raw_name??author.raw_name)+'"></label>'
         +(Object.keys(author.identifiers||{}).length||author.affiliations?.length?'<p> '+(Object.keys(author.identifiers||{}).length?'外部标识：'+esc(Object.entries(author.identifiers).map(([key,value])=>key+': '+value).join('；')):'')+(author.affiliations?.length?' 文章署名单位线索：'+esc(author.affiliations.join('; ')):'')+'</p>':'')
         +'<label>已有作者／机构候选<select data-intake-target><option value="">保留待确认署名，之后补档</option>'+choices.map(c=>'<option value="'+esc(c.type+':'+c.id)+'" '+(row?.target_type+':'+row?.target_id===c.type+':'+c.id?'selected':'')+'>'+esc(c.name+' · '+c.basis)+'</option>').join('')+'</select></label>'
-        +(p.candidates?.authors?.[index]?.truncated?'<p class="form-help">仅显示前 30 个同名候选（共 '+p.candidates.authors[index].total+' 个）；可先保留署名，保存后在作品署名维护中搜索完整档案。</p>':'')+'<label class="check-label"><input type="checkbox" data-intake-confirm '+(row?.status==='confirmed'?'checked':'')+'>我已核对所选身份，确认此署名属于该档案</label><label>身份确认依据<input data-intake-evidence value="'+esc(row?.evidence||'')+'" placeholder="文章署名页／作者主页与核对说明"></label></section>';
+        +(p.candidates?.authors?.[index]?.truncated?'<p class="form-help">仅显示前 30 个同名候选（共 '+p.candidates.authors[index].total+' 个）；可先保留署名，保存后在作品署名维护中搜索完整档案。</p>':'')+'<label class="check-label" '+(!choices.length?'hidden':'')+'><input type="checkbox" data-intake-confirm '+(!choices.length?'disabled ':'')+(row?.status==='confirmed'?'checked':'')+'>我已核对所选身份，确认此署名属于该档案</label><label '+(!choices.length?'hidden':'')+'>身份确认依据<input data-intake-evidence value="'+esc(row?.evidence||'')+'" placeholder="文章署名页／作者主页与核对说明"></label>'+(!choices.length?'<p class="form-help">没有匹配的档案，先保留待确认署名；保存后可继续核对。</p>':'')+'<p data-intake-row-error class="error-text" role="alert" tabindex="-1"></p></section>';
     }).join('')+'</fieldset>'
     +'<fieldset><legend>已有来源候选</legend>'+['source_id','serial_id'].map(field=>'<label>'+(field==='source_id'?'文章发布机构':'所属期刊／连续出版物')+'<select data-intake-source="'+field+'"><option value="">不自动关联，保留文字出处</option>'+(p.candidates?.sources||[]).filter(c=>c.field===field).map(c=>'<option value="'+esc(c.id)+'" '+(selection.sources?.[field]===c.id?'selected':'')+'>'+esc(c.name+' · '+c.basis)+'</option>').join('')+'</select></label>').join('')+(p.candidates?.sources_truncated?'<p class="form-help">仅显示前 50 个来源候选，可在表单来源选择器中搜索全部来源。</p>':'')+'<p class="form-help">明确选择后应用。发布商、主办方、署名单位和任职关系分别维护；不会推断国别或任职。</p></fieldset>'
-    +intakeEvidenceHtml([p])+'<button type="button" class="button primary" data-intake-apply>应用预览及已核对选择</button><p class="form-help">仅取得题录，不下载全文或附件，不会自动标记已核对。</p></section>';
+    +'<div data-intake-apply-status role="status" aria-live="polite"></div><button type="button" class="button" data-intake-apply>应用勾选的替换与关联</button></details>'+intakeEvidenceHtml([p])+'<p class="form-help">只取得文章信息，未下载全文或附件，也未标记为已核对。</p><button type="button" class="button tiny" data-intake-detach>取消本次识别依据（保留填写内容）</button></section>';
+}
+function intakeIdentityError(row,message){
+  const error=row.querySelector('[data-intake-row-error]');
+  row.closest('[data-intake-review]').open=true;error.textContent=message;error.focus();
+  throw new Error(message);
 }
 function intakeBylines(form,validate=true){
+  if(validate)form.querySelectorAll('[data-intake-row-error]').forEach(el=>el.textContent='');
   return [...form.querySelectorAll('[data-intake-author]')].map(row=>{
     const selected=row.querySelector('[data-intake-target]').value,confirmed=row.querySelector('[data-intake-confirm]').checked;
-    if(validate&&confirmed&&!selected)throw new Error('确认署名前请先选择对应身份。');
+    if(validate&&confirmed&&!selected)intakeIdentityError(row,'确认署名前请先选择对应身份；也可取消勾选，保留待确认署名。');
     const split=selected.indexOf(':'),evidence=row.querySelector('[data-intake-evidence]').value.trim();
-    if(validate&&confirmed&&!evidence)throw new Error('确认署名需要填写可核查的依据。');
+    if(validate&&confirmed&&!evidence)intakeIdentityError(row,'确认署名需要填写可核查的依据；也可取消勾选，保留待确认署名。');
     return {raw_name:row.querySelector('[data-intake-name]').value,status:confirmed?'confirmed':'pending',target_type:selected?selected.slice(0,split):'',target_id:selected?selected.slice(split+1):'',evidence};
   });
+}
+function fillIntakeBlanks(form){
+  const p=form._intakePreview;if(!p)return;
+  let previous={};try{previous=JSON.parse(form.elements.intake_autofilled.value||'{}');}catch{}
+  const filled={};
+  for(const [key,value] of Object.entries(previous)){
+    const input=form.elements.namedItem(key);
+    if(input&&input.value===value&&!p.fields[key])input.value='';
+  }
+  for(const [key,value] of Object.entries(p.fields)){
+    const input=form.elements.namedItem(key);if(!input||!intakeLabels[key]||(input.value.trim()&&input.value!==previous[key]))continue;
+    if(input.tagName==='SELECT'&&![...input.options].some(o=>o.value===value))input.add(new Option(value,value));
+    input.value=value;filled[key]=value;
+  }
+  form.elements.intake_autofilled.value=JSON.stringify(filled);
+  form.elements.intake_token.value=p.token;
+  form.elements.intake_byline_json.value=JSON.stringify(intakeBylines(form,false));
+  renderIntakePreview(form);
 }
 function applyIntake(form){
   try{
@@ -111,12 +144,12 @@ function applyIntake(form){
     form.elements.intake_token.value=p.token;form.elements.intake_byline_json.value=JSON.stringify(items);
     form.elements.intake_preview_state.value=JSON.stringify({authors:items,sources:Object.fromEntries([...form.querySelectorAll('[data-intake-source]')].map(el=>[el.dataset.intakeSource,el.value])),replace:[...form.querySelectorAll('[data-intake-replace]:checked')].map(el=>el.dataset.intakeReplace)});
     renderIntakePreview(form);
-    form.querySelector('[data-intake-status]').textContent='已应用到表单；已有字段仅按你的选择替换。可继续修改后保存。';
+    form.querySelector('[data-intake-apply-status]').textContent='已应用你选择的替换与关联，可继续核对保存。';
     form._dirty=true;saveEditorDraft(form,true);
-  }catch(error){form.querySelector('[data-intake-status]').textContent=error.message;}
+  }catch(error){form.querySelector('[data-intake-apply-status]').textContent=error.message;}
 }
 function intakeSaveValues(form,values){
-  delete values.intake_input;delete values.intake_preview;delete values.intake_byline_json;delete values.intake_preview_state;
+  delete values.intake_input;delete values.intake_preview;delete values.intake_byline_json;delete values.intake_preview_state;delete values.intake_autofilled;
   if(!form.elements.intake_token?.value){delete values.intake_token;return;}
   if(isResearchContent(values.kind))throw new Error('辅助题录用于外部资料；请改回外部资料类型后保存。');
   if(form._intakePreview?.token===form.elements.intake_token.value)values.intake_bylines=intakeBylines(form);

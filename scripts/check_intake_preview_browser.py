@@ -15,7 +15,8 @@ sys.path.insert(0, str(ROOT))
 from platform_app.web import create_app
 from platform_app import intake
 
-URL = 'http://127.0.0.1:8851'
+PORT = int(os.environ.get('DATABASE_INTAKE_PREVIEW_PORT', '8851'))
+URL = 'http://127.0.0.1:'+str(PORT)
 class QuietHandler(WSGIRequestHandler):
     def log(self, *args, **kwargs):
         pass
@@ -34,7 +35,7 @@ class IntakePreviewBrowserTests(unittest.TestCase):
                 'published':{'date-parts':[[2026,10,26]]}, 'abstract':'Synthetic abstract',
                 'URL':'https://example.org/preview'}}))
         intake.fetch_document = fetch
-        cls.server = make_server('127.0.0.1',8851,create_app(cls.temp.name,testing=True),threaded=True,request_handler=QuietHandler)
+        cls.server = make_server('127.0.0.1',PORT,create_app(cls.temp.name,testing=True),threaded=True,request_handler=QuietHandler)
         cls.thread = threading.Thread(target=cls.server.serve_forever,daemon=True)
         cls.thread.start()
         cls.playwright = sync_playwright().start()
@@ -65,6 +66,8 @@ class IntakePreviewBrowserTests(unittest.TestCase):
         form.locator('[name=title]').fill('Existing title')
         form.locator('[name=intake_input]').fill('10.5555/preview-regression')
         form.locator('[data-intake-fetch]').click()
+        expect(form.locator('[name=published_on]')).to_have_value('2026-10-26')
+        form.locator('[data-intake-review]>summary').click()
         expect(form.locator('[data-intake-author="0"]')).to_be_visible()
         author=form.locator('[data-intake-author="0"]')
         author.locator('[data-intake-name]').fill('Hand edited signature')
@@ -73,7 +76,7 @@ class IntakePreviewBrowserTests(unittest.TestCase):
         author.locator('[data-intake-evidence]').fill('Checked against synthetic author page')
         form.locator('[data-intake-replace=title]').check()
         form.locator('[data-intake-fetch]').click()
-        expect(form.locator('[data-intake-status]')).not_to_contain_text('正在取得')
+        expect(form.locator('[data-intake-status]')).not_to_contain_text('正在')
         expect(author.locator('[data-intake-name]')).to_have_value('Hand edited signature')
         expect(author.locator('[data-intake-confirm]')).to_be_checked()
         expect(author.locator('[data-intake-evidence]')).to_have_value('Checked against synthetic author page')
@@ -105,6 +108,7 @@ class IntakePreviewBrowserTests(unittest.TestCase):
         page.locator('[data-action=new-record]').first.click()
         expect(form).not_to_have_attribute('inert')
         form.locator('[data-action=restore-draft]').click()
+        form.locator('[data-intake-review]>summary').click()
         expect(author.locator('[data-intake-name]')).to_have_value('Hand edited signature')
         expect(author.locator('[data-intake-confirm]')).to_be_checked()
         form.locator('[name=intake_input]').fill('10.5555/preview-regression')
@@ -129,4 +133,3 @@ class IntakePreviewBrowserTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
-
