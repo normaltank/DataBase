@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 
 from flask import abort
 
-from . import affiliations, identity, note_subjects, person_identity
+from . import affiliations, identity, note_subjects, person_identity, reviews
 from .attachment_anchor import description as anchor_description
 from .people import PersonProfiles
 from .record_revisions import RECORD_FIELDS
@@ -19,7 +19,7 @@ from .record_revisions import RECORD_FIELDS
 def record_projection(db, item, visible):
     fields = {*RECORD_FIELDS, "id", "version", "created_at", "updated_at", "status", "author_name",
               "owner_name", "last_modifier", "related_source_ids", "attachments", "evidence_citations",
-              "evidence_snapshot", "evidence_version", "linked_records", "cited_by", "excerpts", "previous_ids", "research_subjects", "intake_evidence"}
+              "evidence_snapshot", "evidence_version", "linked_records", "cited_by", "excerpts", "previous_ids", "research_subjects", "intake_evidence", "last_verified", "review_history"}
     result = identity.readable_record(db, {key: value for key, value in item.items() if key in fields}, visible)
     result.pop("evidence_snapshot_json", None)
     for key in ["linked_records", "cited_by", "excerpts"]:
@@ -193,7 +193,7 @@ def record_relations_html(item, prose, source_paths, people):
     return content
 
 
-def evidence_coverage(records, attachments):
+def evidence_coverage(records, attachments, sources=()):
     """Describe only the permission-filtered export projection, never raw history."""
     def retained(snapshot, original):
         aid = snapshot.get('evidence_attachment_id')
@@ -220,7 +220,8 @@ def evidence_coverage(records, attachments):
     rows = []
     for item in records.values():
         row = {'id': item['id'], 'title': item['title'], 'path': item['path'],
-               'current': {'version': item['version'], 'metadata': True, 'body': bool(item.get('body_html')),
+               'last_verified': item.get('last_verified'),
+               'current': {'version': item['version'], 'status': item['status'], 'metadata': True, 'body': bool(item.get('body_html')),
                            'external_url': item.get('url') or '', 'doi': item.get('doi') or '',
                            'attachments': [{'id': a['id'], 'path': attachments[a['id']]['path']}
                                            for a in item['attachments'] if a['id'] in attachments]},
@@ -233,7 +234,8 @@ def evidence_coverage(records, attachments):
             row['citations'].append({'excerpt_id': citation['excerpt_id'], 'excerpt_version': citation['excerpt_version'],
                                     **retained(snap, json.loads(snap.get('evidence_snapshot_json') or '{}'))})
         rows.append(row)
-    return {'format': 'research-evidence-coverage-v1', 'records': rows}
+    return {'format': 'research-evidence-coverage-v1', 'records': rows,
+            'sources': [{key: item.get(key) for key in ['id', 'name', 'version', 'status', 'last_verified']} for item in sources]}
 
 
 def coverage_html(coverage):
@@ -245,6 +247,7 @@ def coverage_html(coverage):
     for row in coverage['records']:
         content += '<section><h2><a href="' + row['path'] + '">' + html.escape(row['title']) + '</a></h2>'
         content += '<p>当前资料版本 ' + str(row['current']['version']) + '：含题录；' + ('含网页正文，是否为完整原文需人工核实。' if row['current']['body'] else '无网页正文。') + '</p>'
+        content += reviews.html({'version': row['current']['version'], 'status': row['current']['status'], 'last_verified': row.get('last_verified')})
         url = row['current']['external_url']
         if url:
             try:
@@ -270,4 +273,6 @@ def coverage_html(coverage):
             if evidence['attachment']:
                 content += '<p><a href="' + evidence['attachment']['path'] + '">明确指定的引用附件</a></p>'
         content += '</section>'
+    for source in coverage.get('sources', []):
+        content += '<section><h2>来源：' + html.escape(source['name']) + '</h2>' + reviews.html(source) + '</section>'
     return content
