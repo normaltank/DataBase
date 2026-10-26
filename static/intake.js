@@ -1,6 +1,15 @@
 'use strict';
 
 const intakeLabels={title:'题名',authors:'原始署名',published_on:'发表日期',publication_title:'刊物名称',doi:'DOI',url:'原文链接',abstract:'摘要',language:'语言'};
+const intakeFieldOrder=['title','authors','publication_title','published_on','doi','url','language','abstract'];
+function intakeReadableProvider(value){return /Crossref|DataCite/i.test(value||'')?value:'文章页';}
+function intakeResultKey(preview){return JSON.stringify({input:preview.input,fields:preview.fields,authors:preview.authors,identifiers:preview.identifiers,candidates:preview.candidates,provenance:preview.provenance});}
+function setIntakePreview(form,result){form._intakePreview=result;form.elements.intake_preview.value=JSON.stringify(result);form.elements.intake_preview_state.value='';form._intakeNextPreview=null;renderIntakePreview(form);}
+function showIntakeNextResult(form){
+  const status=form.querySelector('[data-intake-status]');
+  status.textContent='取得了不同的题录“'+(form._intakeNextPreview.fields.title||'题名缺失')+'”。当前预览与人工修改已保留。';
+  status.insertAdjacentHTML('beforeend',' <button type="button" class="button tiny" data-intake-new-result>改用新结果（重置预览选择）</button> <button type="button" class="button tiny" data-intake-keep-result>保留当前预览</button>');
+}
 function intakeEvidenceHtml(evidence){
   if(!evidence?.length)return '';
   return '<details class="intake-evidence"><summary>辅助录入取得依据</summary><p class="form-help">以下为取得时的题录，当前字段可能经过人工修改。仅取得题录，不代表已保存全文、附件或完成核对。</p>'+evidence.map(e=>'<section><p>输入：'+esc(e.input)+'<br>取得时间：'+esc(e.retrieved_at)+'</p>'+(e.sources||[]).map(s=>'<p>'+esc(s.provider)+' · '+externalLink(s.url,'取得来源')+'</p>').join('')+'<details><summary>原始题录与外部标识</summary><pre>'+esc(JSON.stringify(e,null,2))+'</pre></details></section>').join('')+'</details>';
@@ -13,6 +22,8 @@ function prepareIntakeForm(form){
   section.addEventListener('click',async event=>{
     if(event.target.closest('[data-intake-fetch]'))await requestIntake(form);
     if(event.target.closest('[data-intake-apply]'))applyIntake(form);
+    if(event.target.closest('[data-intake-new-result]')&&form._intakeNextPreview){setIntakePreview(form,form._intakeNextPreview);form.querySelector('[data-intake-status]').textContent='已改用新结果，请重新核对预览选择；表单已有内容保留。';form._dirty=true;saveEditorDraft(form,true);}
+    if(event.target.closest('[data-intake-keep-result]')){form._intakeNextPreview=null;form.querySelector('[data-intake-status]').textContent='已保留当前预览与人工修改。';}
     if(event.target.closest('[data-intake-use-link]')){
       if(!form.elements.url.value.trim()){
         try{const u=new URL(form.elements.intake_input.value);if(['http:','https:'].includes(u.protocol)&&!u.username&&!u.password)form.elements.url.value=u.href;}catch{}
@@ -23,6 +34,8 @@ function prepareIntakeForm(form){
   section.addEventListener('input',event=>{
     if(event.target.name==='intake_input'){
       form._intakeGeneration=(form._intakeGeneration||0)+1;
+      if(form._intakeNextPreview)form.querySelector('[data-intake-status]').textContent='输入已更改，当前预览和修改保留；请重新取得题录。';
+      form._intakeNextPreview=null;
       if(form._intakePending)form.querySelector('[data-intake-status]').textContent='输入已更改，旧请求不会应用；请重新取得题录。';
     }
     const authors=intakeBylines(form,false),sources=Object.fromEntries([...form.querySelectorAll('[data-intake-source]')].map(el=>[el.dataset.intakeSource,el.value])),replace=[...form.querySelectorAll('[data-intake-replace]:checked')].map(el=>el.dataset.intakeReplace);
@@ -30,6 +43,7 @@ function prepareIntakeForm(form){
     if(form._intakePreview?.token===form.elements.intake_token.value)form.elements.intake_byline_json.value=JSON.stringify(authors);
     form._dirty=true;saveEditorDraft(form,true);
   });
+  form.addEventListener('input',event=>{if(intakeLabels[event.target.name]&&!section.contains(event.target))renderIntakePreview(form);});
 }
 function restoreIntakeForm(form){
   if(!form.querySelector('[data-intake-editor]'))return;
@@ -46,8 +60,11 @@ async function requestIntake(form){
   try{
     const result=await api('/api/intake/preview',{method:'POST',body:{input:value}});
     if(!active())return;
-    form._intakePreview=result;form.elements.intake_preview.value=JSON.stringify(result);form.elements.intake_preview_state.value='';renderIntakePreview(form);
-    status.textContent='题录已取得，请核对后应用。';form._dirty=true;saveEditorDraft(form,true);
+    if(form._intakePreview){
+      if(intakeResultKey(form._intakePreview)===intakeResultKey(result)){status.textContent='已再次取得相同题录；当前预览中的人工修改和选择已保留。';}
+      else{form._intakeNextPreview=result;showIntakeNextResult(form);}
+    }else{setIntakePreview(form,result);status.textContent='题录已取得，请核对后应用。';}
+    form._dirty=true;saveEditorDraft(form,true);
   }catch(error){if(active()){status.textContent=error.message+' 已有输入保留，可继续手填。';status.insertAdjacentHTML('beforeend',' <button type="button" class="button tiny" data-intake-use-link>将输入链接填到空白原文链接</button>');}}
   finally{if(form._intakeGeneration===generation)form._intakePending=false;}
 }
@@ -58,11 +75,11 @@ function renderIntakePreview(form){
   holder.innerHTML='<section class="intake-preview"><h4>取得预览</h4><p class="form-help">只填入空白字段；勾选某字段才替换已有内容。姓名匹配只是线索，身份关联需要明确确认。</p>'
     +(p.warnings||[]).map(w=>'<p class="notice">'+esc(w)+'</p>').join('')
     +(p.duplicates?.length?'<div class="notice"><strong>已收录候选</strong>'+p.duplicates.map(d=>'<button type="button" class="detail-link" data-action="detail" data-id="'+esc(d.id)+'">'+esc(d.title)+' · '+esc(d.basis)+'</button>').join('')+'<p>请先查看，保存时仍会检查重复。</p></div>':'')
-    +'<div class="intake-fields">'+Object.entries(p.fields).filter(([key,value])=>value&&intakeLabels[key]).map(([key,value])=>'<div class="intake-field"><strong>'+esc(intakeLabels[key])+'</strong><p>'+esc(value)+'</p><span class="form-help">依据：'+esc(p.provenance[key]||'文章网址')+'</span><label class="check-label"><input type="checkbox" data-intake-replace="'+esc(key)+'" '+(selection.replace?.includes(key)?'checked':'')+'>替换此字段已有值</label></div>').join('')+'</div>'
+    +'<div class="intake-fields">'+intakeFieldOrder.filter(key=>p.fields[key]).map(key=>'<div class="intake-field"><strong>'+esc(intakeLabels[key])+'</strong><div><p>'+esc(p.fields[key])+'</p><span class="intake-field-source">'+esc(intakeReadableProvider(p.provenance[key]))+'</span>'+(form.elements.namedItem(key)?.value.trim()?'<label class="check-label"><input type="checkbox" data-intake-replace="'+esc(key)+'" '+(selection.replace?.includes(key)?'checked':'')+'>替换已有'+esc(intakeLabels[key])+'</label>':'')+'</div></div>').join('')+'</div>'
     +'<fieldset class="intake-authors"><legend>原始署名与身份核对</legend>'+p.authors.map((author,index)=>{
       const row=saved[index],choices=p.candidates?.authors?.[index]?.items||[];
       return '<section data-intake-author="'+index+'"><label>原始署名<input data-intake-name value="'+esc(row?.raw_name||author.raw_name)+'"></label>'
-        +'<p class="form-help">外部标识：'+esc(JSON.stringify(author.identifiers||{}))+(author.affiliations?.length?' · 文章署名单位线索：'+esc(author.affiliations.join('; ')):'')+'</p>'
+        +(Object.keys(author.identifiers||{}).length||author.affiliations?.length?'<p> '+(Object.keys(author.identifiers||{}).length?'外部标识：'+esc(Object.entries(author.identifiers).map(([key,value])=>key+': '+value).join('；')):'')+(author.affiliations?.length?' 文章署名单位线索：'+esc(author.affiliations.join('; ')):'')+'</p>':'')
         +'<label>已有作者／机构候选<select data-intake-target><option value="">保留待确认署名，之后补档</option>'+choices.map(c=>'<option value="'+esc(c.type+':'+c.id)+'" '+(row?.target_type+':'+row?.target_id===c.type+':'+c.id?'selected':'')+'>'+esc(c.name+' · '+c.basis)+'</option>').join('')+'</select></label>'
         +(p.candidates?.authors?.[index]?.truncated?'<p class="form-help">仅显示前 30 个同名候选（共 '+p.candidates.authors[index].total+' 个）；可先保留署名，保存后在作品署名维护中搜索完整档案。</p>':'')+'<label class="check-label"><input type="checkbox" data-intake-confirm '+(row?.status==='confirmed'?'checked':'')+'>我已核对所选身份，确认此署名属于该档案</label><label>身份确认依据<input data-intake-evidence value="'+esc(row?.evidence||'')+'" placeholder="文章署名页／作者主页与核对说明"></label></section>';
     }).join('')+'</fieldset>'
@@ -92,6 +109,8 @@ function applyIntake(form){
     for(const select of form.querySelectorAll('[data-intake-source]'))if(select.value)restoreSourceSelection(form.elements.namedItem(select.dataset.intakeSource),select.value);
     refreshSourcePickers(form);
     form.elements.intake_token.value=p.token;form.elements.intake_byline_json.value=JSON.stringify(items);
+    form.elements.intake_preview_state.value=JSON.stringify({authors:items,sources:Object.fromEntries([...form.querySelectorAll('[data-intake-source]')].map(el=>[el.dataset.intakeSource,el.value])),replace:[...form.querySelectorAll('[data-intake-replace]:checked')].map(el=>el.dataset.intakeReplace)});
+    renderIntakePreview(form);
     form.querySelector('[data-intake-status]').textContent='已应用到表单；已有字段仅按你的选择替换。可继续修改后保存。';
     form._dirty=true;saveEditorDraft(form,true);
   }catch(error){form.querySelector('[data-intake-status]').textContent=error.message;}
