@@ -4,8 +4,11 @@ import hashlib
 import json
 from pathlib import Path
 import sqlite3
+import sys
 import zipfile
 from contextlib import closing
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+
 from platform_app.maintenance import restore_backup
 from platform_app.web import create_app
 

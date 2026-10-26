@@ -24,9 +24,11 @@ async function savedSearchLibraryPage(render){
       if(epoch!==savedSearchUI.epoch||account!==state.me?.id||load!==state.loadId)return '';
       savedSearchUI.active=saved;
       const page=state.params.get('page');state.params=new URLSearchParams(saved.conditions);state.params.set('saved_search',sid);if(page)state.params.set('page',page);
+      if(typeof libraryRouteContext==='function')libraryRouteContext(saved.version);
     }catch(error){
       if(epoch!==savedSearchUI.epoch||account!==state.me?.id||load!==state.loadId)return '';
       savedSearchUI.active=null;
+      if(typeof libraryRouteContext==='function')libraryRouteContext(0);
       return '<h1>个人常用检索</h1><div class="notice error">'+esc(error.message)+'</div>'+linkButton('我的检索','saved-manage');
     }
   }else savedSearchUI.active=null;
