@@ -156,6 +156,106 @@ class AttachmentAnchorBrowserTests(unittest.TestCase):
                         results.append({'width': width, 'content': content, 'range_utf16': [start, end], 'anchor': anchor})
         (self.out / 'selection-results.json').write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding='utf-8')
 
+    def restore_excerpt_draft(self, page):
+        page.get_by_role('button', name='保存草稿', exact=True).click()
+        page.get_by_role('button', name='关闭并保留草稿', exact=True).click()
+        page.goto(self.url + '/#drafts')
+        page.get_by_role('button', name='继续编辑', exact=True).click()
+        page.get_by_role('button', name='恢复草稿', exact=True).click()
+        form = page.locator('form[data-form=record]')
+        expect(form).not_to_have_attribute('inert')
+        return form
+
+    def test_selected_instance_survives_new_excerpt_draft(self):
+        results = []
+        for width in [1366, 390]:
+            with self.subTest(width=width), self.browser.new_context(viewport={'width': width, 'height': 900}) as context:
+                request = context.request
+                token = request.get(self.url + '/api/session').json()['csrf']
+                token = request.post(self.url + '/api/login', data={'username': 'researcher', 'password': 'LocalDemo2026!'}, headers={'X-CSRF-Token': token}).json()['csrf']
+                response = request.post(self.url + '/api/records', multipart={'data': json.dumps({'kind': 'report', 'title': f'DraftOriginal{width}', 'sharing_confirmed': True}), 'file': {'name': 'draft.txt', 'mimeType': 'text/plain', 'buffer': b'banana END'}}, headers={'X-CSRF-Token': token})
+                self.assertEqual(response.status, 201, response.text())
+                original = request.get(self.url + '/api/records/' + response.json()['id']).json()
+                page = context.new_page()
+                page.goto(self.url + '/#library?q=banana')
+                page.locator('[data-action=attachment-excerpt][data-id="' + original['attachments'][0]['id'] + '"]').click()
+                segment = page.locator('[data-attachment-segment]')
+                segment.evaluate('(el) => {el.focus(); el.setSelectionRange(3,6);}')
+                page.get_by_role('button', name='将选中文字作为摘录', exact=True).click()
+                form = page.locator('form[data-form=record]')
+                expect(form.locator('[name=evidence_selection_start]')).to_have_value('3')
+                title = f'DraftExcerpt{width}'
+                form.locator('[name=title]').fill(title)
+                form = self.restore_excerpt_draft(page)
+                expect(form.locator('[name=quote]')).to_have_value('ana')
+                expect(form.locator('[name=evidence_selection_start]')).to_have_value('3')
+                form.locator('[type=submit]').click()
+                expect(page.get_by_text('已在指定位置的提取文字中匹配', exact=False).first).to_be_visible()
+                found = request.get(self.url + '/api/records?kind=research_note&q=' + title).json()['items']
+                self.assertEqual(len(found), 1)
+                anchor = request.get(self.url + '/api/records/' + found[0]['id']).json()['evidence_snapshot']['attachment_anchor']
+                self.assertEqual((anchor['context_prefix'], anchor['context_suffix']), ('ban', ' END'))
+                page.locator('.attachment-anchor').screenshot(path=str(self.out / f'draft-new-{width}.png'))
+                results.append({'width': width, 'anchor': anchor})
+        (self.out / 'draft-new-results.json').write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding='utf-8')
+
+    def open_excerpt_editor(self, page, title):
+        page.goto(self.url + '/#library?q=' + title)
+        page.get_by_role('button', name=title, exact=True).first.click()
+        page.get_by_text('整理、编辑与核对', exact=True).click()
+        page.get_by_role('button', name='编辑内容', exact=True).click()
+        form = page.locator('form[data-form=record]')
+        expect(form).not_to_have_attribute('inert')
+        return form
+
+    def test_saved_anchor_draft_retains_position_and_clears_it_after_reference_edits(self):
+        results = []
+        for width in [1366, 390]:
+            for field, value, prefix, suffix in [('evidence_selection_start', 3, 'ban', ' ana END'), ('evidence_occurrence', 1, 'banana ', ' END')]:
+                with self.subTest(width=width, field=field), self.browser.new_context(viewport={'width': width, 'height': 900}) as context:
+                    request = context.request
+                    token = request.get(self.url + '/api/session').json()['csrf']
+                    token = request.post(self.url + '/api/login', data={'username': 'researcher', 'password': 'LocalDemo2026!'}, headers={'X-CSRF-Token': token}).json()['csrf']
+                    headers = {'X-CSRF-Token': token}
+                    response = request.post(self.url + '/api/records', multipart={'data': json.dumps({'kind': 'report', 'title': 'Edit draft original', 'sharing_confirmed': True}), 'file': {'name': 'edit.txt', 'mimeType': 'text/plain', 'buffer': b'banana ana END'}}, headers=headers)
+                    self.assertEqual(response.status, 201, response.text())
+                    original = request.get(self.url + '/api/records/' + response.json()['id']).json()
+                    aid = original['attachments'][0]['id']
+                    title = f'EditDraft{width}{field}'
+                    response = request.post(self.url + '/api/records', data={'kind': 'research_note', 'title': title, 'evidence_record_id': original['id'], 'evidence_attachment_id': aid, 'quote': 'ana', 'locator': '第 1 行', field: value}, headers=headers)
+                    self.assertEqual(response.status, 201, response.text())
+                    nid = response.json()['id']
+                    page = context.new_page()
+                    form = self.open_excerpt_editor(page, title)
+                    expect(form.locator('[name=' + field + ']')).to_have_value(str(value))
+                    form.locator('[name=interpretation]').fill('Retain the selected original instance')
+                    form = self.restore_excerpt_draft(page)
+                    expect(form.locator('[name=' + field + ']')).to_have_value(str(value))
+                    form.locator('[name=refresh_evidence]').check()
+                    form.locator('[type=submit]').click()
+                    expect(page.get_by_text('已在指定位置的提取文字中匹配', exact=False).first).to_be_visible()
+                    anchor = request.get(self.url + '/api/records/' + nid).json()['evidence_snapshot']['attachment_anchor']
+                    self.assertEqual((anchor['context_prefix'], anchor['context_suffix']), (prefix, suffix))
+                    self.assertEqual(anchor['selection_start' if field == 'evidence_selection_start' else 'occurrence'], value)
+                    for changed, replacement in [('quote', 'END'), ('locator', '第 2 行'), ('evidence_attachment_id', '')]:
+                        form = self.open_excerpt_editor(page, title)
+                        discard = page.get_by_role('button', name='舍弃这份草稿', exact=True)
+                        if discard.count():
+                            discard.click()
+                        expect(form.locator('[name=' + field + ']')).to_have_value(str(value))
+                        control = form.locator('[name=' + changed + ']')
+                        if changed == 'evidence_attachment_id':
+                            control.select_option(replacement)
+                        else:
+                            control.fill(replacement)
+                        expect(form.locator('[name=' + field + ']')).to_have_count(0)
+                        form = self.restore_excerpt_draft(page)
+                        expect(form.locator('[name=' + changed + ']')).to_have_value(replacement)
+                        expect(form.locator('[name=' + field + ']')).to_have_count(0)
+                        page.get_by_role('button', name='关闭并保留草稿', exact=True).click()
+                    results.append({'width': width, 'field': field, 'anchor_after_draft_refresh': anchor, 'invalidated_by': ['quote', 'locator', 'evidence_attachment_id']})
+        (self.out / 'draft-edit-results.json').write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding='utf-8')
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
