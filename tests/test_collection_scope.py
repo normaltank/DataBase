@@ -150,12 +150,15 @@ class CollectionScopeTests(unittest.TestCase):
         unchanged = self.client.get(path).json
         self.assertEqual((unchanged['version'], unchanged['items'][0]['id'], unchanged['excluded_items'][0]['id']), (3, keep, duplicate))
         self.assertEqual(self.client.get('/api/records/' + duplicate).json['id'], duplicate)
+        conflict_revision = self.client.get(path + '/history').json['items'][0]['id']
         self.call(path + '/items', {'record_id': keep, 'version': 3, 'remove': True})
         self.call('/api/merge', merge, who='admin')
         current = self.client.get(path).json
         self.assertEqual([(r['id'], r['rationale']) for r in current['excluded_items']], [(keep, 'Different coverage')])
         self.assertEqual(current['version'], 5)
         self.call(path + '/items', {'record_id': keep, 'version': 4, 'remove': True}, 409)
+        self.call(path + '/restore/' + str(conflict_revision), {'version': 5}, 409)
+        self.assertEqual(self.client.get(path).json, current)
 
     def test_bulk_add_defaults_to_included_and_keeps_existing_exclusions(self):
         first, second, cid = self.record(), self.record(), self.topic()
@@ -245,6 +248,10 @@ class CollectionScopeTests(unittest.TestCase):
         client.post('/api/login', json={'username': 'researcher', 'password': 'LocalDemo2026!'}, headers={'X-CSRF-Token': token})
         current = client.get('/api/collections/' + cid).json
         self.assertEqual((current['items'][0]['id'], current['items'][0]['disposition'], current['items'][0]['rationale'], current['scope_log']), (rid, 'included', '', []))
+        history = client.get('/api/collections/' + cid + '/history').json['items']
+        historical = client.get('/api/history/' + str(history[0]['id'])).json['snapshot']
+        self.assertEqual(historical['scope_log'], [])
+        self.assertEqual(historical['item_details'], [{'record_id': rid, 'disposition': 'included', 'rationale': ''}])
         failed = restore_backup(legacy_backup, Path(self.temp.name) / 'failed-upgrade')
         with sqlite3.connect(failed / 'platform.sqlite3') as db:
             db.execute("CREATE TRIGGER fail_scope BEFORE UPDATE ON settings WHEN OLD.key='schema_version' AND NEW.value='12' BEGIN SELECT RAISE(ABORT,'synthetic migration failure'); END")
