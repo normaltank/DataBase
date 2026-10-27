@@ -5,7 +5,7 @@ const libraryBulk={busy:false,message:'',epoch:0,selection:''};
 function libraryBulkRender() {
   const mount=document.querySelector('[data-library-batch-actions]');if(!mount)return;
   mount.hidden=!window.librarySelection.count();
-  if(!mount.firstElementChild)mount.innerHTML='<button class="button tiny" type="button" data-action="bulk-favorite">收藏选中</button><button class="button tiny" type="button" data-action="bulk-collection">加入专题</button><button class="button tiny" type="button" data-action="bulk-export">导出选中 CSV</button><p class="small" data-library-batch-status role="status" aria-live="polite"></p>';
+  if(!mount.firstElementChild)mount.innerHTML='<button class="button tiny" type="button" data-action="bulk-favorite">收藏选中</button><button class="button tiny" type="button" data-action="bulk-collection">加入专题</button><button class="button tiny" type="button" data-action="bulk-export">导出选中 CSV</button><button class="button tiny" type="button" data-action="bulk-export-ris">导出选中 RIS</button><p class="small" data-library-batch-status role="status" aria-live="polite"></p>';
   mount.querySelectorAll('button').forEach(button=>{button.disabled=libraryBulk.busy||!window.librarySelection.count();});
   mount.querySelector('[data-library-batch-status]').textContent=libraryBulk.message;
 }
@@ -58,16 +58,17 @@ async function libraryBulkAddCollection(form) {
   }}
   finally{if(job.current()){libraryBulkBusy(false);if(form.isConnected)button.disabled=false;}}
 }
-async function libraryBulkExport() {
+async function libraryBulkExport(format='csv') {
   const job=libraryBulkJob();if(!job.ids.length)return;
-  libraryBulkBusy(true);libraryBulkMessage('正在生成选中 CSV…');
+  const label=format.toUpperCase();
+  libraryBulkBusy(true);libraryBulkMessage('正在生成选中 '+label+'…');
   try{
-    const response=await fetch('/api/library/bulk/export',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':state.csrf},body:JSON.stringify({ids:job.ids})});
+    const response=await fetch('/api/library/bulk/export'+(format==='ris'?'-ris':''),{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':state.csrf},body:JSON.stringify({ids:job.ids})});
     if(!job.current())return;
     if(!response.ok){const result=await response.json();if(response.status===401){state.me=null;showLogin();return;}throw new Error(result.error||'导出失败，请重试。');}
     const blob=await response.blob();if(!job.current())return;
-    const url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download='research-selected-records.csv';link.click();setTimeout(()=>URL.revokeObjectURL(url),10000);
-    libraryBulkMessage('已生成选中的 '+job.ids.length+' 条题录，正在下载 CSV。');
+    const url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download='research-selected-records.'+format;link.click();setTimeout(()=>URL.revokeObjectURL(url),10000);
+    libraryBulkMessage('已生成选中的 '+job.ids.length+' 条题录，正在下载 '+label+'。');
   }catch(error){if(job.current())libraryBulkMessage('选中导出未完成，已保留选择。'+error.message);}
   finally{if(job.current())libraryBulkBusy(false);}
 }
@@ -81,12 +82,13 @@ document.addEventListener('library:selection-change',event=>{
 document.addEventListener('click',event=>{
   const button=event.target.closest('[data-action]');if(!button)return;
   const action=button.dataset.action;
-  if(!['bulk-favorite','bulk-collection','bulk-export','bulk-refresh-collections'].includes(action))return;
+  if(!['bulk-favorite','bulk-collection','bulk-export','bulk-export-ris','bulk-refresh-collections'].includes(action))return;
   event.preventDefault();
   if(libraryBulk.busy)return;
   if(action==='bulk-favorite')libraryBulkFavorite();
   else if(action==='bulk-collection')libraryBulkCollections();
   else if(action==='bulk-export')libraryBulkExport();
+  else if(action==='bulk-export-ris')libraryBulkExport('ris');
   else libraryBulkCollections(document.querySelector('#bulk-collection-target')?.value||'');
 });
 document.addEventListener('submit',event=>{if(event.target.dataset.form==='bulk-collection'){event.preventDefault();if(!libraryBulk.busy)libraryBulkAddCollection(event.target);}});

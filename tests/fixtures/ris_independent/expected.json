@@ -1,0 +1,453 @@
+{
+  "metadata": {
+    "spec_commit": "d9129c294f428c61227dcb62c9a0f2389d4653eb",
+    "spec_version": "1.0",
+    "origin": "Agent-authored fixed synthetic literals, independently prepared before application implementation review. No real database, research materials, websites, identities, human review or research validation are claimed.",
+    "sources": [
+      "repository docs/specs/标准题录交换.md at d9129c2",
+      "https://support.clarivate.com/Endnote/s/article/EndNote-Directions-for-implementing-EndNote-Direct-Export?language=en_US",
+      "https://github.com/MrTango/rispy/tree/v0.10.0"
+    ],
+    "export_comparison_scope": "Current standard bibliographic metadata only. Does not assert lossless original-file reproduction, original tag ordering, identity confirmation, attachments, ACL, Chinese adopted translations or revision history.",
+    "alias_priority_boundary": "The frozen spec requires fixed priority but does not name the winning alias. The conflict fixture fixes raw and warning obligations, not a guessed winning value. Inspect published #51 contract before adding an assertion for its chosen field."
+  },
+  "fixtures": {
+    "01_core_utf8_lf.ris": {
+      "encoding": "UTF-8 without BOM; LF",
+      "supported_records": 5,
+      "basis": "Frozen type/date/page/ordered-author mappings; canonical tag grammar from Clarivate.",
+      "import_records": [
+        {
+          "index": 1,
+          "raw_type": "JOUR",
+          "kind": "journal_article",
+          "title": "合成：Rīga pētniecība — Synthetic study",
+          "raw_authors": [
+            "Bērziņš, Jānis",
+            "Müller, Zoë"
+          ],
+          "published_on": "2020",
+          "publication_title": "Synthetic Baltic Review",
+          "volume": "27",
+          "issue": "2",
+          "pages": "S12-S19",
+          "issn_values": [
+            "1234-5678",
+            "8765-4321"
+          ],
+          "doi": "10.9999/synthetic-fixture.0001",
+          "url": "https://example.invalid/synthetic/journal",
+          "abstract": "合成摘要；ā, ē, ī, ö. No real research claim.",
+          "keywords_values": [
+            "synthetic",
+            "合成"
+          ],
+          "language": "lv"
+        },
+        {
+          "index": 2,
+          "raw_type": "RPRT",
+          "kind": "report",
+          "title": "Synthetic institutional report — 合成报告",
+          "raw_authors": [
+            "Synthetic Research Council, Unit A"
+          ],
+          "published_on": "2021-07",
+          "pages": "e0042",
+          "url": "https://example.invalid/synthetic/report",
+          "unmapped_tags": [
+            "PB",
+            "AD"
+          ],
+          "identity_status": "pending; comma is part of one raw author, not a split"
+        },
+        {
+          "index": 3,
+          "raw_type": "WEB",
+          "kind": "other",
+          "title": "合成网页 — Synthetic web",
+          "raw_authors": [
+            "Synthetic Web Office"
+          ],
+          "published_on": "2022-02-03",
+          "url": "https://example.invalid/synthetic/web"
+        },
+        {
+          "index": 4,
+          "raw_type": "ELEC",
+          "kind": "other",
+          "title": "Synthetic legacy electronic citation",
+          "raw_authors": [
+            "Legacy Unit, Synthetic"
+          ],
+          "published_on": "2019",
+          "url": "https://example.invalid/synthetic/legacy"
+        },
+        {
+          "index": 5,
+          "raw_type": "GEN",
+          "kind": "other",
+          "title": "Synthetic generic external material",
+          "raw_authors": [],
+          "published_on": "2018-11",
+          "pages": "Article-017"
+        }
+      ],
+      "obligations": [
+        "All raw bylines remain pending unless explicit identity and evidence are supplied.",
+        "No real URL access or attachment download.",
+        "PB and AD do not create a source, host, country or employment relation.",
+        "Both SN values survive the standard export.",
+        "Do not fabricate month/day for year-only input.",
+        "All file values synthetic; ISSNs are display values, not validation or ownership claims."
+      ]
+    },
+    "02_core_bom_crlf.ris": {
+      "encoding": "UTF-8 BOM; CRLF",
+      "semantic_equivalent_to": "01_core_utf8_lf.ris",
+      "basis": "Frozen explicit BOM/CRLF support. Decode BOM deliberately; this is an application contract, not proof of rispy default BOM support.",
+      "obligations": [
+        "Same five semantic records as 01.",
+        "When recording file digest, hash exact bytes; 01 and 02 must have different digests."
+      ]
+    },
+    "03_alias_conflicts_unknown.ris": {
+      "supported_records": 1,
+      "kind": "journal_article",
+      "basis": "Frozen unknown/repeated/order preservation and conflict-warning requirements. Spec does not fix literal alias winners.",
+      "ordered_author_occurrences": [
+        [
+          "AU",
+          "Smith, Alex"
+        ],
+        [
+          "A1",
+          "García, José"
+        ],
+        [
+          "AU",
+          "Smith, Alex"
+        ]
+      ],
+      "ordered_sn_occurrences": [
+        "1234-5678",
+        "8765-4321",
+        "1234-5678"
+      ],
+      "ordered_unknown_occurrences": [
+        [
+          "X1",
+          "Synthetic unknown first"
+        ],
+        [
+          "X1",
+          "Synthetic unknown second"
+        ]
+      ],
+      "conflict_groups": [
+        [
+          "TI",
+          "T1"
+        ],
+        [
+          "JF",
+          "JO",
+          "T2"
+        ],
+        [
+          "PY",
+          "Y1",
+          "DA"
+        ],
+        [
+          "AB",
+          "N2"
+        ]
+      ],
+      "unmapped_tags": [
+        "X1",
+        "PB",
+        "AD",
+        "L1"
+      ],
+      "obligations": [
+        "Keep complete raw record text and tag order including duplicate values.",
+        "Warn about conflicting aliases, including incompatible dates.",
+        "Never merge duplicate author names into one identity.",
+        "Unknown and attachment tags remain inert evidence; never execute/read L1.",
+        "Do not replay L1/PB/AD/X1 as arbitrary old tags into standard export."
+      ],
+      "export_after_manual_resolution_case": "resolved_conflict"
+    },
+    "04_unsupported_book_and_valid.ris": {
+      "basis": "BOOK is outside frozen input scope although rispy can parse it.",
+      "records": [
+        {
+          "index": 1,
+          "raw_type": "BOOK",
+          "supported": false,
+          "save_allowed": false,
+          "expected": "Clearly unsupported; allow skip."
+        },
+        {
+          "index": 2,
+          "raw_type": "JOUR",
+          "supported": true,
+          "title": "Synthetic valid record after unsupported book",
+          "published_on": "2024",
+          "expected": "Remains separately processable; no auto-save."
+        }
+      ]
+    },
+    "05_invalid_date_and_missing_title.ris": {
+      "basis": "Frozen invalid-date raw retention and existing required-title save boundary.",
+      "records": [
+        {
+          "index": 1,
+          "title": "Synthetic invalid calendar date",
+          "raw_date": "2023/13/40",
+          "published_on": "",
+          "warning_required": true,
+          "expected": "Keep original date in evidence; no invented date. User can correct or explicitly leave blank according to UI."
+        },
+        {
+          "index": 2,
+          "raw_type": "RPRT",
+          "title": "",
+          "save_without_correction": false,
+          "expected": "Title missing is visible; no guessed title from author."
+        }
+      ]
+    },
+    "06_unterminated_structure.ris": {
+      "basis": "Frozen damaged-fragment visibility; a permissive independent reader may silently discard the suffix.",
+      "complete_prefix_records": 1,
+      "damaged_record_index": 2,
+      "allowed_application_outcomes": [
+        "Explicit file rejection with structural reason.",
+        "Complete prefix available and damaged suffix visibly blocked."
+      ],
+      "forbidden_application_outcomes": [
+        "Silent success returning only the prefix.",
+        "Saving unterminated second record as valid without explicit repair."
+      ]
+    },
+    "07_nested_ty_structure.ris": {
+      "basis": "Frozen reject file where boundaries cannot be segmented reliably.",
+      "file_must_be_rejected": true,
+      "reason": "New TY before matching ER; ambiguous record structure.",
+      "obligations": [
+        "No formal records written.",
+        "No silent merging of two apparent records into one."
+      ]
+    },
+    "08_reference_standard_export.ris": {
+      "basis": "Agent-authored fixed canonical reference for the verifier only; not application output, human review or acceptance.",
+      "encoding": "UTF-8 without BOM; CRLF",
+      "export_case": "core"
+    },
+    "09_translated_title_reader_probe.ris": {
+      "basis": "Independent rispy official TT -> translated_title mapping. Technical probe, not expansion of frozen importer scope.",
+      "default_rispy": {
+        "title": "Sintētisks pašreizējais oriģinālnosaukums",
+        "translated_title": "合成人工采用中文题名"
+      },
+      "boundary": "No TI/T1 language split. TT has no provenance, translation-provider, adoption-status or language metadata; do not export an unadopted machine version. Application use requires an explicit mapping decision."
+    },
+    "10_negative_changed_title_export.ris": {
+      "basis": "Fixed deliberately wrong title; independent checker must reject it against core expected values.",
+      "expected": "FAIL; the complete checker must detect a current-title mismatch."
+    }
+  },
+  "export_cases": {
+    "core": {
+      "setup": "Import 01 (or 02), keep raw metadata unchanged, explicitly select its five saved records in the same order, export RIS. No author identity confirmation.",
+      "records": [
+        {
+          "type": "JOUR",
+          "title": "合成：Rīga pētniecība — Synthetic study",
+          "authors": [
+            "Bērziņš, Jānis",
+            "Müller, Zoë"
+          ],
+          "publication_title": "Synthetic Baltic Review",
+          "published_on": "2020",
+          "volume": "27",
+          "issue": "2",
+          "pages": "S12-S19",
+          "issn": [
+            "1234-5678",
+            "8765-4321"
+          ],
+          "doi": "10.9999/synthetic-fixture.0001",
+          "url": "https://example.invalid/synthetic/journal",
+          "abstract": "合成摘要；ā, ē, ī, ö. No real research claim.",
+          "keywords": [
+            "synthetic",
+            "合成"
+          ],
+          "language": "lv"
+        },
+        {
+          "type": "RPRT",
+          "title": "Synthetic institutional report — 合成报告",
+          "authors": [
+            "Synthetic Research Council, Unit A"
+          ],
+          "publication_title": "",
+          "published_on": "2021-07",
+          "volume": "",
+          "issue": "",
+          "pages": "e0042",
+          "issn": [],
+          "doi": "",
+          "url": "https://example.invalid/synthetic/report",
+          "abstract": "",
+          "keywords": [],
+          "language": ""
+        },
+        {
+          "type": "WEB",
+          "title": "合成网页 — Synthetic web",
+          "authors": [
+            "Synthetic Web Office"
+          ],
+          "publication_title": "",
+          "published_on": "2022-02-03",
+          "volume": "",
+          "issue": "",
+          "pages": "",
+          "issn": [],
+          "doi": "",
+          "url": "https://example.invalid/synthetic/web",
+          "abstract": "",
+          "keywords": [],
+          "language": ""
+        },
+        {
+          "type": "WEB",
+          "title": "Synthetic legacy electronic citation",
+          "authors": [
+            "Legacy Unit, Synthetic"
+          ],
+          "publication_title": "",
+          "published_on": "2019",
+          "volume": "",
+          "issue": "",
+          "pages": "",
+          "issn": [],
+          "doi": "",
+          "url": "https://example.invalid/synthetic/legacy",
+          "abstract": "",
+          "keywords": [],
+          "language": ""
+        },
+        {
+          "type": "GEN",
+          "title": "Synthetic generic external material",
+          "authors": [],
+          "publication_title": "",
+          "published_on": "2018-11",
+          "volume": "",
+          "issue": "",
+          "pages": "Article-017",
+          "issn": [],
+          "doi": "",
+          "url": "",
+          "abstract": "",
+          "keywords": [],
+          "language": ""
+        }
+      ]
+    },
+    "resolved_conflict": {
+      "setup": "Import 03 and explicitly edit every mapped field to these values before saving. This tests current fields winning over old raw evidence, without assuming undocumented alias priority. Clear any fields absent here.",
+      "records": [
+        {
+          "type": "JOUR",
+          "title": "Synthetic manually corrected title",
+          "authors": [
+            "García, José",
+            "Smith, Alex"
+          ],
+          "publication_title": "Synthetic corrected journal",
+          "published_on": "2025-06",
+          "volume": "9",
+          "issue": "4",
+          "pages": "e009",
+          "issn": [
+            "1111-1111",
+            "2222-2222"
+          ],
+          "doi": "",
+          "url": "",
+          "abstract": "Synthetic corrected abstract",
+          "keywords": [
+            "corrected"
+          ],
+          "language": "en"
+        }
+      ]
+    }
+  },
+  "rispy_default_limitations_expected": {
+    "core_count": 5,
+    "default_core_first_issn": "1234-5678",
+    "configured_core_first_issn": [
+      "1234-5678",
+      "8765-4321"
+    ],
+    "default_conflict_issn": "1234-5678",
+    "configured_conflict_issn": [
+      "1234-5678",
+      "8765-4321",
+      "1234-5678"
+    ],
+    "default_alias_keys_distinct": [
+      "title",
+      "primary_title",
+      "alternate_title3",
+      "journal_name",
+      "secondary_title",
+      "year",
+      "publication_year",
+      "date",
+      "abstract",
+      "notes_abstract",
+      "authors",
+      "first_authors"
+    ],
+    "default_unterminated_records": 1,
+    "note": "Actual rispy 0.10.0 keeps the FIRST repeated non-list tag (setdefault), not last. Default parsing does not enforce application type/identity/date/title/permission rules; truncated input may return a valid prefix without an error.",
+    "tt_title": "Sintētisks pašreizējais oriģinālnosaukums",
+    "tt_translated_title": "合成人工采用中文题名"
+  },
+  "title_mapping_probe": {
+    "status": "Technical recommendation only; #52 must review and freeze literal export/import contract.",
+    "synthetic_current_fields": {
+      "title": "Synthetic current main title",
+      "original_title": "Sintētisks agrākais oriģinālnosaukums",
+      "chinese_title": "合成人工采用中文题名",
+      "unadopted_machine_title": "合成未采用机器题名"
+    },
+    "recommendation": {
+      "TI": "Synthetic current main title",
+      "TT_if_enabled": "合成人工采用中文题名",
+      "N1_if_original_title_differs": "Original title: Sintētisks agrākais oriģinālnosaukums"
+    },
+    "forbidden": [
+      "Do not use conflicting TI/T1 as a language pair.",
+      "Do not read old raw evidence to refill an emptied current field.",
+      "Do not output unadopted_machine_title as TT.",
+      "Do not interpret an imported TT as an adopted Chinese title without an explicit import contract."
+    ],
+    "evidence": {
+      "rispy_official_config": "https://github.com/MrTango/rispy/blob/b7aae3b2069ced3fb75287711300f2edf0bcac21/rispy/config.py",
+      "rispy_official_readme": "https://github.com/MrTango/rispy",
+      "endnote_generic_fields": "https://docs.endnote.com/docs/endnote/2025/v1/windows/en/content/17reftypes/the_generic_type.htm"
+    },
+    "confirmed": "rispy 0.10.0 has TT->translated_title; verified by 09 and self-check. EndNote official generic fields include a Translated Title field.",
+    "not_confirmed": "Current Clarivate RIS per-type tag spreadsheet was not fetched; do not claim current original-vendor TT conformance or universal preservation.",
+    "coverage": "RIS does not carry all internal title slots, adoption history or translation versions. Keep full internal state in content export/backup."
+  }
+}

@@ -1,0 +1,49 @@
+TY  - JOUR
+TI  - 合成：Rīga pētniecība — Synthetic study
+AU  - Bērziņš, Jānis
+AU  - Müller, Zoë
+JF  - Synthetic Baltic Review
+PY  - 2020
+VL  - 27
+IS  - 2
+SP  - S12
+EP  - S19
+SN  - 1234-5678
+SN  - 8765-4321
+DO  - 10.9999/synthetic-fixture.0001
+UR  - https://example.invalid/synthetic/journal
+AB  - 合成摘要；ā, ē, ī, ö. No real research claim.
+KW  - synthetic
+KW  - 合成
+LA  - lv
+ER  - 
+
+TY  - RPRT
+TI  - Synthetic institutional report — 合成报告
+AU  - Synthetic Research Council, Unit A
+Y1  - 2021/07
+SP  - e0042
+UR  - https://example.invalid/synthetic/report
+PB  - Synthetic Publisher
+AD  - Synthetic address; not an employment claim
+ER  - 
+
+TY  - WEB
+T1  - 合成网页 — Synthetic web
+AU  - Synthetic Web Office
+DA  - 2022/02/03
+UR  - https://example.invalid/synthetic/web
+ER  - 
+
+TY  - ELEC
+TI  - Synthetic legacy electronic citation
+AU  - Legacy Unit, Synthetic
+PY  - 2019
+UR  - https://example.invalid/synthetic/legacy
+ER  - 
+
+TY  - GEN
+TI  - Synthetic generic external material
+PY  - 2018/11
+SP  - Article-017
+ER  - 

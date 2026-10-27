@@ -23,9 +23,13 @@
 
 ## 个人常用检索
 
+标准文件交换见[规格 1.0](specs/标准题录交换.md)与 [#36](https://github.com/normaltank/DataBase/issues/36)：首版 RIS 文件预览、逐条人工核对保存、原始条目依据及选中导出。选中导出、独立 reader、跨库导入及新目录恢复的当次开发证据见[验收快照](../work/RIS选中导出开发验收.md)。出版字段已由 PR #50 交付，本轮复用；标准交换不代替内容包与完整备份。
+
+PR #53 审查返修的合并后重试防重、多来源队列草稿保全及本机红绿证据见[统一返修验证快照](../work/RIS统一返修验证.md)，不替代原审查代理的复核结论。
+
 [规格 1.0](specs/个人常用检索.md)定义个人保存查询、动态重查、管理与权限／恢复边界，授权与本轮选取依据见 [R018](需求讨论记录.md#r018继续内化-zotero-的基础资料管理)，实施由 [#34](https://github.com/normaltank/DataBase/issues/34)跟踪。本任务继续借鉴 Zotero 的基础资料工作方式；已有返回位置及候选完整性问题分别由 [#30](https://github.com/normaltank/DataBase/issues/30)、[#31](https://github.com/normaltank/DataBase/issues/31)跟踪；本轮交付入口为 [PR #35](https://github.com/normaltank/DataBase/pull/35)。
 
-[整组验收](../work/常用检索与资料工作流验收.md)记录常用检索、连续工作位置及完整候选的实际复现、升级恢复、浏览器回归与 Standards／Spec 审查。它补齐一批资料管理能力；标准题录交换由 [#36](https://github.com/normaltank/DataBase/issues/36)继续细化。
+[整组验收](../work/常用检索与资料工作流验收.md)记录常用检索、连续工作位置及完整候选的实际复现、升级恢复、浏览器回归与 Standards／Spec 审查。它补齐一批资料管理能力；本轮 RIS 标准题录交换见[规格 1.0](specs/标准题录交换.md)，集成、审查及交付状态见 [#36](https://github.com/normaltank/DataBase/issues/36)／[PR #53](https://github.com/normaltank/DataBase/pull/53)，其他交换格式未纳入。
 
 ## 基础数据库查找与来源选择
 

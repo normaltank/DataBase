@@ -1,0 +1,2 @@
+-r requirements.txt
+rispy==0.10.0

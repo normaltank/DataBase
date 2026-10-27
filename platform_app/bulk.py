@@ -3,6 +3,7 @@ from flask import abort, jsonify
 
 from .record_revisions import check_version
 from .store import now, save_revision
+from . import ris_export
 
 LIMIT = 100
 
@@ -37,6 +38,13 @@ def register(app, ctx):
         with connection:
             connection.execute("BEGIN")
             return ctx.export_csv(selected(ctx.body()), "research-selected-records.csv")
+
+    @app.post("/api/library/bulk/export-ris")
+    def export_ris_selection():
+        connection = ctx.db()
+        with connection:
+            connection.execute("BEGIN")
+            return ris_export.download(connection, selected(ctx.body()))
 
     @app.post("/api/library/bulk/collections/<cid>")
     def add_collection_items(cid):

@@ -1,0 +1,5 @@
+.ris-queue ol{list-style:none;margin:12px 0;padding:0;max-height:280px;overflow:auto;border:1px solid var(--line,#d9dedb);border-radius:6px}
+.ris-queue li{display:flex;gap:8px;align-items:center;padding:10px;border-bottom:1px solid var(--line,#d9dedb)}
+.ris-queue li:last-child{border-bottom:0}.ris-queue li>div{flex:1;min-width:0;display:grid;gap:3px}.ris-queue li span,.ris-queue li small{overflow-wrap:anywhere}.ris-queue li small{color:var(--muted,#657168)}
+.ris-editor-head{min-width:0}.ris-editor-head .notice p{margin:4px 0}.ris-upload{margin:18px 0}.ris-upload input{margin:8px 0}.ris-hash{overflow-wrap:anywhere}.ris-queue pre,.ris-editor-head pre,.ris-upload pre{white-space:pre-wrap;overflow-wrap:anywhere;max-width:100%}
+@media(max-width:600px){.ris-queue li{flex-wrap:wrap}.ris-queue li>div{flex-basis:100%}.ris-queue ol{max-height:240px}.ris-queue button{min-height:40px}}
