@@ -303,6 +303,8 @@ def register(app, ctx):
                 index += '<li><a href="' + paths[rid] + '">' + html.escape(item["title"]) + "</a></li>"
                 content = '<p><a href="../index.html">返回目录</a></p>' + prose("出版题录", reading.citation(item)) + prose("身份与出处", f"编号：{rid}\n署名：{item['authors']}\n日期：{item['published_on']}\n版本：{item['version']}\n覆盖范围：{item['coverage']}\n原目录出处：{item['original_catalogue']}\n原文链接：{item['url']}")
                 content += reviews.html(item)
+                content += prose("当前阅读题名（" + {'human':'人工中文','machine':'机器中文，未人工校订','original':'原始信息'}.get(item.get('translation_origin'), '原始信息') + "）", item.get('display_title'))
+                content += prose("当前阅读摘要", item.get('display_abstract'))
                 content += prose("人工中文题名", item.get("chinese_title")) + prose("人工中文摘要", item.get("chinese_abstract"))
                 content += prose("机器译文版本、原文输入与出处（非核对结论）", json.dumps(item.get("translations", []), ensure_ascii=False, indent=2) if item.get("translations") else "")
                 content += prose("人工中文修订历史", json.dumps(item.get("translation_history", []), ensure_ascii=False, indent=2) if item.get("translation_history") else "")

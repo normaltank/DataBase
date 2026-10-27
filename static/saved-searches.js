@@ -1,14 +1,15 @@
 'use strict';
 // Saved searches own personal settings; libraryPage remains the sole result renderer.
 const savedSearchUI={account:null,active:null,epoch:0,managerEpoch:0,current:{},items:[],query:'',page:1};
-const savedSearchKeys=new Set(['q','kind','source','source_section','source_group','source_country','source_international','language','country','status','from','to','collection','sort','favorite','editable','evidence_of']);
+const savedSearchKeys=new Set(['q','kind','source','source_section','source_group','source_country','source_international','language','country','status','from','to','collection','sort','favorite','editable','evidence_of','topic','availability','date_field','date_unknown','feed']);
 function savedSearchConditions(query=recordQuery()){
   return Object.fromEntries([...query].filter(([key,value])=>savedSearchKeys.has(key)&&value.trim()));
 }
 function savedSearchSummary(value){
-  const names={q:'关键词',kind:'类型',source:'来源',source_section:'来源分区',source_group:'来源类型',source_country:'来源国别',source_international:'国际办刊',language:'语种',country:'研究对象',status:'核对状态',from:'日期起',to:'日期止',collection:'专题',sort:'排序',favorite:'我的收藏',editable:'可编辑',evidence_of:'原始资料'};
+  const names={q:'关键词',kind:'类型',source:'来源',source_section:'来源分区',source_group:'来源类型',source_country:'来源国别',source_international:'国际办刊',language:'语种',country:'研究对象',status:'核对状态',from:'日期起',to:'日期止',collection:'资料夹',sort:'排序',favorite:'我的收藏',editable:'可编辑',evidence_of:'原始资料',topic:'主题',availability:'内容可用性',date_field:'时间类型',date_unknown:'日期未知',feed:'资料范围'};
   const labels={favorite:{'1':'是'},editable:{'1':'是'},kind:kinds,language:languages,status:{pending:'待核对',verified:'已核对'},sort:{date:'发表时间',updated:'更新时间',title:'题名'},source_group:{institution:'机构',journal:'期刊',publication:'其他出版物'},source_international:{yes:'是',no:'否',unknown:'待确认'},source_section:{published:'发布／刊载',associated:'一般关联',translations:'目录译稿',outputs:'研究成果'}};
-  return Object.entries(value).map(([key,item])=>names[key]+'：'+(labels[key]?.[item]||(key==='source'?(state.sources.find(s=>s.id===item)?.name||'已保存的来源（当前不可访问）'):key==='collection'?(state.collections.find(c=>c.id===item)?.name||'已保存的专题（当前不可访问）'):null)||item)).join(' · ')||'全部可访问资料 · 按发表时间排序';
+  Object.assign(labels,{availability:readingAvailability,date_field:{published:'发表',collected:'首次收录',updated:'最近修订'},feed:{new:'新文章',all:'全部资料'},date_unknown:{'1':'是'}});labels.sort.collected='首次收录';
+  return Object.entries(value).map(([key,item])=>names[key]+'：'+String(item).split('|').map(part=>part==='__unknown__'?'未知／待分类':part==='__pending__'?'待确认':labels[key]?.[part]||(key==='source'?(state.sources.find(s=>s.id===part)?.name||'已保存的来源（当前不可访问）'):key==='collection'?(state.collections.find(c=>c.id===part)?.name||'已保存的资料夹（当前不可访问）'):null)||part).join('、')).join(' · ')||'全部可访问资料';
 }
 function savedSearchToolbar(){
   const saved=savedSearchUI.active;
@@ -32,7 +33,7 @@ async function savedSearchLibraryPage(render){
       return '<h1>个人常用检索</h1><div class="notice error">'+esc(error.message)+'</div>'+linkButton('我的检索','saved-manage');
     }
   }else savedSearchUI.active=null;
-  try{const root=document.createElement('div');root.innerHTML=await render();const heading=root.querySelector('.page-heading');if(heading)heading.insertAdjacentHTML('afterend',savedSearchToolbar());else root.insertAdjacentHTML('afterbegin',savedSearchToolbar());return root.innerHTML;}
+  try{const root=document.createElement('div');root.innerHTML=await render();const tools=root.querySelector('[data-library-tools]');if(tools)tools.insertAdjacentHTML('beforeend',savedSearchToolbar());else root.insertAdjacentHTML('afterbegin',savedSearchToolbar());return root.innerHTML;}
   catch(error){
     if(epoch!==savedSearchUI.epoch||account!==state.me?.id||load!==state.loadId)return '';
     return savedSearchToolbar()+'<h1>检索范围暂不可用</h1><div class="notice error">'+esc(error.message)+' 原条件已保留，请调整来源或专题后重新保存。</div>'+linkButton('调整条件','saved-adjust');

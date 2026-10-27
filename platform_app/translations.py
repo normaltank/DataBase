@@ -72,6 +72,26 @@ def items(db, row):
     return result
 
 
+def projection(db, row):
+    """Current reading version: human fields first, then latest matching machine input.
+
+    Selecting a machine version never changes the original or adopts it as human.
+    Downstream automatic processing can use this same projection after saving jobs.
+    """
+    job = next((j for j in items(db, row) if j['status'] == 'succeeded' and not j['stale']), None)
+    human = bool(row['chinese_title'] or row['chinese_abstract'])
+    title = row['chinese_title'] if human else job['output_title'] if job else ''
+    abstract = row['chinese_abstract'] if human else job['output_abstract'] if job else ''
+    original_chinese = bool(re.search(r'(?:^|[;,|\s])(?:zh(?:-[a-z]+)*|zho|chi|中文)(?:$|[;,|\s])', row['language'], re.I))
+    return {'chinese_title': row['chinese_title'], 'chinese_abstract': row['chinese_abstract'],
+            'display_title': title or row['title'], 'display_abstract': abstract or row['abstract'],
+            'translation_origin': 'human' if human else 'machine' if job else 'original',
+            'reading_translation_id': row['adopted_translation_id'] if human else job['id'] if job else '',
+            'has_chinese': bool(title or abstract or original_chinese),
+            'abstract_is_chinese': bool(abstract or (original_chinese and row['abstract'])),
+            'original_abstract_missing': not bool(row['abstract'])}
+
+
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None

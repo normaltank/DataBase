@@ -37,7 +37,7 @@ function uxRecordCard(record) {
   const metadata=[recordAuthorLabel(record),record.published_on,languageLabel(record.language)].filter(Boolean),sources=recordSourceLabels(record),text=record.search_snippet||record.abstract||record.coverage;
   const reading=uxReadingActions(record,true);
   return '<article class="record-card ux-record-card"><div class="record-body"><div class="ux-card-top"><div class="row wrap">'+typeBadge(record.kind)+badge(record.status)+(record.visibility==='restricted'?'<span class="badge neutral">'+icon('lock')+'限授权成员</span>':'')+'</div><div class="card-actions"><button type="button" class="icon-button '+(record.favorite?'saved':'')+'" data-action="favorite" data-id="'+esc(record.id)+'" data-saved="'+!!record.favorite+'" aria-pressed="'+!!record.favorite+'" aria-label="'+(record.favorite?'取消收藏':'收藏')+'">'+icon('star')+'</button><button type="button" class="icon-button" data-action="add-to-collection" data-id="'+esc(record.id)+'" aria-label="加入专题">'+icon('folder')+'</button></div></div>'
-    +'<h2 class="record-title">'+linkButton(esc(record.title),'detail',record.id,'title-button')+'</h2><div class="record-meta">'+metadata.map(value=>'<span>'+esc(value)+'</span>').join('')+'</div>'
+    +'<h2 class="record-title">'+linkButton(esc(record.display_title||record.title),'detail',record.id,'title-button')+'</h2><div class="record-meta">'+metadata.map(value=>'<span>'+esc(value)+'</span>').join('')+'</div>'
     +(text?'<p class="'+(record.search_snippet?'search-snippet':'abstract')+'">'+esc(text)+'</p>':'')
     +(typeof attachmentMatchSection==='function'?attachmentMatchSection(record):'')
     +(sources.length?'<div class="record-meta ux-card-sources">'+sources.map(value=>'<span>'+esc(value)+'</span>').join('')+'</div>':'')
@@ -52,7 +52,7 @@ function uxLocalDrafts() {
   }catch{return {items:[],available:false};}
 }
 function uxWorkRow(record) {
-  return '<article class="ux-work-item"><h3>'+linkButton(esc(record.title),'detail',record.id,'title-button')+'</h3><p class="ux-time">'+esc(kinds[record.kind]||record.kind)+(record.updated_at?' · 更新于 '+dateTime(record.updated_at):'')+'</p>'+(record.can_edit?linkButton('继续编辑','edit-record',record.id,'ux-read-link'):'')+'</article>';
+  return '<article class="ux-work-item"><h3>'+linkButton(esc(record.display_title||record.title),'detail',record.id,'title-button')+'</h3><p class="ux-time">'+esc(kinds[record.kind]||record.kind)+(record.updated_at?' · 更新于 '+dateTime(record.updated_at):'')+'</p>'+(record.can_edit?linkButton('继续编辑','edit-record',record.id,'ux-read-link'):'')+'</article>';
 }
 async function uxDashboard() {
   const data=await api('/api/dashboard'),drafts=uxLocalDrafts();
@@ -68,31 +68,7 @@ async function uxDashboard() {
     +'<div class="ux-dashboard-summary" aria-label="资料概况"><span>资料 '+data.stats.records+'</span><span>来源 '+data.stats.source_entries+'</span><span>收藏 '+data.stats.favorites+'</span></div></div>';
 }
 async function uxLibraryPage(data=null) {
-  const root=document.createElement('div');root.innerHTML=await baseLibraryPage(data);
-  const labels={q:'关键词',kind:'类型',source:'来源',source_group:'来源类型',source_country:'来源国别',source_international:'国际办刊定位',language:'语言',status:'核对',country:'研究对象',from:'起始日期',to:'截止日期',collection:'专题'};
-  const entries=[...state.params].filter(([key,value])=>labels[key]&&value);
-  if(entries.length){
-    const bar=document.createElement('section');bar.className='ux-filter-chips';bar.setAttribute('aria-label','已应用的筛选');
-    bar.innerHTML='<span>已筛选</span>'+entries.map(([key,value])=>{
-      const name=key==='source_group'?sourceGroups[value]:key==='source_country'?(value==='__pending__'?'待确认':value):key==='source_international'?internationalLabels[value]:key==='source'?sourceById(value)?.name:key==='collection'?state.collections.find(c=>c.id===value)?.name:key==='kind'?kinds[value]:key==='language'?languageLabel(value):key==='status'?{pending:'待核对',verified:'已核对'}[value]:value;
-      return '<button class="ux-filter-chip" type="button" data-action="ux-clear-filter" data-key="'+esc(key)+'" aria-label="清除'+labels[key]+'：'+esc(name||value)+'">'+labels[key]+'：'+esc(name||value)+icon('close')+'</button>';
-    }).join('')+(entries.some(([key])=>key!=='collection')?'<button class="ux-read-link" type="button" data-action="ux-clear-filters">清除筛选</button>':'');
-    root.querySelector('.results-head').before(bar);
-  }
-  const toolbar=root.querySelector('.toolbar');
-  const filters=root.querySelector('[data-form="filters"]');
-  if(filters){
-    const details=document.createElement('details');details.className='ux-filters';
-    details.innerHTML='<summary>筛选条件</summary>';
-    filters.before(details);details.append(filters);
-  }
-  if(toolbar){
-    const secondary=[...toolbar.children].filter(el=>el.matches('a,[data-action="duplicates"],[data-action="export-content"]'));
-    if(secondary.length){const details=document.createElement('details');details.className='ux-list-tools';details.innerHTML='<summary>整理与导出</summary><div class="row wrap"></div>';secondary.forEach(el=>details.lastElementChild.append(el));toolbar.append(details);}
-  }
-  const filterDisclosure=root.querySelector('.ux-filters');
-  if(filterDisclosure){const options=document.createElement('div');options.className='ux-query-options';filterDisclosure.before(options);options.append(filterDisclosure);const tools=root.querySelector('.ux-list-tools');if(tools)options.append(tools);}
-  root.className='ux-library';return root.outerHTML;
+  return readingLibraryHTML(data||await api('/api/records?'+recordQuery()));
 }
 async function uxRefreshBackground() {
   const hash=location.hash,loadId=++state.loadId;
@@ -124,20 +100,20 @@ function uxReadingNotes(record) {
 async function uxReadRecord(record,target=null) {
   const bylines=typeof bylineSection==='function'?await bylineSection(record):'';
   const identities=bylines+await articleAffiliationSection(record);
-  const abstractSection=record.abstract?'<section class="detail-section ux-abstract"><h3>摘要</h3><p class="prose">'+esc(record.abstract)+'</p></section>':'';
+  const abstractSection=readingAbstract(record);
   const bodySection=record.body_html?'<section class="detail-section ux-main-body" id="ux-body"><h3>正文</h3><div class="rich-prose">'+readRich(record.body_html)+'</div></section>':'';
   const research=isResearchContent(record.kind),access=uxAccess(record),references=record.linked_records||[],hasEvidence=!!record.evidence_record_id||!!record.evidence_citations?.length;
   const meta=[record.authors,record.published_on,languageLabel(record.language)].filter(Boolean),sources=recordSourceLabels(record).filter(label=>!label.startsWith('关联来源：'));
   const maintenance=(record.can_edit?linkButton('编辑内容','edit-record',record.id)+linkButton('修改历史','history','record:'+record.id):'')+linkButton('加入专题','add-to-collection',record.id)+linkButton(record.favorite?'取消收藏':'收藏资料','favorite',record.id)
     +(state.me.role==='admin'?linkButton('标记已核对','verify','record:'+record.id):'');
   const content='<article class="ux-reading-article"><div class="row wrap ux-reading-labels">'+typeBadge(record.kind)+badge(record.status)+'<span class="badge neutral">'+(record.visibility==='shared'?'中心共享':'限授权成员')+'</span><span class="ux-version">版本 '+record.version+'</span></div>'
-    +'<h2 class="detail-title">'+esc(record.title)+'</h2>'+(record.original_title&&record.original_title!==record.title?'<p class="original-title">'+esc(record.original_title)+'</p>':'')
+    +'<h2 class="detail-title" data-reading-title>'+esc(record.display_title||record.title)+'</h2>'+(record.original_title&&record.original_title!==record.title?'<p class="original-title">'+esc(record.original_title)+'</p>':'')
     +'<div class="ux-bibliography">'+(meta.length?'<p>'+meta.map(esc).join(' · ')+'</p>':'')+(sources.length?'<p>'+sources.map(esc).join(' · ')+'</p>':'')+(record.coverage?'<p>'+esc(record.coverage)+'</p>':'')+((record.related_source_ids||[]).length?'<p>关联来源：'+record.related_source_ids.map(sourceName).join(' / ')+'</p>':'')+'</div>'
     +'<div class="ux-reading-actions ux-reading-toolbar">'+uxReadingActions(record)+'<button class="button tiny" type="button" data-action="ux-copy" data-id="'+esc(record.id)+'">'+uxCopyLabel(record)+'</button></div><div data-copy-region></div>'
     +(target?'':identities)
     +(record.kind==='research_note'?authorPanel(record):authorControlledKinds.has(record.kind)&&!record.author_confirmed?authorPanel(record):authorControlledKinds.has(record.kind)?'<p class="ux-author">负责作者：'+esc(record.author_name||recordAuthorLabel(record))+' · 已由本人确认</p>':'<p class="ux-author">当前有权读取的有效成员共同编辑</p>')
-    +(target?bodySection+abstractSection:abstractSection+bodySection)
-    +(typeof translationPanel==='function'?translationPanel(record):'')
+    +abstractSection+bodySection
+    +(typeof translationPanel==='function'?'<details class="reading-translation-history"><summary>译文来历与处理版本</summary>'+translationPanel(record)+'</details>':'')
     +(!record.body_html&&!record.abstract&&!uxReadingActions(record)?'<p class="ux-empty-line">此条目目前仅保存题录。</p>':'')+uxFiles(record)
     +(target&&identities?'<details class="ux-identities"><summary>作品署名与文章单位</summary>'+identities+'</details>':'')
     +(record.original_catalogue?'<section class="detail-section"><h3>原目录 / 原文出处</h3><p class="prose">'+esc(record.original_catalogue)+'</p></section>':'')
@@ -149,8 +125,8 @@ async function uxReadRecord(record,target=null) {
     +(research&&references.length?'<section class="detail-section"><h3>'+(hasEvidence?'其他关联资料':'关联原始资料')+'</h3>'+references.map(r=>linkButton(esc(r.title),'detail',r.id,'detail-link')).join('')+'</section>':'')
     +(record.unresolved_refs?'<section class="detail-section"><h3>其他出处说明</h3><p class="prose">'+esc(record.unresolved_refs)+'</p></section>':'')
     +((record.cited_by||[]).some(r=>r.kind!=='research_note')?'<section class="detail-section"><h3>引用此资料的成果</h3>'+record.cited_by.filter(r=>r.kind!=='research_note').map(r=>linkButton(esc(r.title),'detail',r.id,'detail-link')).join('')+'</section>':'')
-    +reviewPanel(record)
-    +'<details class="ux-metadata"><summary>题录与维护信息</summary><dl class="detail-grid section-gap">'+detailPair('稳定编号',esc(record.id))+detailPair('上传者',esc(record.owner_name))+detailPair('最近修改',record.last_modifier?esc(record.last_modifier.name)+' · '+dateTime(record.last_modifier.created_at):dateTime(record.updated_at))+detailPair('卷',esc(record.volume))+detailPair('期',esc(record.issue))+detailPair('页码 / 文章编号',esc(record.pages))+detailPair('ISSN',esc(record.issn))+detailPair('DOI',esc(record.doi))+detailPair('关键词',esc(record.keywords))+detailPair('研究对象',esc(record.countries))+detailPair('发布机构',sourceName(record.source_id))+detailPair('所属刊物',sourceName(record.serial_id)||esc(record.publication_title))+'</dl>'+(record.aliases?'<p class="prose">其他题名：'+esc(record.aliases)+'</p>':'')+(record.upstream_status?'<p class="prose">上游核查信息：'+esc(record.upstream_status)+'</p>':'')+'</details>'
+    +'<details class="reading-review"><summary>核对依据</summary>'+reviewPanel(record)+'</details>'
+    +'<details class="ux-metadata"><summary>题录与维护信息</summary><dl class="detail-grid section-gap">'+detailPair('稳定编号',esc(record.id))+detailPair('上传者',esc(record.owner_name))+detailPair('首次收录',dateTime(record.created_at))+detailPair('最近修订',record.last_modifier?esc(record.last_modifier.name)+' · '+dateTime(record.last_modifier.created_at):dateTime(record.updated_at))+detailPair('卷',esc(record.volume))+detailPair('期',esc(record.issue))+detailPair('页码 / 文章编号',esc(record.pages))+detailPair('ISSN',esc(record.issn))+detailPair('DOI',esc(record.doi))+detailPair('关键词',esc(record.keywords))+detailPair('研究对象',esc(record.countries))+detailPair('发布机构',sourceName(record.source_id))+detailPair('所属刊物',sourceName(record.serial_id)||esc(record.publication_title))+'</dl>'+(record.aliases?'<p class="prose">其他题名：'+esc(record.aliases)+'</p>':'')+(record.upstream_status?'<p class="prose">上游核查信息：'+esc(record.upstream_status)+'</p>':'')+'</details>'
     +(typeof intakeEvidenceHtml==='function'?intakeEvidenceHtml(record.intake_evidence):'')
     +(typeof discoveryEvidenceHtml==='function'?discoveryEvidenceHtml(record.discovery_evidence):'')
     +(typeof risEvidenceHtml==='function'?risEvidenceHtml(record.ris_evidence):'')
