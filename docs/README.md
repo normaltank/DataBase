@@ -29,6 +29,8 @@
 
 [规格 1.0](specs/拉脱维亚来源发现试点.md)限定 LIIA Opinions 官方 RSS、最近 30 天、手动发现和逐条人工入库，保留取得依据与覆盖限制。它从 [#46](https://github.com/normaltank/DataBase/issues/46) 的大范围提案中独立推进；期刊模板设计、其他来源及后台自动巡检分别处理。
 
+本轮软件开发的 HTTP、实际浏览器、导出及完整恢复证据见[开发验收](../work/LIIA近期发现开发验收.md)；使用见 [README](../README.md#从-liia-来源发现近期资料)，集成及独立审查状态由 [#56](https://github.com/normaltank/DataBase/issues/56) 记录。
+
 ## 个人常用检索
 
 标准文件交换见[规格 1.0](specs/标准题录交换.md)与 [#36](https://github.com/normaltank/DataBase/issues/36)：首版 RIS 文件预览、逐条人工核对保存、原始条目依据及选中导出。选中导出、独立 reader、跨库导入及新目录恢复的当次开发证据见[验收快照](../work/RIS选中导出开发验收.md)。出版字段已由 PR #50 交付，本轮复用；标准交换不代替内容包与完整备份。

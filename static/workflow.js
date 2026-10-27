@@ -3,7 +3,7 @@
 const personalKinds = new Set(['compilation', 'research_note', 'research_report']);
 const authorControlledKinds = new Set(['compilation', 'research_report']);
 const draftPrefix = 'zhihui:draft:v1:';
-const draftTypeLabels = {ris:'RIS 导入队列',collection:'研究专题',person:'人物档案',byline:'作品署名',employment:'任职经历',affiliation:'文章署名单位',source:'来源介绍'};
+const draftTypeLabels = {discovery:'LIIA 发现队列',ris:'RIS 导入队列',collection:'研究专题',person:'人物档案',byline:'作品署名',employment:'任职经历',affiliation:'文章署名单位',source:'来源介绍'};
 function draftTypeLabel(draft) { return draftTypeLabels[draft.type] || kinds[draft.kind] || '内容'; }
 const richTags = new Set('p div br h2 h3 h4 strong b em i u ul ol li blockquote table thead tbody tfoot tr th td a hr'.split(' '));
 let draftDatabase, draftFileWrites = 0;
@@ -323,7 +323,7 @@ document.addEventListener('click',async event=>{
     if(action==='save-draft'){form._dirty=true;saveEditorDraft(form,true);}
     else if(action==='restore-draft')await restoreEditorDraft(form);
     else if(action==='discard-draft'){await clearEditorDraft(form);form._saved=false;form._draftOffer=null;form.querySelector('.draft-offer')?.remove();form.querySelector('[type=submit]').disabled=false;draftStatus(form,'旧草稿已舍弃');}
-    else if(action==='open-draft'){const d=JSON.parse(localStorage.getItem(button.dataset.key)||'null');if(d?.user_id!==state.me.id)return;if(d.type==='ris')await risOpenDraft(button.dataset.key);else if(d.type==='collection'&&typeof researchCollectionForm==='function')await researchCollectionForm(d.id,button.dataset.key);else if(d.type==='byline')await bylineForm(d.id,button.dataset.key);else if(d.type==='employment'||d.type==='affiliation')await relationshipForm(d.type,d.id,d.specific.return_source,button.dataset.key);else if(d.type==='person')await personForm(d.id,button.dataset.key);else if(d.type==='source')await sourceForm(d.id,d.kind,button.dataset.key);else await workflowRecordForm(d.id,d.kind,d.context,button.dataset.key);}
+    else if(action==='open-draft'){const d=JSON.parse(localStorage.getItem(button.dataset.key)||'null');if(d?.user_id!==state.me.id)return;if(['ris','discovery'].includes(d.type))await risOpenDraft(button.dataset.key);else if(d.type==='collection'&&typeof researchCollectionForm==='function')await researchCollectionForm(d.id,button.dataset.key);else if(d.type==='byline')await bylineForm(d.id,button.dataset.key);else if(d.type==='employment'||d.type==='affiliation')await relationshipForm(d.type,d.id,d.specific.return_source,button.dataset.key);else if(d.type==='person')await personForm(d.id,button.dataset.key);else if(d.type==='source')await sourceForm(d.id,d.kind,button.dataset.key);else await workflowRecordForm(d.id,d.kind,d.context,button.dataset.key);}
     else if(action==='remove-draft-file'){form.elements.file.value='';await persistSelectedFile(form,null);}
     else if(action==='new-source-translation')await workflowRecordForm('','directory_translation',button.dataset.id);
     else if(action==='accept-latest-version'){const panel=button.closest('[data-conflict-panel]'),latest=panel._latest;form._editing.version=latest.version;form._editing.original=latest;form._editing.visibility=latest.visibility;form._editing.editors=latest.editors;form._conflictPending=false;panel.remove();form.querySelector('.form-error').textContent='';saveEditorDraft(form,true);toast('已采用最新版本号，当前输入仍保留，请检查后保存。');}

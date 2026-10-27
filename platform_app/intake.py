@@ -91,13 +91,15 @@ def _resolve(host, port, deadline):
     return ips[0]
 
 
-def fetch_document(url, deadline):
+def fetch_document(url, deadline, *, fixed_feed=None):
     """Public network boundary: validate every redirect, pin DNS and check peer."""
     for hop in range(4):
         canonical = normalize_url(url)
         if not canonical:
             raise AcquisitionError("请使用有效的公开 HTTP(S) 文章链接。")
         p = urlsplit(canonical)
+        if fixed_feed and canonical not in fixed_feed:
+            raise AcquisitionError("RSS 跳转离开固定官方订阅地址，已停止取得。")
         port = p.port or (443 if p.scheme == "https" else 80)
         if port not in {80, 443}:
             raise AcquisitionError("提取仅支持公开网站的 80 或 443 端口。")
@@ -106,7 +108,7 @@ def fetch_document(url, deadline):
         response = None
         try:
             path = quote(p.path, safe="/%:@!$&'()*+,;=-._~") + ("?" + quote(p.query, safe="=&/%:@!$'()*+,;?-._~") if p.query else "")
-            connection.request("GET", path, headers={"Accept": "text/html, application/json, application/ld+json", "Accept-Encoding": "identity", "User-Agent": "ResearchCommonsMetadata/1.0"})
+            connection.request("GET", path, headers={"Accept": "application/rss+xml, application/xml, text/xml" if fixed_feed else "text/html, application/json, application/ld+json", "Accept-Encoding": "identity", "User-Agent": "ResearchCommonsMetadata/1.0"})
             response = connection.getresponse()
             connection.remaining()
             if response.status in {301, 302, 303, 307, 308}:
@@ -117,7 +119,8 @@ def fetch_document(url, deadline):
             if response.status != 200:
                 raise AcquisitionError(f"站点返回 HTTP {response.status}；可能限制访问，请继续手填。")
             mime = response.getheader("Content-Type", "").split(";")[0].strip().lower()
-            if mime not in {"text/html", "application/xhtml+xml", "application/json", "application/ld+json"}:
+            allowed = {"application/rss+xml", "application/xml", "text/xml"} if fixed_feed else {"text/html", "application/xhtml+xml", "application/json", "application/ld+json"}
+            if mime not in allowed:
                 raise AcquisitionError("此链接不是支持的题录网页；不会下载全文或附件，可继续手填。")
             length = response.getheader("Content-Length")
             if length and (not length.isdigit() or int(length) > MAX_BYTES):
@@ -143,7 +146,7 @@ def fetch_document(url, deadline):
                 text = content.decode(charset, errors="replace")
             except LookupError:
                 text = content.decode("utf-8", errors="replace")
-            return {"url": canonical, "content_type": mime, "text": text}
+            return {"url": canonical, "content_type": mime, "text": text, "bytes": content} if fixed_feed else {"url": canonical, "content_type": mime, "text": text}
         except (OSError, http.client.HTTPException, UnicodeError, ValueError) as error:
             if isinstance(error, AcquisitionError):
                 raise
