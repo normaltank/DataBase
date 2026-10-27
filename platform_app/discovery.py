@@ -1,6 +1,5 @@
 """One fixed official RSS adapter; previews never write records or follow item URLs."""
 import hashlib
-import json
 import re
 import time
 from datetime import datetime, timedelta, timezone
@@ -52,10 +51,7 @@ def read_token(token, actor, db):
 
 
 def saved_record(db, entry_id):
-    for row in db.execute('SELECT id,raw_json FROM records'):
-        if any(e.get('entry_id') == entry_id for e in json.loads(row['raw_json'] or '{}').get('discovery_evidence', [])):
-            return identity.resolve(db, 'records', row['id'])
-    return None
+    return identity.record_for_entry(db, entry_id, 'discovery_evidence')
 
 
 def article_key(value):

@@ -83,8 +83,8 @@ async function risEdit(form,index){
     await risShowQueue(queue);
     const panel=document.createElement('section');panel.className='notice error';panel.innerHTML='<h3>第 '+item.index+' 条问题</h3>'+item.errors.map(e=>'<p>'+esc(e)+'</p>').join('')+'<pre>'+esc(item.evidence.raw_entry)+'</pre>';currentEditorForm().querySelector('[data-ris-queue]').after(panel);return;
   }
-  await workflowRecordForm('',item.edit?.kind||item.fields.kind,'ris-item-'+crypto.randomUUID(),'','',{...item.fields});
-  const editor=document.querySelector('[data-form=record]');if(!editor||actor!==state.me?.id)return;
+  const editor=await workflowRecordForm('',item.edit?.kind||item.fields.kind,'ris-item-'+crypto.randomUUID(),'','',{...item.fields});
+  if(!editor?.isConnected||editor!==currentEditorForm()||actor!==state.me?.id)return;
   // The standard editor owns field, source, identity, draft and validation UI.
   const metadata={format:queue.format==='discovery'?'LIIA RSS':'RIS',input:queue.filename+' · 第 '+item.index+' 条',retrieved_at:item.evidence.retrieved_at||item.evidence.imported_at,fields:item.fields,
     authors:item.authors,identifiers:{},provenance:queue.format==='discovery'?item.evidence.provenance:Object.fromEntries(Object.keys(item.fields).map(k=>[k,'RIS'])),
