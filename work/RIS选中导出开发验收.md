@@ -18,6 +18,8 @@
 
 rispy 为测试依赖，经 [requirements-test.txt](../requirements-test.txt) 与 CI 安装；缺失或版本不符会失败，不静默跳过。reader 默认对重复 SN、别名和结构损坏的局限在样本说明中保留，本轮不声称任意 RIS 方言无损兼容。
 
+固定 RIS 字节及 expected 摘要通过 `.gitattributes` 关闭文本换行转换，确保 LF、BOM＋CRLF 探针和期望摘要在新检出／CI 中保持。首次暂存检查发现默认 JSON 换行规范化会改变摘要，已按原字节保全，未修改固定期望内容。
+
 ## 实际验证
 
 同步集成：`git merge codex/ris-exchange-20261027` 返回 `Already up to date`，实际同步 SHA 为 `4ea265a3591b895040f124aba20be9bb7b53ffcb`。以下受影响检查在此同步后执行，没有运行整组 `scripts/check.py`。

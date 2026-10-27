@@ -15,3 +15,7 @@
 *.jpeg binary
 *.pdf binary
 *.docx binary
+
+# Frozen RIS encoding/line-ending probes and independent expected-byte digest.
+tests/fixtures/ris_independent/*.ris -text
+tests/fixtures/ris_independent/expected.json -text
