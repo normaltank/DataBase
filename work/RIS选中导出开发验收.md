@@ -18,7 +18,7 @@
 
 rispy 为测试依赖，经 [requirements-test.txt](../requirements-test.txt) 与 CI 安装；缺失或版本不符会失败，不静默跳过。reader 默认对重复 SN、别名和结构损坏的局限在样本说明中保留，本轮不声称任意 RIS 方言无损兼容。
 
-固定 RIS 字节及 expected 摘要通过 `.gitattributes` 关闭文本换行转换，确保 LF、BOM＋CRLF 探针和期望摘要在新检出／CI 中保持。首次暂存检查发现默认 JSON 换行规范化会改变摘要，已按原字节保全，未修改固定期望内容。
+固定 RIS 字节及 expected 摘要通过 `.gitattributes` 关闭文本换行转换，确保 LF、BOM＋CRLF 探针和期望摘要在新检出／CI 中保持。首次暂存检查发现默认 JSON 换行规范化会改变摘要，已按原字节保全，未修改固定期望内容。固定 RIS 的空 ER 标签尾空格及 CRLF 按精确 whitespace 属性处理，其余代码与文档仍执行正常空白检查。
 
 ## 实际验证
 
@@ -28,6 +28,7 @@ rispy 为测试依赖，经 [requirements-test.txt](../requirements-test.txt) �
 - 同组导出测试将实际下载导入另一个新临时库，逐条从公开详情读取并比对固定语义；原库编辑后历史恢复，下载仍匹配 core。管理员完整备份恢复至新目录，重新登录后原始依据保持；可继续修改题名、署名、清空 ISSN 并导出当前值。
 - `python scripts/check_ris_export_browser.py`：真实 Chrome，2 个测试通过，10.208 秒；两个测试均在 1366px 和 390px 执行。五条 core 实际选择／RIS 下载在两宽度分别通过独立 reader，CSV 实际下载保持。混入笔记、权限收回时均不下载且保留选择；跨标签退出并切换账号后，释放旧请求的成功响应也不下载。检查页面无横向溢出、无脚本错误；已查看窄屏 core 和桌面混合失败截图，按钮与提示完整。
 - `node --check static/bulk.js`、Python 定向语法检查、新增／修改文档链接检查及 `git diff --check` 通过。施工说明原有历史本机证据链接不作为公开可用证据；整文件扫描仍可发现其未随仓库保存的旧 `browser-checks.json`，本轮保留历史身份。
+- 从已提交源码归档到全新临时目录再运行 `python -m unittest tests.test_ris_export -v`：5 条通过，7.953 秒；同目录运行固定 reader `--self-check` 通过。此复跑专门核查已提交样本字节与依赖入口，不把 reader 自检冒充应用验收。归档证据位于 `C:\Users\27451\AppData\Local\Temp\ris52-final-archive-h7tfh8y4`，含 `export-tests.log` 与 `reader-self-check.log`，仅原环境可查。
 
 红阶段分别保留其实际身份：恢复后先运行新增真实浏览器选择测试，1366／390 均因页面缺 RIS 按钮失败，添加入口后通过。另将当前公开 HTTP 下载测试复制到隔离的集成基线源代码副本（上述同步 SHA，无真实数据），确认旧基线以 `404 != 200` 失败；这是接续后的测试敏感性负证据，不冒称为原代理实现前日志。原代理已保存的首个 HTTP 测试在接续初查时通过。
 
