@@ -134,6 +134,7 @@ class RisBrowserTests(unittest.TestCase):
                 page.get_by_role('button',name='关闭并保留草稿',exact=True).click()
                 page.get_by_role('button',name='导入 RIS 文件',exact=True).click()
                 page.locator('[data-ris-edit="0"]').click()
+                expect(form.get_by_role('button',name='保存本条并接续',exact=True)).to_be_enabled()
                 self.assertEqual(form.locator('[name=related_source_ids]').evaluate('(el)=>Array.from(el.selectedOptions,o=>o.value)'),ids)
                 if width == 1366:
                     # A previous release stored the first selected source as a string.

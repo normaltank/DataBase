@@ -18,7 +18,7 @@ from .attachment_search import AttachmentIndex, original_path
 from .publication_dates import interval as publication_interval, query_range as publication_query_range
 from .store import connect, decoded, initialize, now, save_revision
 from .record_revisions import RecordRevisions, validate_text, check_version
-from . import source_catalog, workflow, evidence, identity, operations, reading, people, note_subjects, bylines, affiliations, person_identity, bulk, intake, saved_searches, collection_scope, reviews, translations, ris
+from . import source_catalog, workflow, evidence, identity, operations, reading, people, note_subjects, bylines, affiliations, person_identity, bulk, intake, saved_searches, collection_scope, reviews, translations, ris, discovery
 
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE_FIELDS = ["name", "original_name", "kind", "classification", "location", "country", "research_scope",
@@ -333,6 +333,8 @@ def create_app(data_dir=None, testing=False):
             obj["intake_evidence"] = obj["raw_json"]["intake_evidence"]
         if obj.get("raw_json", {}).get("ris_evidence"):
             obj["ris_evidence"] = obj["raw_json"]["ris_evidence"]
+        if obj.get("raw_json", {}).get("discovery_evidence"):
+            obj["discovery_evidence"] = obj["raw_json"]["discovery_evidence"]
         obj.update(record_summary(row))
         obj["owner_name"] = db().execute("SELECT name FROM users WHERE id=?", (row["owner_id"],)).fetchone()[0]
         last = reviews.last_modifier(db(), "record", rid)
@@ -509,6 +511,8 @@ def create_app(data_dir=None, testing=False):
     def source_detail(sid):
         sid = get_source(sid)["id"]
         obj = source_catalog.catalog(db())[sid]
+        if discovery.supported(obj):
+            obj['discovery_supported'] = True
         obj.update(reviews.summary(db(), "source", sid))
         obj["previous_ids"] = [x for x in identity.origins(db(), "sources", sid) if x != sid]
         return jsonify(obj)
@@ -766,6 +770,7 @@ def create_app(data_dir=None, testing=False):
 
     saved_searches.register(app, SimpleNamespace(db=db, user=user, body=body, filtered_records=filtered_records))
     intake.register(app, SimpleNamespace(db=db, user=user, body=body, records=records))
+    discovery.register(app, SimpleNamespace(db=db, user=user, body=body, records=records))
     ris.register(app, SimpleNamespace(db=db, user=user, body=body, records=records))
     translations.register(app, SimpleNamespace(db=db, user=user, body=body, records=records))
     bulk.register(app, SimpleNamespace(db=db, user=user, body=body, visible=visible, get_collection=get_collection, export_csv=export_csv))

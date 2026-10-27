@@ -17,7 +17,7 @@ from urllib.parse import urlsplit
 
 from flask import abort
 
-from . import evidence, identity, source_catalog, workflow, note_subjects, bylines, affiliations, intake, reviews, ris
+from . import evidence, identity, source_catalog, workflow, note_subjects, bylines, affiliations, intake, reviews, ris, discovery
 from .store import now, save_revision
 
 RECORD_FIELDS = ["kind", "title", "original_title", "authors", "source_id", "serial_id", "publication_title",
@@ -306,12 +306,12 @@ class RecordRevisions:
             values, linked, associated, cited = self._values(data)
             self._unique_doi(values["doi"])
             acquired = None
-            evidence_key = "ris_evidence" if data.get("ris_token") else "intake_evidence"
-            if data.get("intake_token") and data.get("ris_token"):
+            evidence_key = "discovery_evidence" if data.get("discovery_token") else "ris_evidence" if data.get("ris_token") else "intake_evidence"
+            if sum(bool(data.get(k)) for k in ['intake_token', 'ris_token', 'discovery_token']) > 1:
                 abort(400, "一次保存只能采用一种题录依据。")
-            if data.get("intake_token") or data.get("ris_token"):
-                token = data.get("ris_token") or data["intake_token"]
-                acquired = ris.read_token(token, self.actor) if data.get("ris_token") else intake.read_token(token, self.actor)
+            if data.get("intake_token") or data.get("ris_token") or data.get('discovery_token'):
+                token = data.get('discovery_token') or data.get("ris_token") or data["intake_token"]
+                acquired = discovery.read_token(token, self.actor, self.db) if data.get('discovery_token') else ris.read_token(token, self.actor) if data.get("ris_token") else intake.read_token(token, self.actor)
                 if evidence_key == "ris_evidence" and acquired.get("requires_date_review") and data.get("ris_date_reviewed") is not True:
                     abort(400, "原始日期无法解析，请核对日期并明确确认后保存。")
                 if values["kind"] in workflow.CONTENT_KINDS:
@@ -319,16 +319,21 @@ class RecordRevisions:
                 if values["source_id"] and self.source(values["source_id"])["kind"] not in {"institution", "think_tank"}:
                     abort(400, "文章发布机构须选择机构；期刊请在所属刊物中关联。")
                 key = intake.normalize_url(values["url"])
-                acquisition_id = acquired["entry_id"] if evidence_key == "ris_evidence" else hashlib.sha256(token.encode()).hexdigest()
+                if evidence_key == 'discovery_evidence':
+                    key = discovery.article_key(values['url'])
+                acquisition_id = acquired["entry_id"] if evidence_key in {"ris_evidence", "discovery_evidence"} else hashlib.sha256(token.encode()).hexdigest()
+                if evidence_key == 'discovery_evidence' and discovery.saved_record(self.db, acquisition_id) is not None:
+                    abort(409, '此次保存与已登记资料重复，请核对已有条目或联系管理员。')
                 if evidence_key == "ris_evidence" and ris.saved_record(self.db, acquisition_id) is not None:
                     abort(409, "此次保存与已登记资料重复，请核对已有条目或联系管理员。")
                 for existing in self.db.execute("SELECT url,raw_json FROM records WHERE merged_into IS NULL"):
                     previous = json.loads(existing["raw_json"] or "{}")
-                    if (key and intake.normalize_url(existing["url"]) == key) or any(e.get("acquisition_id") == acquisition_id for e in previous.get(evidence_key, [])):
+                    existing_key = discovery.article_key(existing['url']) if evidence_key == 'discovery_evidence' else intake.normalize_url(existing['url'])
+                    if (key and existing_key == key) or any(e.get("acquisition_id") == acquisition_id for e in previous.get(evidence_key, [])):
                         abort(409, "此次保存与已登记资料重复，请核对已有条目或联系管理员。")
                 acquired = {**acquired, "acquisition_id": acquisition_id,
                             "saved_fields": {key: values[key] for key in acquired["fields"] if key in values}}
-                if evidence_key == "ris_evidence":
+                if evidence_key in {"ris_evidence", "discovery_evidence"}:
                     acquired['date_reviewed'] = data.get('ris_date_reviewed') is True
                     acquired['saved_at'] = now()
                     acquired['saved_fields'] = {key: values[key] for key in
