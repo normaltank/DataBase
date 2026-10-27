@@ -13,7 +13,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from platform_app.web import create_app
 
-URL = 'http://127.0.0.1:8861'
+PORT = int(os.environ.get('DATABASE_BROWSER_PORT', '8861'))
+URL = 'http://127.0.0.1:' + str(PORT)
 SAMPLE = b'TY  - JOUR\nTI  - Browser first\nAU  - Synthetic, Person\nPY  - 2024/05/\nER  -\nTY  - WEB\nTI  - Browser second\nER  -\nTY  - BOOK\nTI  - Unsupported book\nER  -\n'
 
 
@@ -26,12 +27,12 @@ class RisBrowserTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.out = Path(tempfile.mkdtemp(prefix='ris-browser-'))
-        cls.server = make_server('127.0.0.1', 8861, create_app(cls.out / 'data', testing=True), threaded=True, request_handler=QuietHandler)
+        cls.server = make_server('127.0.0.1', PORT, create_app(cls.out / 'data', testing=True), threaded=True, request_handler=QuietHandler)
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
         cls.playwright = sync_playwright().start()
         cls.browser = cls.playwright.chromium.launch(executable_path=os.environ.get('DATABASE_BROWSER_EXECUTABLE') or None)
-        print('Evidence:', cls.out)
+        print('Evidence:', cls.out, flush=True)
 
     @classmethod
     def tearDownClass(cls):
@@ -91,6 +92,75 @@ class RisBrowserTests(unittest.TestCase):
                 page.screenshot(path=str(self.out / ('journey-' + str(width) + '.png')), full_page=True)
                 self.assertFalse(page.evaluate('document.documentElement.scrollWidth > innerWidth'))
                 self.assertEqual(errors, [])
+
+    def test_multiple_related_sources_survive_switch_close_restore_and_save(self):
+        for width in [1366, 390]:
+            with self.subTest(width=width):
+                context = self.browser.new_context(viewport={'width':width,'height':900})
+                self.addCleanup(context.close)
+                page = context.new_page()
+                page.goto(URL+'/#library')
+                page.get_by_role('button',name='研究员',exact=True).click()
+                expect(page.get_by_role('button',name='退出登录',exact=True)).to_be_visible()
+                csrf = context.request.get(URL+'/api/session').json()['csrf']
+                ids = []
+                for name in ['First related journal ', 'Second related journal ']:
+                    result = context.request.post(URL+'/api/sources',data={'name':name+str(width),'kind':'journal'},headers={'X-CSRF-Token':csrf})
+                    self.assertEqual(result.status,201,result.text())
+                    ids.append(result.json()['id'])
+                page.reload()
+                page.get_by_role('button',name='导入 RIS 文件',exact=True).click()
+                sample = ('TY  - GEN\nTI  - Multiple sources '+str(width)+'\nER  -\nTY  - GEN\nTI  - Next item\nER  -\n').encode()
+                page.locator('[data-ris-file]').set_input_files({'name':'multiple-sources.ris','mimeType':'text/plain','buffer':sample})
+                page.locator('[data-ris-preview]').click()
+                page.locator('[data-ris-edit="0"]').click()
+                form = page.locator('form[data-form=record]')
+                form.locator('[data-record-more] > summary').click()
+                picker = form.locator('[data-source-select]').filter(has=page.locator('[name=related_source_ids]'))
+                picker.locator('[data-source-disclosure] > summary').click()
+                for sid in ids:
+                    picker.locator('[data-source-option="'+sid+'"]').check()
+                self.assertEqual(form.locator('[name=related_source_ids]').evaluate('(el)=>Array.from(el.selectedOptions,o=>o.value)'),ids)
+                picker.locator('[data-source-selected]').scroll_into_view_if_needed()
+                page.screenshot(path=str(self.out/('multiple-selected-'+str(width)+'.png')),full_page=True)
+                page.locator('[data-ris-edit="1"]').click()
+                page.locator('[data-ris-edit="0"]').click()
+                selected = form.locator('[name=related_source_ids]').evaluate('(el)=>Array.from(el.selectedOptions,o=>o.value)')
+                print('Related sources after switching:',width,selected,'expected:',ids,flush=True)
+                form.locator('[data-record-more] > summary').click()
+                picker.locator('[data-source-selected]').scroll_into_view_if_needed()
+                page.screenshot(path=str(self.out/('multiple-switched-'+str(width)+'.png')),full_page=True)
+                self.assertEqual(selected,ids)
+                page.get_by_role('button',name='关闭并保留草稿',exact=True).click()
+                page.get_by_role('button',name='导入 RIS 文件',exact=True).click()
+                page.locator('[data-ris-edit="0"]').click()
+                self.assertEqual(form.locator('[name=related_source_ids]').evaluate('(el)=>Array.from(el.selectedOptions,o=>o.value)'),ids)
+                if width == 1366:
+                    # A previous release stored the first selected source as a string.
+                    page.get_by_role('button',name='关闭并保留草稿',exact=True).click()
+                    page.evaluate('''sid=>{for(const key of Object.keys(localStorage)){
+                        if(!key.endsWith(':ris:queue'))continue;
+                        const draft=JSON.parse(localStorage.getItem(key));
+                        const queue=JSON.parse(draft.values.ris_queue_json);
+                        queue.items[0].edit.related_source_ids=sid;
+                        draft.values.ris_queue_json=JSON.stringify(queue);
+                        localStorage.setItem(key,JSON.stringify(draft));
+                    }}''',ids[0])
+                    page.get_by_role('button',name='导入 RIS 文件',exact=True).click()
+                    page.locator('[data-ris-edit="0"]').click()
+                    self.assertEqual(form.locator('[name=related_source_ids]').evaluate('(el)=>Array.from(el.selectedOptions,o=>o.value)'),[ids[0]])
+                    form.locator('[data-record-more] > summary').click()
+                    picker.locator('[data-source-disclosure] > summary').click()
+                    picker.locator('[data-source-option="'+ids[1]+'"]').check()
+                    print('Legacy string source draft restored and second source reselected',flush=True)
+                form.get_by_role('button',name='保存本条并接续',exact=True).click()
+                expect(page.locator('[data-ris-queue]')).to_contain_text('已保存')
+                records = context.request.get(URL+'/api/records',params={'q':'Multiple sources '+str(width)}).json()['items']
+                self.assertEqual(len(records),1)
+                detail = context.request.get(URL+'/api/records/'+records[0]['id']).json()
+                self.assertEqual(set(detail['related_source_ids']),set(ids))
+                print('Related sources after saved detail:',width,detail['related_source_ids'],flush=True)
+                page.screenshot(path=str(self.out/('multiple-saved-'+str(width)+'.png')),full_page=True)
 
     def test_editor_body_and_failed_response_keep_entire_queue_and_recover_saved_result(self):
         context = self.browser.new_context(viewport={'width':1366,'height':900})

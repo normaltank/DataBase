@@ -11,7 +11,7 @@ from difflib import SequenceMatcher
 from flask import abort, current_app, jsonify, request
 from itsdangerous import BadSignature, URLSafeSerializer
 
-from . import intake, publication_dates
+from . import identity, intake, publication_dates
 from .store import now
 
 MAX_BYTES = 1024 * 1024
@@ -51,6 +51,14 @@ def read_token(token, actor):
     if not isinstance(payload, dict) or payload.get('actor_id') != actor['id']:
         abort(403, 'RIS 依据不属于当前账号，请重新预览。')
     return payload['evidence']
+
+
+def saved_record(db, entry_id):
+    """Resolve a submitted entry through manual merges, including archived evidence."""
+    for row in db.execute('SELECT id,raw_json FROM records'):
+        if any(e.get('entry_id') == entry_id for e in json.loads(row['raw_json'] or '{}').get('ris_evidence', [])):
+            return identity.resolve(db, 'records', row['id'])
+    return None
 
 
 def _entries(text):
@@ -208,7 +216,7 @@ def register(app, ctx):
         if not isinstance(fields, dict) or any(not isinstance(fields.get(k, ''), str) or len(fields.get(k, '')) > 4000 for k in ['doi', 'url', 'title']):
             abort(400, '重复核对字段格式不正确。')
         # An unreadable match is deliberately indistinguishable from absence.
-        for row in ctx.db().execute('SELECT * FROM records WHERE merged_into IS NULL'):
-            if ctx.records().visible(row) and any(e.get('entry_id') == evidence['entry_id'] for e in json.loads(row['raw_json'] or '{}').get('ris_evidence', [])):
-                return jsonify(saved=True, id=row['id'], title=row['title'])
+        row = saved_record(ctx.db(), evidence['entry_id'])
+        if row is not None and ctx.records().visible(row):
+            return jsonify(saved=True, id=row['id'], title=row['title'])
         return jsonify(saved=False, duplicates=duplicate_hints(ctx.db(), ctx.records(), fields))

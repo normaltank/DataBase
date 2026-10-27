@@ -147,6 +147,45 @@ class RisImportTests(unittest.TestCase):
             self.assertEqual(self.call('/api/records', dict(**again['fields'], ris_token=again['token'])).status_code, 409)
             self.assertEqual(self.call('/api/ris/status', {'token':again['token']}).json['id'], rid)
 
+    def test_merged_entry_retry_is_blocked_and_status_follows_current_record(self):
+        text = 'TY  - GEN\nTI  - Identifier-free merged entry\nER  -\n'
+        item = self.preview(text).json['items'][0]
+        values = dict(**item['fields'], ris_token=item['token'])
+        original = self.call('/api/records', values).json['id']
+        survivor = self.call('/api/records', {'kind':'other', 'title':'Manually retained record'}).json['id']
+        merged = self.call('/api/merge', dict(type='record', keep_id=survivor, duplicate_id=original,
+            keep_version=1, duplicate_version=1, confirmed=True), user='admin')
+        self.assertEqual(merged.status_code, 200, merged.json)
+        retry = self.call('/api/records', values)
+        self.assertEqual(retry.status_code, 409, retry.json)
+        status = self.call('/api/ris/status', {'token':item['token']})
+        self.assertEqual(status.json, {'saved':True, 'id':survivor, 'title':'Manually retained record'})
+
+    def test_merged_private_entry_repreview_follows_multiple_merges_without_foreign_leak(self):
+        text = 'TY  - GEN\nTI  - Private archived RIS title\nER  -\n'
+        item = self.preview(text).json['items'][0]
+        values = dict(**item['fields'], ris_token=item['token'], visibility='restricted')
+        original = self.call('/api/records', values).json['id']
+        first = self.call('/api/records', {'kind':'other','title':'Private first survivor','visibility':'restricted'}).json['id']
+        last = self.call('/api/records', {'kind':'other','title':'Current private survivor','visibility':'restricted'}).json['id']
+        for survivor, duplicate, duplicate_version in [(first, original, 1), (last, first, 2)]:
+            result = self.call('/api/merge', dict(type='record', keep_id=survivor, duplicate_id=duplicate,
+                keep_version=1, duplicate_version=duplicate_version, confirmed=True), user='admin')
+            self.assertEqual(result.status_code, 200, result.json)
+        again = self.preview(text).json['items'][0]
+        for token in [item['token'], again['token']]:
+            self.assertEqual(self.call('/api/records', values | {'ris_token':token}).status_code, 409)
+            self.assertEqual(self.call('/api/ris/status', {'token':token}).json,
+                             {'saved':True,'id':last,'title':'Current private survivor'})
+            response = self.call('/api/ris/status', {'token':token}, user='colleague')
+            self.assertEqual(response.status_code, 403)
+            for hidden in [original, first, last, 'Private archived RIS title', 'Current private survivor']:
+                self.assertNotIn(hidden, response.get_data(as_text=True))
+        foreign = self.preview(text, user='colleague').json['items'][0]
+        self.assertEqual(foreign['duplicates'], [])
+        self.assertEqual(self.call('/api/ris/status', {'token':foreign['token']}, user='colleague').json,
+                         {'saved':False,'duplicates':[]})
+
     def test_identity_requires_evidence_and_late_failure_rolls_back_record_and_attachment(self):
         person = self.call('/api/people', {'name':'Example, Ada', 'change_note':'Synthetic identity'}).json['id']
         journal = self.call('/api/sources', {'name':'Sintētisks žurnāls','kind':'journal','issn':'1234-5678'}).json['id']
