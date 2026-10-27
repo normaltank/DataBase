@@ -4,7 +4,6 @@ No resource named by an imported tag is ever opened. Tags and raw entry bytes
 remain evidence; only the explicit field map enters the record editor.
 """
 import hashlib
-import json
 import re
 from difflib import SequenceMatcher
 
@@ -55,10 +54,7 @@ def read_token(token, actor):
 
 def saved_record(db, entry_id):
     """Resolve a submitted entry through manual merges, including archived evidence."""
-    for row in db.execute('SELECT id,raw_json FROM records'):
-        if any(e.get('entry_id') == entry_id for e in json.loads(row['raw_json'] or '{}').get('ris_evidence', [])):
-            return identity.resolve(db, 'records', row['id'])
-    return None
+    return identity.record_for_entry(db, entry_id, 'ris_evidence')
 
 
 def _entries(text):

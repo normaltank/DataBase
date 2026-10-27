@@ -209,8 +209,10 @@ async function workflowRecordForm(id='',kind='report',sourceId='',draftKey='',ev
     +'<section class="wide" data-access-fields><h3>可见范围与权限</h3><p class="form-help" data-common-rule>当前有权读取的有效成员共同编辑；共同编辑不改变可见范围。</p>'+selectField('visibility','可见范围',{shared:'中心成员可见',restricted:'限有读取权限的成员'},r.visibility)+'<fieldset class="editor-grants"><legend data-grants-label>获授权共同编辑的成员</legend>'
     +state.users.filter(u=>u.id!==(r.author_id||state.me.id)).map(u=>'<label class="check-label"><input type="checkbox" name="editors" value="'+esc(u.id)+'" '+(r.editors?.includes(u.id)?'checked':'')+'>'+esc(u.name)+(u.role==='admin'?'（管理员）':'')+'</label>').join('')+'</fieldset><p class="form-help" data-acl-rule></p></section>'
     +'</div><div class="form-error" role="alert"></div><div class="form-actions"><button type="button" class="button" data-action="close">关闭并保留草稿</button><button type="submit" class="button primary">'+(id?'保存修订':'保存内容')+'</button></div></form>';
-  modal(id?'修订内容':'新建'+(kinds[kind]||'资料'),html);
-  const form=document.querySelector('[data-form=record]');form._editing=state.editing;if(sourceId.startsWith('collection:'))form.dataset.collectionId=sourceId.slice(11);
+  if(modal(id?'修订内容':'新建'+(kinds[kind]||'资料'),html)===false)return;
+  const form=document.querySelector('[data-form=record]'),generation=modalGeneration,account=state.me?.id;
+  const active=()=>form.isConnected&&document.querySelector('[data-form=record]')===form&&generation===modalGeneration&&account===state.me?.id;
+  form._editing=state.editing;if(sourceId.startsWith('collection:'))form.dataset.collectionId=sourceId.slice(11);
   if(typeof prepareIntakeForm==='function')prepareIntakeForm(form);
   form._updateInformationMode=()=>updateRecordInformationMode(form);form._updateInformationMode();
   form.addEventListener('change',event=>{if(event.target.name==='kind')form._updateInformationMode();});
@@ -221,9 +223,16 @@ async function workflowRecordForm(id='',kind='report',sourceId='',draftKey='',ev
   const grid=form.querySelector('.form-grid');grid.before(preparing);preparing.append(grid);
   const preparationStatus=document.createElement('p');preparationStatus.className='notice';preparationStatus.setAttribute('role','status');preparationStatus.textContent='正在准备编辑与草稿保护…';form.prepend(preparationStatus);
   form.querySelector('[type=submit]').disabled=true;
-  try{if(state.schema>=4&&typeof enhanceEvidenceForm==='function')await enhanceEvidenceForm(form,r,evidenceId);await prepareNoteSubjectForm(form,r);await enableEditorDraft(form,form._editing,sourceId,draftKey);if(typeof uxPrepareReadingForm==='function')uxPrepareReadingForm(form,sourceId);}
-  catch(error){form._evidenceLoadFailed=true;if(!form.dataset.draftKey)await enableEditorDraft(form,form._editing,sourceId,draftKey);form.querySelector('.form-error').textContent='关联证据未能读取，请关闭后重新打开。已有草稿仍保留。';form.querySelector('[type=submit]').disabled=true;throw error;}
+  try{
+    if(state.schema>=4&&typeof enhanceEvidenceForm==='function')await enhanceEvidenceForm(form,r,evidenceId);
+    if(!active())return;
+    await prepareNoteSubjectForm(form,r);if(!active())return;
+    await enableEditorDraft(form,form._editing,sourceId,draftKey);if(!active())return;
+    if(typeof uxPrepareReadingForm==='function')uxPrepareReadingForm(form,sourceId);
+  }
+  catch(error){if(!active())return;form._evidenceLoadFailed=true;if(!form.dataset.draftKey)await enableEditorDraft(form,form._editing,sourceId,draftKey);form.querySelector('.form-error').textContent='关联证据未能读取，请关闭后重新打开。已有草稿仍保留。';form.querySelector('[type=submit]').disabled=true;throw error;}
   finally{preparing.replaceWith(...preparing.childNodes);preparationStatus.remove();form.inert=false;if(!form._evidenceLoadFailed&&!form._draftOffer)form.querySelector('[type=submit]').disabled=false;}
+  return active()?form:undefined;
 }
 async function workflowSubmitRecord(form,data) {
   if(form._evidenceLoadFailed)throw new Error('请重新打开编辑器，完整读取关联证据后保存。');

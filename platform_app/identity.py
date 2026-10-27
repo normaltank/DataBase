@@ -22,6 +22,15 @@ def resolve(db, table, rid):
     abort(409, "编号转向存在循环，请检查合并记录。")
 
 
+def record_for_entry(db, entry_id, evidence_key):
+    """Find saved entry evidence, including old records retained by manual merges."""
+    for row in db.execute('SELECT id,raw_json FROM records'):
+        entries = json.loads(row['raw_json'] or '{}').get(evidence_key, [])
+        if any(entry.get('entry_id') == entry_id for entry in entries):
+            return resolve(db, 'records', row['id'])
+    return None
+
+
 def origins(db, table, rid):
     found, frontier = {rid}, [rid]
     while frontier:

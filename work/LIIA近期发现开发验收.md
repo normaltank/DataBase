@@ -61,6 +61,21 @@ git diff --check 07855ff3ef2c18858390247666e023f9908acf12...HEAD
 
 本次按授权只补展示层定向验证，不重跑完整检查；集成后的全量与双轴审查由指挥安排。原全量失败仍按上文保留，不将本次浏览器通过写为全量通过。8872 服务在检查后停止，真实库、8848 与 ThinkTank 未操作。
 
+## 双轴审查统一返修（2026-10-27）
+
+本轮先核对干净工作树，再快进同步集成 `c77ac64922e770331a8af058ab572953b2c3335b`，其中已包含页面返修 `a4c7f2d`。以下是返修自测，原独立审查与开发检查各自保留；两位原审查者复核及最终全量仍由指挥安排。
+
+- **Spec P2（原报告 1 项阻塞）：** 队列编辑准备完成后重新查找当前表单，可能把旧候选的编辑、签名与队列附到后来打开的手工资料。现由准备函数保留所创建表单的身份、窗口代际与账号，在每个准备阶段后检查有效性，只返回仍属于本次调用的表单；队列入口仅采用该返回值。关闭、换窗及换账号后迟到的准备被取消，不会改写新表单或重新打开旧窗口。
+- **Standards P3（原报告硬违规 0／smell 1／阻塞 0，本轮采纳）：** 两种取得通道的已保存条目查找提取到现有身份模块的内部共享函数；入口仍分别选择 `discovery_evidence` 与 `ris_evidence`。查找继续包括被合并的旧记录，并通过身份转向返回当前资料编号，未改变格式与防重语义。
+
+新增公开 UI 回归通过实际页面延迟准备请求，覆盖来源发现及 RIS 两通道的“关闭后释放”和“打开无关手工表单后释放”。首次在未修代码上，两通道均把 `Unrelated manual draft` 覆盖为 `Previously edited candidate`，回归得到 2 个子场景失败，27.615 秒；红色截图保存在 Temp `liia-discovery-browser-tp8k71wl`。修复后专项先通过，再与原双宽度完整流程共同通过：2 项／16.863 秒，截图为 Temp `liia-discovery-browser-d3zj6seb`，已实际查看两张 `late-editor-*` 截图。回归还经 UI 实际保存手工资料，再通过公开详情核对其题名、网址及没有两种取得依据；重新打开原队列后，旧候选编辑仍可保存，原 URL 与采用字段正确。
+
+共享查找提取后，`python -m unittest tests.test_discovery tests.test_ris_import -v` 共 19 项／25.401 秒通过，包括两通道的重复重试、隐私、合并转向、历史、导出和恢复；日志保留一条临时上传文件未关闭的 `ResourceWarning`，没有测试失败。既有 `scripts/check_ris_import_browser.py` 在 8872 共 5 项／14.390 秒通过，含 1366／390px、附件／失败保稿、多来源、旧草稿与跨账号迟到响应。
+
+新旧浏览器测试首次同组运行时，新增测试未等待请求拦截就绪，且两用例各建同官网来源导致合成夹具冲突；该轮失败日志独立保留。测试现明确等待请求被拦截，并在同一合成库复用来源；完成后的 2 项与 RIS 5 项通过结果分别记录，不覆盖这次夹具失败。上述检查均在同步 `c77ac64` 后执行，仅使用 Temp 合成库；8872 已停止。最终日志为 Temp `liia-review-http-check.log`、`liia-review-browser-check-final.log` 与 `liia-review-ris-browser-check.log`；夹具失败日志为 `liia-review-browser-check.log`，RIS 截图为 `ris-browser-bmckkgd_`，均仅原环境可查。未改独立探针原稿，未重跑本机全量，也不把前一集成提交的 CI 作为本轮修复后通过。
+
+复跑沿用上一节浏览器启动命令；RIS 回归先设置 `$env:DATABASE_BROWSER_PORT='8872'`，再运行 `python scripts/check_ris_import_browser.py`。固定比较基线仍为 `07855ff3ef2c18858390247666e023f9908acf12`，最终提交的差异及同步祖先关系由本轮交接核对。
+
 ## 本地证据与材料限制
 
 浏览器截图与合成运行库保存在本机 Temp 的 `liia-discovery-browser-dfgrr6fb`；RIS 最终回归为 `ris-browser-4rbsw78w`。测试日志为本机 Temp 的 `liia-full-check.log`、`liia-affected-check.log`、`liia-final-affected-check.log`、`liia-full-check-cancelled-fixture.log`、`liia-ris-browser-check-final.log`。这些路径仅原环境可查，未复制进公开仓库，也不含正式研究库。
