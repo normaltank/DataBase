@@ -2,7 +2,7 @@
 
 const intakeLabels={title:'题名',authors:'原始署名',published_on:'发表日期',publication_title:'刊物名称',volume:'卷',issue:'期',pages:'页码 / 文章编号',issn:'ISSN',doi:'DOI',url:'原文链接',abstract:'摘要',language:'语言'};
 const intakeFieldOrder=['title','authors','publication_title','volume','issue','pages','issn','published_on','doi','url','language','abstract'];
-function intakeReadableProvider(value){return /Crossref|DataCite/i.test(value||'')?value:'文章页';}
+function intakeReadableProvider(value){return value==='RIS'?value:/Crossref|DataCite/i.test(value||'')?value:'文章页';}
 function intakeResultKey(preview){return JSON.stringify({input:preview.input,fields:preview.fields,authors:preview.authors,identifiers:preview.identifiers,candidates:preview.candidates,provenance:preview.provenance});}
 function setIntakePreview(form,result){form._intakePreview=result;form.elements.intake_preview.value=JSON.stringify(result);form.elements.intake_preview_state.value='';form._intakeNextPreview=null;renderIntakePreview(form);}
 function showIntakeNextResult(form){
@@ -93,7 +93,7 @@ function renderIntakePreview(form){
         +(p.candidates?.authors?.[index]?.truncated?'<p class="form-help">仅显示前 30 个同名候选（共 '+p.candidates.authors[index].total+' 个）；可先保留署名，保存后在作品署名维护中搜索完整档案。</p>':'')+'<label class="check-label" '+(!choices.length?'hidden':'')+'><input type="checkbox" data-intake-confirm '+(!choices.length?'disabled ':'')+(row?.status==='confirmed'?'checked':'')+'>我已核对所选身份，确认此署名属于该档案</label><label '+(!choices.length?'hidden':'')+'>身份确认依据<input data-intake-evidence value="'+esc(row?.evidence||'')+'" placeholder="文章署名页／作者主页与核对说明"></label>'+(!choices.length?'<p class="form-help">没有匹配的档案，先保留待确认署名；保存后可继续核对。</p>':'')+'<p data-intake-row-error class="error-text" role="alert" tabindex="-1"></p></section>';
     }).join('')+'</fieldset>'
     +'<fieldset><legend>已有来源候选</legend>'+['source_id','serial_id'].map(field=>'<label>'+(field==='source_id'?'文章发布机构':'所属期刊／连续出版物')+'<select data-intake-source="'+field+'"><option value="">不自动关联，保留文字出处</option>'+(p.candidates?.sources||[]).filter(c=>c.field===field).map(c=>'<option value="'+esc(c.id)+'" '+(selection.sources?.[field]===c.id?'selected':'')+'>'+esc(c.name+' · '+c.basis)+'</option>').join('')+'</select></label>').join('')+(p.candidates?.sources_truncated?'<p class="form-help">仅显示前 50 个来源候选，可在表单来源选择器中搜索全部来源。</p>':'')+'<p class="form-help">明确选择后应用。发布商、主办方、署名单位和任职关系分别维护；不会推断国别或任职。</p></fieldset>'
-    +'<div data-intake-apply-status role="status" aria-live="polite"></div><button type="button" class="button" data-intake-apply>应用勾选的替换与关联</button></details>'+intakeEvidenceHtml([p])+'<p class="form-help">只取得文章信息，未下载全文或附件，也未标记为已核对。</p><button type="button" class="button tiny" data-intake-detach>取消本次识别依据（保留填写内容）</button></section>';
+    +'<div data-intake-apply-status role="status" aria-live="polite"></div><button type="button" class="button" data-intake-apply>应用勾选的替换与关联</button></details>'+(p.format==='RIS'?'':intakeEvidenceHtml([p]))+'<p class="form-help">只取得文章信息，未下载全文或附件，也未标记为已核对。</p>'+(p.format==='RIS'?'':'<button type="button" class="button tiny" data-intake-detach>取消本次识别依据（保留填写内容）</button>')+'</section>';
 }
 function intakeIdentityError(row,message){
   const error=row.querySelector('[data-intake-row-error]');

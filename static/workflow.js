@@ -3,7 +3,7 @@
 const personalKinds = new Set(['compilation', 'research_note', 'research_report']);
 const authorControlledKinds = new Set(['compilation', 'research_report']);
 const draftPrefix = 'zhihui:draft:v1:';
-const draftTypeLabels = {collection:'研究专题',person:'人物档案',byline:'作品署名',employment:'任职经历',affiliation:'文章署名单位',source:'来源介绍'};
+const draftTypeLabels = {ris:'RIS 导入队列',collection:'研究专题',person:'人物档案',byline:'作品署名',employment:'任职经历',affiliation:'文章署名单位',source:'来源介绍'};
 function draftTypeLabel(draft) { return draftTypeLabels[draft.type] || kinds[draft.kind] || '内容'; }
 const richTags = new Set('p div br h2 h3 h4 strong b em i u ul ol li blockquote table thead tbody tfoot tr th td a hr'.split(' '));
 let draftDatabase, draftFileWrites = 0;
@@ -104,6 +104,7 @@ function currentEditorForm() { return document.querySelector('form[data-draft-ke
 function draftStatus(form, text, failed=false) { const el=form?.querySelector('[data-draft-status]');if(el){el.textContent=text;el.classList.toggle('error-text',failed);} }
 function collectDraft(form) {
   syncRichForm(form);
+  if(typeof risCaptureEditor==='function')risCaptureEditor(form);
   if(typeof syncCollectionScopeLog==='function')syncCollectionScopeLog(form);
   const values={};for(const element of form.elements){if(!element.name||element.type==='file'||element.type==='password')continue;if(['checkbox','radio'].includes(element.type)){if(!values[element.name])values[element.name]=[];if(element.checked)values[element.name].push(element.value);}else if(element.multiple)values[element.name]=[...element.selectedOptions].map(o=>o.value);else values[element.name]=element.value;}
   const edit=form._editing;
@@ -148,7 +149,7 @@ async function restoreEditorDraft(form) {
 }
 async function clearEditorDraft(form) {if(!form?.dataset.draftKey)return;form._saved=true;localStorage.removeItem(form.dataset.draftKey);try{await draftFileOperation(form.dataset.draftKey,'delete');}catch{} }
 function showDraftFile(form){const el=form.querySelector('[data-file-status]');if(el)el.innerHTML=form._draftFile?'待上传：'+esc(form._draftFile.name)+' · '+(form._draftFile.size/1024).toFixed(1)+' KB <button type="button" class="link-button" data-action="remove-draft-file">移除本次附件</button>':'';}
-async function persistSelectedFile(form,file){form._draftFile=file||null;form._dirty=true;form._filePending=true;draftFileWrites++;showDraftFile(form);saveEditorDraft(form,true);try{if(file)await draftFileOperation(form.dataset.draftKey,'put',file);else await draftFileOperation(form.dataset.draftKey,'delete');form._fileSaveFailed=false;}catch{form._fileSaveFailed=true;draftStatus(form,'附件尚未保存为本机草稿，请先提交或重新选择文件。',true);}finally{form._filePending=false;draftFileWrites--;if(!form._fileSaveFailed)saveEditorDraft(form,true);}}
+async function persistSelectedFile(form,file){form._draftFile=file||null;form._dirty=true;form._filePending=true;draftFileWrites++;showDraftFile(form);saveEditorDraft(form,true);try{if(file)await draftFileOperation(form._risFileKey||form.dataset.draftKey,'put',file);else await draftFileOperation(form._risFileKey||form.dataset.draftKey,'delete');form._fileSaveFailed=false;}catch{form._fileSaveFailed=true;draftStatus(form,'附件尚未保存为本机草稿，请先提交或重新选择文件。',true);}finally{form._filePending=false;draftFileWrites--;if(!form._fileSaveFailed)saveEditorDraft(form,true);}}
 async function draftsPage(){
   const prefix=draftPrefix+encodeURIComponent(state.me.id)+':',drafts=[];
   for(let i=0;i<localStorage.length;i++){const key=localStorage.key(i);if(key.startsWith(prefix)){try{const d=JSON.parse(localStorage.getItem(key));if(d.user_id===state.me.id)drafts.push({key,...d});}catch{}}}
@@ -241,13 +242,16 @@ async function workflowSubmitRecord(form,data) {
   if(form._draftOffer)throw new Error('请先选择恢复或舍弃已有草稿。');
   const file=form._draftFile||data.get('file');if(file?.size>20*1024*1024)throw new Error('附件超过 20 MB，请选择较小文件。');
   if(typeof intakeSaveValues==='function')intakeSaveValues(form,values);
+  if(typeof risSaveValues==='function')risSaveValues(form,values);
   const multipart=new FormData();multipart.set('data',JSON.stringify(values));if(file?.size)multipart.set('file',file,file.name);
   form.dataset.saving='true';form.inert=true;
   try{
   const r=await api('/api/records'+(edit.id?'/'+encodeURIComponent(edit.id):''),{method:edit.id?'PUT':'POST',body:multipart});
+  if(form._risQueue){await risRecordSaved(form,r);return;}
   let topicError='';if(form.dataset.collectionId){try{await api('/api/collections/'+encodeURIComponent(form.dataset.collectionId)+'/items',{method:'POST',body:{record_id:r.id}});}catch(e){topicError=e.message;}}
   const readingOriginal=form.dataset.readingOriginalId;await clearEditorDraft(form);await loadLookups();if(typeof uxRefreshBackground==='function')await uxRefreshBackground();else{delete form.dataset.saving;form.inert=false;await route();}await workflowOpenRecord(readingOriginal||r.id);if(readingOriginal)document.querySelector('[data-reading-notes]')?.scrollIntoView({block:'start'});toast(topicError?'内容已保存，加入专题未完成：'+topicError:readingOriginal?'阅读说明已保存':'内容已保存');
-  }finally{delete form.dataset.saving;if(form.isConnected)form.inert=false;}
+  }catch(error){if(form._risQueue){form._risQueue.items[form._risIndex].saveError=error.message;saveEditorDraft(form,true);}throw error;}
+  finally{delete form.dataset.saving;if(form.isConnected)form.inert=false;}
 }
 function authorPanel(r) {
   const note=r.kind==='research_note';
@@ -319,7 +323,7 @@ document.addEventListener('click',async event=>{
     if(action==='save-draft'){form._dirty=true;saveEditorDraft(form,true);}
     else if(action==='restore-draft')await restoreEditorDraft(form);
     else if(action==='discard-draft'){await clearEditorDraft(form);form._saved=false;form._draftOffer=null;form.querySelector('.draft-offer')?.remove();form.querySelector('[type=submit]').disabled=false;draftStatus(form,'旧草稿已舍弃');}
-    else if(action==='open-draft'){const d=JSON.parse(localStorage.getItem(button.dataset.key)||'null');if(d?.user_id!==state.me.id)return;if(d.type==='collection'&&typeof researchCollectionForm==='function')await researchCollectionForm(d.id,button.dataset.key);else if(d.type==='byline')await bylineForm(d.id,button.dataset.key);else if(d.type==='employment'||d.type==='affiliation')await relationshipForm(d.type,d.id,d.specific.return_source,button.dataset.key);else if(d.type==='person')await personForm(d.id,button.dataset.key);else if(d.type==='source')await sourceForm(d.id,d.kind,button.dataset.key);else await workflowRecordForm(d.id,d.kind,d.context,button.dataset.key);}
+    else if(action==='open-draft'){const d=JSON.parse(localStorage.getItem(button.dataset.key)||'null');if(d?.user_id!==state.me.id)return;if(d.type==='ris')await risOpenDraft(button.dataset.key);else if(d.type==='collection'&&typeof researchCollectionForm==='function')await researchCollectionForm(d.id,button.dataset.key);else if(d.type==='byline')await bylineForm(d.id,button.dataset.key);else if(d.type==='employment'||d.type==='affiliation')await relationshipForm(d.type,d.id,d.specific.return_source,button.dataset.key);else if(d.type==='person')await personForm(d.id,button.dataset.key);else if(d.type==='source')await sourceForm(d.id,d.kind,button.dataset.key);else await workflowRecordForm(d.id,d.kind,d.context,button.dataset.key);}
     else if(action==='remove-draft-file'){form.elements.file.value='';await persistSelectedFile(form,null);}
     else if(action==='new-source-translation')await workflowRecordForm('','directory_translation',button.dataset.id);
     else if(action==='accept-latest-version'){const panel=button.closest('[data-conflict-panel]'),latest=panel._latest;form._editing.version=latest.version;form._editing.original=latest;form._editing.visibility=latest.visibility;form._editing.editors=latest.editors;form._conflictPending=false;panel.remove();form.querySelector('.form-error').textContent='';saveEditorDraft(form,true);toast('已采用最新版本号，当前输入仍保留，请检查后保存。');}
@@ -339,6 +343,7 @@ const accountChannel = typeof BroadcastChannel==='function' ? new BroadcastChann
 function announceAccount(){accountChannel?.postMessage({user:state.me?.id||null});}
 if(accountChannel)accountChannel.onmessage=async event=>{
   if(event.data.user===(state.me?.id||null))return;
+  if(typeof risReleaseAccountEditor==='function')risReleaseAccountEditor();
   saveEditorDraft(currentEditorForm());closeModal();state.loadId++;state.me=null;state.sources=[];state.collections=[];state.users=[];state.links=[];showLogin();
   try{const session=await api('/api/session');state.me=session.user;state.csrf=session.csrf;if(state.me){await loadLookups();await route();}}catch(error){toast(error.message);}
 };
