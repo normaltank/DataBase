@@ -2,6 +2,8 @@
 
 // One member-owned draft contains the complete queue and each entry's edits.
 function risDraftKey(account=state.me.id){return draftPrefix+encodeURIComponent(account)+':ris:queue';}
+function queueDraftKey(queue){return queue?.format==='discovery'?draftPrefix+encodeURIComponent(state.me.id)+':discovery:'+encodeURIComponent(queue.source_id):risDraftKey();}
+function queueStatusPath(queue){return queue?.format==='discovery'?'/api/discovery/status':'/api/ris/status';}
 const risMemoryDrafts=new Map();
 function risReleaseAccountEditor(){
   const form=currentEditorForm();if(!form?._risQueue)return;
@@ -30,22 +32,23 @@ function risCaptureEditor(form){
   if(form.elements.ris_queue_json)form.elements.ris_queue_json.value=JSON.stringify(queue);
 }
 function risQueueHtml(queue){
+  if(queue.format==='discovery')return discoveryQueueHtml(queue);
   return '<section class="ris-queue" data-ris-queue><h3>'+esc(queue.filename)+' · '+queue.items.length+' 条题录</h3><p class="form-help">每条只有明确保存后才入库。切换条目和关闭时保留整队列草稿。</p><ol>'+queue.items.map((item,i)=>'<li><div><strong>第 '+item.index+' 条 · '+esc(item.type)+'</strong><span>'+esc(item.edit?.title||item.fields.title||'题名缺失')+'</span><small>'+esc(item.saved?'已保存 · '+item.saved:item.skipped?'已跳过':item.errors.length?'未支持或格式错误（第 '+item.line+' 行）':item.saveError?'保存失败，输入保留':'待处理')+'</small></div>'+(item.saved?'<button type="button" class="button tiny" data-ris-open="'+esc(item.saved)+'">查看资料</button>':'<button type="button" class="button tiny" data-ris-edit="'+i+'">'+(item.errors.length?'查看问题':'核对本条')+'</button>')+'<button type="button" class="button tiny" data-ris-skip="'+i+'" '+(item.saved?'disabled':'')+'>'+(item.skipped?'继续处理':'跳过')+'</button></li>').join('')+'</ol></section>';
 }
 function risUploadHtml(){return '<section class="ris-upload"><h3>选择题录文件</h3><p class="form-help">UTF-8 RIS（可带 BOM），最多 1 MiB、100 条。支持 JOUR、RPRT、WEB/ELEC、GEN。只导入题录，不访问链接、附件或本机路径。</p><label>RIS 文件<input type="file" data-ris-file accept=".ris,text/plain,application/x-research-info-systems"></label><button type="button" class="button" data-ris-preview>预览文件</button><p data-ris-status role="status" aria-live="polite"></p></section>';}
 function risBind(form,queue,index,persist=true){
-  form._risQueue=queue;form._risIndex=index;form._editing.type='ris';form.dataset.draftKey=risDraftKey();
-  if(index!==undefined)form._risFileKey=risDraftKey()+':'+queue.sha256+':'+index;
+  form._risQueue=queue;form._risIndex=index;form._editing.type=queue.format==='discovery'?'discovery':'ris';form.dataset.draftKey=queueDraftKey(queue);
+  if(index!==undefined)form._risFileKey=queueDraftKey(queue)+':'+queue.sha256+':'+index;
   const hidden=document.createElement('input');hidden.type='hidden';hidden.name='ris_queue_json';form.append(hidden);
   form.querySelector('.draft-offer')?.remove();form._draftOffer=null;
   form._dirty=true;if(persist){risCaptureEditor(form);if(saveEditorDraft(form,true))risMemoryDrafts.delete(form.dataset.draftKey);}
 }
-async function risOpenDraft(key=risDraftKey()){
+async function risOpenDraft(key=risDraftKey(),emptyQueue=null){
   let draft;try{draft=JSON.parse(localStorage.getItem(key)||'null');}catch{}
   draft=risMemoryDrafts.get(key)||draft;
-  if(draft?.user_id!==state.me.id)return risShowQueue(null);
+  if(draft?.user_id!==state.me.id)return risShowQueue(emptyQueue);
   let queue;try{queue=JSON.parse(draft.values.ris_queue_json||'null');}catch{}
-  if(!queue)return risShowQueue(null);
+  if(!queue)return risShowQueue(emptyQueue);
   const actor=state.me.id;
   await risShowQueue(queue);
   const form=currentEditorForm(),generation=modalGeneration;
@@ -54,9 +57,9 @@ async function risOpenDraft(key=risDraftKey()){
   try{
     for(const item of queue.items){
       if(!item.token)continue;
-      const result=await api('/api/ris/status',{method:'POST',body:{token:item.token}});
+      const result=await api(queueStatusPath(queue),{method:'POST',body:{token:item.token}});
       if(actor!==state.me?.id||!form.isConnected||generation!==modalGeneration)return;
-      if(result.saved){item.saved=result.id;delete item.saveError;}
+      if(result.saved){item.saved=result.id;delete item.saveError;}else{delete item.saved;item.duplicates=result.duplicates;item.blocked=result.blocked;}
     }
     risCaptureEditor(form);saveEditorDraft(form,true);
     form.querySelector('[data-ris-queue]').outerHTML=risQueueHtml(queue);
@@ -65,9 +68,10 @@ async function risOpenDraft(key=risDraftKey()){
   finally{if(form.isConnected)form.inert=false;}
 }
 async function risShowQueue(queue){
-  if(modal('RIS 题录导入','<form data-form="ris-upload">'+(queue?risQueueHtml(queue):'')+risUploadHtml()+'<div class="form-error" role="alert"></div><div class="form-actions"><button type="button" class="button" data-action="close">关闭并保留草稿</button></div></form>')===false)return;
+  const discovery=queue?.format==='discovery';
+  if(modal(discovery?'LIIA 近期资料发现':'RIS 题录导入','<form data-form="ris-upload">'+(queue?risQueueHtml(queue):'')+(discovery?discoveryControls(queue):risUploadHtml())+'<div class="form-error" role="alert"></div><div class="form-actions"><button type="button" class="button" data-action="close">关闭并保留草稿</button></div></form>')===false)return;
   const form=document.querySelector('[data-form=ris-upload]');
-  await enableEditorDraft(form,{type:'ris',id:'',original:{kind:'other'}},'ris-upload-'+crypto.randomUUID());
+  await enableEditorDraft(form,{type:discovery?'discovery':'ris',id:'',original:{kind:'other'}},'ris-upload-'+crypto.randomUUID());
   form.querySelector('.draft-offer')?.remove();form._draftOffer=null;
   risBind(form,queue||{filename:'尚未选择文件',items:[]});
 }
@@ -79,11 +83,11 @@ async function risEdit(form,index){
     await risShowQueue(queue);
     const panel=document.createElement('section');panel.className='notice error';panel.innerHTML='<h3>第 '+item.index+' 条问题</h3>'+item.errors.map(e=>'<p>'+esc(e)+'</p>').join('')+'<pre>'+esc(item.evidence.raw_entry)+'</pre>';currentEditorForm().querySelector('[data-ris-queue]').after(panel);return;
   }
-  await workflowRecordForm('',item.edit?.kind||item.fields.kind,'ris-item-'+crypto.randomUUID(),'','',{...item.fields});
-  const editor=document.querySelector('[data-form=record]');if(!editor||actor!==state.me?.id)return;
+  const editor=await workflowRecordForm('',item.edit?.kind||item.fields.kind,'ris-item-'+crypto.randomUUID(),'','',{...item.fields});
+  if(!editor?.isConnected||editor!==currentEditorForm()||actor!==state.me?.id)return;
   // The standard editor owns field, source, identity, draft and validation UI.
-  const metadata={format:'RIS',input:queue.filename+' · 第 '+item.index+' 条',retrieved_at:item.evidence.imported_at,fields:item.fields,
-    authors:item.authors,identifiers:{},provenance:Object.fromEntries(Object.keys(item.fields).map(k=>[k,'RIS'])),
+  const metadata={format:queue.format==='discovery'?'LIIA RSS':'RIS',input:queue.filename+' · 第 '+item.index+' 条',retrieved_at:item.evidence.retrieved_at||item.evidence.imported_at,fields:item.fields,
+    authors:item.authors,identifiers:{},provenance:queue.format==='discovery'?item.evidence.provenance:Object.fromEntries(Object.keys(item.fields).map(k=>[k,'RIS'])),
     warnings:item.warnings,duplicates:item.duplicates,candidates:item.candidates,token:item.token,sources:[]};
   setIntakePreview(editor,metadata);fillIntakeBlanks(editor);
   editor.querySelector('[data-intake-editor] .intake-input-row').hidden=true;
@@ -92,19 +96,19 @@ async function risEdit(form,index){
   editor.querySelector('[data-intake-detach]')?.remove();
   editor.querySelector('[data-intake-editor] .intake-evidence')?.remove();
   editor.elements.intake_token.value='';
-  const token=document.createElement('input');token.type='hidden';token.name='ris_token';token.value=item.token;editor.append(token);
+  const token=document.createElement('input');token.type='hidden';token.name=queue.format==='discovery'?'discovery_token':'ris_token';token.value=item.token;editor.append(token);
   const head=document.createElement('section');head.className='wide ris-editor-head';
   head.innerHTML=risQueueHtml(queue)+'<h3>核对第 '+item.index+' 条 · 原类型 '+esc(item.type)+'</h3>'
     +(item.warnings.length?'<div class="notice">'+item.warnings.map(w=>'<p>'+esc(w)+'</p>').join('')+'</div>':'')
     +(item.file_duplicates.length?'<p class="notice">文件内可能重复：第 '+item.file_duplicates.join('、')+' 条。保存时会再次检查 DOI 与网址。</p>':'')
     +(item.evidence.requires_date_review?'<label class="check-label"><input type="checkbox" name="ris_date_reviewed">我已核对原始日期并完成修正，或确认日期暂留空</label>':'')
-    +'<button type="button" class="button tiny" data-ris-recheck>重新核对当前字段与保存结果</button><p data-ris-check-status role="status"></p>'+risEvidenceHtml([item.evidence]);
+    +'<button type="button" class="button tiny" data-ris-recheck>重新核对当前字段与保存结果</button><p data-ris-check-status role="status"></p>'+(queue.format==='discovery'?discoveryItemHtml(item)+discoveryControls(queue):risEvidenceHtml([item.evidence]));
   editor.querySelector('.form-grid').prepend(head);
   // All kinds shown here are external material; the server repeats this check.
   [...editor.elements.kind.options].filter(o=>isResearchContent(o.value)).forEach(o=>o.remove());
   if(item.edit){
     for(const el of editor.elements){
-      if(!el.name||el.type==='file'||el.name==='ris_token'||!Object.hasOwn(item.edit,el.name))continue;
+      if(!el.name||el.type==='file'||['ris_token','discovery_token'].includes(el.name)||!Object.hasOwn(item.edit,el.name))continue;
       const value=item.edit[el.name];
       if(['checkbox','radio'].includes(el.type))el.checked=Array.isArray(value)&&value.includes(el.value);
       else if(el.matches('[data-source-values]'))restoreSourceSelection(el,value);
@@ -130,7 +134,8 @@ async function risEdit(form,index){
 function risSaveValues(form,values){
   if(!form._risQueue)return;
   delete values.ris_queue_json;delete values.intake_token;
-  values.ris_token=form.elements.ris_token.value;
+  if(form._risQueue.format==='discovery')values.discovery_token=form.elements.discovery_token.value;
+  else values.ris_token=form.elements.ris_token.value;
   values.ris_date_reviewed=!!form.elements.ris_date_reviewed?.checked;
   values.intake_bylines=intakeBylines(form);
   risCaptureEditor(form);
@@ -144,7 +149,7 @@ async function risRecordSaved(form,result){
   const next=queue.items.findIndex(i=>!i.saved&&!i.skipped&&!i.errors.length);
   await risShowQueue(queue);
   if(next>=0)await risEdit(currentEditorForm(),next);
-  toast('本条已保存：'+result.id+'；其余条目尚未保存。');
+  toast('本条已保存：'+result.id+'；可继续核对队列。');
 }
 document.addEventListener('library:rendered',event=>{
   if(state.page!=='library')return;
@@ -160,10 +165,10 @@ document.addEventListener('click',async event=>{
     if(button.hasAttribute('data-ris-skip')){risCaptureEditor(form);const item=form._risQueue.items[Number(button.dataset.risSkip)];item.skipped=!item.skipped;saveEditorDraft(form,true);return await risShowQueue(form._risQueue);}
     if(button.hasAttribute('data-ris-recheck')){
       const actor=state.me.id,item=form._risQueue.items[form._risIndex];
-      const result=await api('/api/ris/status',{method:'POST',body:{token:item.token,fields:Object.fromEntries(new FormData(form))}});
+      const result=await api(queueStatusPath(form._risQueue),{method:'POST',body:{token:item.token,fields:Object.fromEntries(new FormData(form))}});
       if(!form.isConnected||actor!==state.me?.id)return;
       if(result.saved){item.saved=result.id;saveEditorDraft(form,true);await risShowQueue(form._risQueue);}
-      else form.querySelector('[data-ris-check-status]').innerHTML='本预览条目尚未保存。'+(result.duplicates||[]).map(d=>'<p>'+esc(d.basis)+'：'+linkButton(esc(d.title),'detail',d.id,'link-button')+'</p>').join('');
+      else form.querySelector('[data-ris-check-status]').innerHTML=(result.blocked?'存在受限重复，请联系资料管理员核对。':'本预览条目尚未保存。')+(result.duplicates||[]).map(d=>'<p>'+esc(d.basis)+'：'+linkButton(esc(d.title),'detail',d.id,'link-button')+'</p>').join('');
       return;
     }
     if(button.hasAttribute('data-ris-preview')){

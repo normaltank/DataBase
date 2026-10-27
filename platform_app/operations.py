@@ -311,6 +311,8 @@ def register(app, ctx):
                     content += prose("辅助录入取得依据（题录，非全文或核对结论）", json.dumps(item["intake_evidence"], ensure_ascii=False, indent=2))
                 if item.get("ris_evidence"):
                     content += prose("RIS 交换依据（仅本条题录，非全文或核对结论）", json.dumps(item["ris_evidence"], ensure_ascii=False, indent=2))
+                if item.get("discovery_evidence"):
+                    content += prose("来源发现依据（公开描述非已核实摘要）", json.dumps(item["discovery_evidence"], ensure_ascii=False, indent=2))
                 content += content_export.record_relations_html(item, prose, source_paths, people)
                 for key, label in [("quote", "原文摘录"), ("translation", "译文"), ("interpretation", "研究员说明"), ("locator", "原文定位")]:
                     content += prose(label, item[key])

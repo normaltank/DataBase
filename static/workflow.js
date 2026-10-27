@@ -3,7 +3,7 @@
 const personalKinds = new Set(['compilation', 'research_note', 'research_report']);
 const authorControlledKinds = new Set(['compilation', 'research_report']);
 const draftPrefix = 'zhihui:draft:v1:';
-const draftTypeLabels = {ris:'RIS 导入队列',collection:'研究专题',person:'人物档案',byline:'作品署名',employment:'任职经历',affiliation:'文章署名单位',source:'来源介绍'};
+const draftTypeLabels = {discovery:'LIIA 发现队列',ris:'RIS 导入队列',collection:'研究专题',person:'人物档案',byline:'作品署名',employment:'任职经历',affiliation:'文章署名单位',source:'来源介绍'};
 function draftTypeLabel(draft) { return draftTypeLabels[draft.type] || kinds[draft.kind] || '内容'; }
 const richTags = new Set('p div br h2 h3 h4 strong b em i u ul ol li blockquote table thead tbody tfoot tr th td a hr'.split(' '));
 let draftDatabase, draftFileWrites = 0;
@@ -209,8 +209,10 @@ async function workflowRecordForm(id='',kind='report',sourceId='',draftKey='',ev
     +'<section class="wide" data-access-fields><h3>可见范围与权限</h3><p class="form-help" data-common-rule>当前有权读取的有效成员共同编辑；共同编辑不改变可见范围。</p>'+selectField('visibility','可见范围',{shared:'中心成员可见',restricted:'限有读取权限的成员'},r.visibility)+'<fieldset class="editor-grants"><legend data-grants-label>获授权共同编辑的成员</legend>'
     +state.users.filter(u=>u.id!==(r.author_id||state.me.id)).map(u=>'<label class="check-label"><input type="checkbox" name="editors" value="'+esc(u.id)+'" '+(r.editors?.includes(u.id)?'checked':'')+'>'+esc(u.name)+(u.role==='admin'?'（管理员）':'')+'</label>').join('')+'</fieldset><p class="form-help" data-acl-rule></p></section>'
     +'</div><div class="form-error" role="alert"></div><div class="form-actions"><button type="button" class="button" data-action="close">关闭并保留草稿</button><button type="submit" class="button primary">'+(id?'保存修订':'保存内容')+'</button></div></form>';
-  modal(id?'修订内容':'新建'+(kinds[kind]||'资料'),html);
-  const form=document.querySelector('[data-form=record]');form._editing=state.editing;if(sourceId.startsWith('collection:'))form.dataset.collectionId=sourceId.slice(11);
+  if(modal(id?'修订内容':'新建'+(kinds[kind]||'资料'),html)===false)return;
+  const form=document.querySelector('[data-form=record]'),generation=modalGeneration,account=state.me?.id;
+  const active=()=>form.isConnected&&document.querySelector('[data-form=record]')===form&&generation===modalGeneration&&account===state.me?.id;
+  form._editing=state.editing;if(sourceId.startsWith('collection:'))form.dataset.collectionId=sourceId.slice(11);
   if(typeof prepareIntakeForm==='function')prepareIntakeForm(form);
   form._updateInformationMode=()=>updateRecordInformationMode(form);form._updateInformationMode();
   form.addEventListener('change',event=>{if(event.target.name==='kind')form._updateInformationMode();});
@@ -221,9 +223,16 @@ async function workflowRecordForm(id='',kind='report',sourceId='',draftKey='',ev
   const grid=form.querySelector('.form-grid');grid.before(preparing);preparing.append(grid);
   const preparationStatus=document.createElement('p');preparationStatus.className='notice';preparationStatus.setAttribute('role','status');preparationStatus.textContent='正在准备编辑与草稿保护…';form.prepend(preparationStatus);
   form.querySelector('[type=submit]').disabled=true;
-  try{if(state.schema>=4&&typeof enhanceEvidenceForm==='function')await enhanceEvidenceForm(form,r,evidenceId);await prepareNoteSubjectForm(form,r);await enableEditorDraft(form,form._editing,sourceId,draftKey);if(typeof uxPrepareReadingForm==='function')uxPrepareReadingForm(form,sourceId);}
-  catch(error){form._evidenceLoadFailed=true;if(!form.dataset.draftKey)await enableEditorDraft(form,form._editing,sourceId,draftKey);form.querySelector('.form-error').textContent='关联证据未能读取，请关闭后重新打开。已有草稿仍保留。';form.querySelector('[type=submit]').disabled=true;throw error;}
+  try{
+    if(state.schema>=4&&typeof enhanceEvidenceForm==='function')await enhanceEvidenceForm(form,r,evidenceId);
+    if(!active())return;
+    await prepareNoteSubjectForm(form,r);if(!active())return;
+    await enableEditorDraft(form,form._editing,sourceId,draftKey);if(!active())return;
+    if(typeof uxPrepareReadingForm==='function')uxPrepareReadingForm(form,sourceId);
+  }
+  catch(error){if(!active())return;form._evidenceLoadFailed=true;if(!form.dataset.draftKey)await enableEditorDraft(form,form._editing,sourceId,draftKey);form.querySelector('.form-error').textContent='关联证据未能读取，请关闭后重新打开。已有草稿仍保留。';form.querySelector('[type=submit]').disabled=true;throw error;}
   finally{preparing.replaceWith(...preparing.childNodes);preparationStatus.remove();form.inert=false;if(!form._evidenceLoadFailed&&!form._draftOffer)form.querySelector('[type=submit]').disabled=false;}
+  return active()?form:undefined;
 }
 async function workflowSubmitRecord(form,data) {
   if(form._evidenceLoadFailed)throw new Error('请重新打开编辑器，完整读取关联证据后保存。');
@@ -323,7 +332,7 @@ document.addEventListener('click',async event=>{
     if(action==='save-draft'){form._dirty=true;saveEditorDraft(form,true);}
     else if(action==='restore-draft')await restoreEditorDraft(form);
     else if(action==='discard-draft'){await clearEditorDraft(form);form._saved=false;form._draftOffer=null;form.querySelector('.draft-offer')?.remove();form.querySelector('[type=submit]').disabled=false;draftStatus(form,'旧草稿已舍弃');}
-    else if(action==='open-draft'){const d=JSON.parse(localStorage.getItem(button.dataset.key)||'null');if(d?.user_id!==state.me.id)return;if(d.type==='ris')await risOpenDraft(button.dataset.key);else if(d.type==='collection'&&typeof researchCollectionForm==='function')await researchCollectionForm(d.id,button.dataset.key);else if(d.type==='byline')await bylineForm(d.id,button.dataset.key);else if(d.type==='employment'||d.type==='affiliation')await relationshipForm(d.type,d.id,d.specific.return_source,button.dataset.key);else if(d.type==='person')await personForm(d.id,button.dataset.key);else if(d.type==='source')await sourceForm(d.id,d.kind,button.dataset.key);else await workflowRecordForm(d.id,d.kind,d.context,button.dataset.key);}
+    else if(action==='open-draft'){const d=JSON.parse(localStorage.getItem(button.dataset.key)||'null');if(d?.user_id!==state.me.id)return;if(['ris','discovery'].includes(d.type))await risOpenDraft(button.dataset.key);else if(d.type==='collection'&&typeof researchCollectionForm==='function')await researchCollectionForm(d.id,button.dataset.key);else if(d.type==='byline')await bylineForm(d.id,button.dataset.key);else if(d.type==='employment'||d.type==='affiliation')await relationshipForm(d.type,d.id,d.specific.return_source,button.dataset.key);else if(d.type==='person')await personForm(d.id,button.dataset.key);else if(d.type==='source')await sourceForm(d.id,d.kind,button.dataset.key);else await workflowRecordForm(d.id,d.kind,d.context,button.dataset.key);}
     else if(action==='remove-draft-file'){form.elements.file.value='';await persistSelectedFile(form,null);}
     else if(action==='new-source-translation')await workflowRecordForm('','directory_translation',button.dataset.id);
     else if(action==='accept-latest-version'){const panel=button.closest('[data-conflict-panel]'),latest=panel._latest;form._editing.version=latest.version;form._editing.original=latest;form._editing.visibility=latest.visibility;form._editing.editors=latest.editors;form._conflictPending=false;panel.remove();form.querySelector('.form-error').textContent='';saveEditorDraft(form,true);toast('已采用最新版本号，当前输入仍保留，请检查后保存。');}
