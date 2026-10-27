@@ -203,7 +203,8 @@ class TranslationTests(unittest.TestCase):
         with patch('urllib.request.OpenerDirector.open') as network:
             app = create_app(restored, testing=True)
             with app.test_client().get('/health') as response:
-                self.assertEqual(response.json['schema'], 15)
+                from platform_app.store import CURRENT_SCHEMA_VERSION
+                self.assertEqual(response.json['schema'], CURRENT_SCHEMA_VERSION)
             client = self.login('colleague', app)
             with client.get('/api/records/' + expected['record_id']) as response:
                 self.assertEqual(response.status_code, 200)
@@ -221,7 +222,7 @@ class TranslationTests(unittest.TestCase):
                     db.execute('DROP TRIGGER IF EXISTS reject_translation_upgrade')
                     db.commit()
                 with create_app(stage, testing=True).test_client().get('/health') as response:
-                    self.assertEqual(response.json['schema'], 15)
+                    self.assertEqual(response.json['schema'], CURRENT_SCHEMA_VERSION)
             network.assert_not_called()
         self.assertEqual(versions, {11, 12, 13, 14})
 

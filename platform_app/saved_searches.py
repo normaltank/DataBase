@@ -10,7 +10,8 @@ from .store import connect, now
 
 SCHEMA_VERSION = 11
 CONDITION_KEYS = {'q','kind','source','source_section','source_group','source_country','source_international',
-                  'language','country','status','from','to','collection','sort','favorite','editable','evidence_of'}
+                  'language','country','status','from','to','collection','sort','favorite','editable','evidence_of',
+                  'topic','availability','date_field','date_unknown','feed'}
 
 
 def migrate(data_dir):
@@ -43,12 +44,15 @@ def conditions(value):
             query_range({key: item})
         if item.strip():
             result[key] = item.strip()
-    enums = {'kind':KINDS,'sort':{'date','updated','title'},'status':{'pending','verified'},
+    enums = {'kind':KINDS,'sort':{'date','updated','title','collected'},'status':{'pending','verified'},
              'favorite':{'1'},'editable':{'1'},'source_group':{'institution','journal','publication'},
              'source_international':{'yes','no','unknown'},
-             'source_section':{'published','associated','translations','outputs'}}
+             'source_section':{'published','associated','translations','outputs'},
+             'availability':{'body','file','link','chinese','translation_pending','no_abstract','bibliography'},
+             'date_field':{'published','collected','updated'}, 'date_unknown':{'1'}, 'feed':{'new','all'}}
     for key, allowed in enums.items():
-        if key in result and result[key] not in allowed:
+        choices = result.get(key, '').split('|') if key in {'kind', 'source_group', 'availability'} else [result.get(key)]
+        if key in result and any(choice not in allowed for choice in choices):
             abort(400, '检索条件的选项无效：'+key)
     query_range(result)
     return result
@@ -71,7 +75,7 @@ def resolve(db, owner, args):
         abort(400, '检索编号不能为空。')
     saved = get(db, owner, args['saved_search'])
     # Persisted scope cannot be weakened by a forged query-string override.
-    return {**saved['conditions'], **{key:args[key] for key in ('page','size') if key in args}}
+    return {**saved['conditions'], **{key:args[key] for key in ('page','size','batch','batch_scope') if key in args}}
 
 
 def register(app, ctx):

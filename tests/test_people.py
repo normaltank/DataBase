@@ -15,14 +15,21 @@ from platform_app.maintenance import restore_backup
 from platform_app.store import CURRENT_SCHEMA_VERSION
 
 
-def legacy_record_response(before):
+def legacy_record_response(before, records):
     """Fixed public response additions to the frozen v5 record fixture."""
+    def reading_fields(item):
+        return {"chinese_title": "", "chinese_abstract": "", "display_title": item["title"],
+                "display_abstract": item["abstract"], "translation_origin": "original",
+                "reading_translation_id": "", "has_chinese": False, "abstract_is_chinese": False,
+                "original_abstract_missing": not bool(item["abstract"]),
+                "created_at": records[item["id"]]["created_at"]}
     new_defaults = {"research_subjects": []} if before["kind"] == "research_note" else {}
+    new_defaults.update(reading_fields(before))
     new_defaults.update(chinese_title="", chinese_abstract="", adopted_translation_id="", translations=[], translation_history=[])
     new_defaults.update(volume="", issue="", pages="", issn="", attachment_matches=[], can_manage_access=True, last_verified=None, review_history=[], attachments=[
         {**attachment, "index": {"status": "unindexed", "message": "尚未建立索引"}}
         for attachment in before["attachments"]])
-    new_defaults.update({key: [{**item, "volume": "", "issue": "", "pages": "", "issn": "", "attachment_matches": [], "can_manage_access": True} for item in before[key]]
+    new_defaults.update({key: [{**item, **reading_fields(item), "volume": "", "issue": "", "pages": "", "issn": "", "attachment_matches": [], "can_manage_access": True} for item in before[key]]
                          for key in ["linked_records", "cited_by", "excerpts"]})
     new_defaults["evidence_citations"] = [
         {**citation, "stance": "unclassified", "claim_note": "", "staleness_reasons": [],
@@ -240,7 +247,7 @@ class PeopleTests(unittest.TestCase):
         self.assertEqual(self.clients["researcher"].get("/health").json["schema"], CURRENT_SCHEMA_VERSION)
         self.assertEqual(self.clients["researcher"].get("/api/people").json["total"], 0)
         for rid, before in expected["records"].items():
-            self.assertEqual(self.clients["researcher"].get("/api/records/" + rid).json, legacy_record_response(before))
+            self.assertEqual(self.clients["researcher"].get("/api/records/" + rid).json, legacy_record_response(before, expected["records"]))
             self.assertEqual(self.clients["researcher"].get("/api/history/record/" + rid).json, expected["history"][rid])
             for attachment in before["attachments"]:
                 self.assertEqual(self.download("/api/attachments/" + attachment["id"]), b"Synthetic legacy attachment.\n")
@@ -249,7 +256,11 @@ class PeopleTests(unittest.TestCase):
         expected_source = {**expected["source"], "filter_countries": [], "last_verified": None, "review_history": []}
         self.assertEqual(self.clients["researcher"].get("/api/sources/" + expected["source"]["id"]).json, expected_source)
         expected_collection = {**expected["collection"], "scope_log_json": "[]", "scope_log": [], "excluded_items": [], "items": [
-            {**item, "attachment_matches": [], "can_manage_access": True, "volume": "", "issue": "", "pages": "", "issn": "", "disposition": "included", "rationale": ""} for item in expected["collection"]["items"]]}
+            {**item, "chinese_title": "", "chinese_abstract": "", "display_title": item["title"],
+             "display_abstract": item["abstract"], "translation_origin": "original", "reading_translation_id": "",
+             "has_chinese": False, "abstract_is_chinese": False, "original_abstract_missing": not bool(item["abstract"]),
+             "created_at": expected["records"][item["id"]]["created_at"],
+             "attachment_matches": [], "can_manage_access": True, "volume": "", "issue": "", "pages": "", "issn": "", "disposition": "included", "rationale": ""} for item in expected["collection"]["items"]]}
         self.assertEqual(self.clients["researcher"].get("/api/collections/" + expected["collection"]["id"]).json, expected_collection)
         backups = list((legacy / "backups").glob("*.zip"))
         self.assertEqual(len(backups), CURRENT_SCHEMA_VERSION - 5)
@@ -272,7 +283,7 @@ class PeopleTests(unittest.TestCase):
         self.clients = {name: self.login(name, recovered) for name in self.clients}
         self.assertEqual(self.clients["researcher"].get("/api/people").json["total"], 0)
         for rid, before in expected["records"].items():
-            self.assertEqual(self.clients["researcher"].get("/api/records/" + rid).json, legacy_record_response(before))
+            self.assertEqual(self.clients["researcher"].get("/api/records/" + rid).json, legacy_record_response(before, expected["records"]))
         self.assertEqual(self.call("/api/records/" + next(iter(expected["records"])),
             {"version": 2, "title": "恢复旧版备份后继续修订"}, method="PUT").status_code, 200)
 
