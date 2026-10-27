@@ -20,6 +20,7 @@ function risCaptureEditor(form){
     for(const el of form.elements){
       if(!el.name||el.type==='file'||el.name==='ris_queue_json')continue;
       if(['checkbox','radio'].includes(el.type)){if(!edit[el.name])edit[el.name]=[];if(el.checked)edit[el.name].push(el.value);}
+      else if(el.multiple)edit[el.name]=[...el.selectedOptions].map(option=>option.value);
       else edit[el.name]=el.value;
     }
     queue.items[form._risIndex].edit=edit;
@@ -107,6 +108,7 @@ async function risEdit(form,index){
       const value=item.edit[el.name];
       if(['checkbox','radio'].includes(el.type))el.checked=Array.isArray(value)&&value.includes(el.value);
       else if(el.matches('[data-source-values]'))restoreSourceSelection(el,value);
+      else if(el.multiple)[...el.options].forEach(option=>option.selected=(Array.isArray(value)?value:[value]).includes(option.value));
       else {if(el.tagName==='SELECT'&&value&&![...el.options].some(o=>o.value===value))el.add(new Option(value,value));el.value=value;}
     }
     restoreIntakeForm(editor);editor.elements.intake_token.value='';

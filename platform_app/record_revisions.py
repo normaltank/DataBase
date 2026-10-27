@@ -320,6 +320,8 @@ class RecordRevisions:
                     abort(400, "文章发布机构须选择机构；期刊请在所属刊物中关联。")
                 key = intake.normalize_url(values["url"])
                 acquisition_id = acquired["entry_id"] if evidence_key == "ris_evidence" else hashlib.sha256(token.encode()).hexdigest()
+                if evidence_key == "ris_evidence" and ris.saved_record(self.db, acquisition_id) is not None:
+                    abort(409, "此次保存与已登记资料重复，请核对已有条目或联系管理员。")
                 for existing in self.db.execute("SELECT url,raw_json FROM records WHERE merged_into IS NULL"):
                     previous = json.loads(existing["raw_json"] or "{}")
                     if (key and intake.normalize_url(existing["url"]) == key) or any(e.get("acquisition_id") == acquisition_id for e in previous.get(evidence_key, [])):
