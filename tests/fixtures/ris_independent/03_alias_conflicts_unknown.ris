@@ -1,0 +1,25 @@
+TY  - JOUR
+TI  - Synthetic preferred-or-alternate title A
+T1  - Synthetic conflicting title B
+JF  - Synthetic full journal A
+JO  - Synthetic journal B
+T2  - Synthetic secondary title C
+PY  - 2020
+Y1  - 2021/07
+DA  - 2022/02/03
+AB  - Synthetic abstract A
+N2  - Synthetic abstract B
+AU  - Smith, Alex
+A1  - García, José
+AU  - Smith, Alex
+SN  - 1234-5678
+SN  - 8765-4321
+SN  - 1234-5678
+KW  - synthetic
+KW  - synthetic
+X1  - Synthetic unknown first
+X1  - Synthetic unknown second
+PB  - Synthetic publisher is not a journal host
+AD  - Synthetic address is not an employment
+L1  - C:/synthetic-never-read/no-such-file.pdf
+ER  - 
