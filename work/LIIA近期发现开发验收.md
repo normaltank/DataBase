@@ -43,6 +43,24 @@ python -m unittest tests.test_people.PeopleTests.test_v5_upgrade_backs_up_preser
 
 交付前已执行 `git merge --no-edit codex/liia-discovery-20261027`（Already up to date）和 `git merge-base --is-ancestor 564d4e6d35864da250248b8c836dcf8bad96ad86 HEAD`。实际同步 SHA 为 `564d4e6d35864da250248b8c836dcf8bad96ad86`；上述最终检查在该同步后运行。完整检查及修复回归结果在本轮 Issue 交接中绑定最终提交。
 
+## 交接与页面复核返修（2026-10-27）
+
+返修分支 `codex/liia-review-fixes-20261027` 从集成 `86acbba04811a7c8da46ccb7783419e8b651758b` 建立，原施工分支与上述失败历史保留。merger 的提交差异检查发现浏览器脚本与发现测试文件末尾多余空行，本次已移除。指挥页面复核发现默认覆盖框堆叠原始时间、零值细目与长规则，390px 候选列表迟至约 665px 出现。
+
+默认展示现改为发表日期范围、候选数、简短覆盖提醒与核对提示；原始取得时间、UTC 范围算法、官方栏目／RSS 链接、最早有效日期、完整统计、原始覆盖警告及排除原因集中到可展开的“来源与取得详情”。覆盖说明使用 16px 正文字号，候选列表在 390px 约 428px 出现。仅调整发现页展示和局部样式，采集、保存及通用 RIS 语义未改。
+
+既有浏览器脚本使用 Temp 合成库、8872 端口完成 1366／390px 流程，1 项通过；已实际查看两种宽度的队列截图。另实际展开详情，核对原始时间、全部统计、覆盖警告与官方链接均可找到，截图及观察值保存在 Temp `liia-discovery-browser-jwjr3y4p`。完整流程截图为 Temp `liia-discovery-browser-opbuznut`；均仅原环境可查。首次选择 Chromium 1187 因本机旧版 Playwright 的 headless 参数而未启动浏览器，实际未运行测试；改用既有 Chromium 1134 后通过。临时详情观察脚本首轮第二次建同官网来源被正常拒绝，改为两宽度复用同一合成来源后完成。
+
+同步最新集成仍为 `86acbba04811a7c8da46ccb7783419e8b651758b`（Already up to date），同步后使用相同命令复跑既有双宽度流程，1 项／7.364 秒通过；最终截图目录为 Temp `liia-discovery-browser-yd1bcfd6`，结果绑定返修交接提交。复跑命令为：
+
+```powershell
+$env:DATABASE_BROWSER_EXECUTABLE='C:/Users/27451/AppData/Local/ms-playwright/chromium-1134/chrome-win/chrome.exe'
+python -c "import scripts.check_discovery_browser as check; import unittest; check.PORT=8872; check.URL='http://127.0.0.1:8872'; unittest.main(module=check,verbosity=2)"
+git diff --check 07855ff3ef2c18858390247666e023f9908acf12...HEAD
+```
+
+本次按授权只补展示层定向验证，不重跑完整检查；集成后的全量与双轴审查由指挥安排。原全量失败仍按上文保留，不将本次浏览器通过写为全量通过。8872 服务在检查后停止，真实库、8848 与 ThinkTank 未操作。
+
 ## 本地证据与材料限制
 
 浏览器截图与合成运行库保存在本机 Temp 的 `liia-discovery-browser-dfgrr6fb`；RIS 最终回归为 `ris-browser-4rbsw78w`。测试日志为本机 Temp 的 `liia-full-check.log`、`liia-affected-check.log`、`liia-final-affected-check.log`、`liia-full-check-cancelled-fixture.log`、`liia-ris-browser-check-final.log`。这些路径仅原环境可查，未复制进公开仓库，也不含正式研究库。
