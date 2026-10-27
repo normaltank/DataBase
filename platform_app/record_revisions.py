@@ -17,7 +17,7 @@ from urllib.parse import urlsplit
 
 from flask import abort
 
-from . import evidence, identity, source_catalog, workflow, note_subjects, bylines, affiliations, intake, reviews
+from . import evidence, identity, source_catalog, workflow, note_subjects, bylines, affiliations, intake, reviews, ris
 from .store import now, save_revision
 
 RECORD_FIELDS = ["kind", "title", "original_title", "authors", "source_id", "serial_id", "publication_title",
@@ -306,20 +306,32 @@ class RecordRevisions:
             values, linked, associated, cited = self._values(data)
             self._unique_doi(values["doi"])
             acquired = None
-            if data.get("intake_token"):
-                acquired = intake.read_token(data["intake_token"], self.actor)
+            evidence_key = "ris_evidence" if data.get("ris_token") else "intake_evidence"
+            if data.get("intake_token") and data.get("ris_token"):
+                abort(400, "一次保存只能采用一种题录依据。")
+            if data.get("intake_token") or data.get("ris_token"):
+                token = data.get("ris_token") or data["intake_token"]
+                acquired = ris.read_token(token, self.actor) if data.get("ris_token") else intake.read_token(token, self.actor)
+                if evidence_key == "ris_evidence" and acquired.get("requires_date_review") and data.get("ris_date_reviewed") is not True:
+                    abort(400, "原始日期无法解析，请核对日期并明确确认后保存。")
                 if values["kind"] in workflow.CONTENT_KINDS:
                     abort(400, "辅助题录只用于外部原始资料。")
                 if values["source_id"] and self.source(values["source_id"])["kind"] not in {"institution", "think_tank"}:
                     abort(400, "文章发布机构须选择机构；期刊请在所属刊物中关联。")
                 key = intake.normalize_url(values["url"])
-                acquisition_id = hashlib.sha256(data["intake_token"].encode()).hexdigest()
+                acquisition_id = acquired["entry_id"] if evidence_key == "ris_evidence" else hashlib.sha256(token.encode()).hexdigest()
                 for existing in self.db.execute("SELECT url,raw_json FROM records WHERE merged_into IS NULL"):
                     previous = json.loads(existing["raw_json"] or "{}")
-                    if (key and intake.normalize_url(existing["url"]) == key) or any(e.get("acquisition_id") == acquisition_id for e in previous.get("intake_evidence", [])):
+                    if (key and intake.normalize_url(existing["url"]) == key) or any(e.get("acquisition_id") == acquisition_id for e in previous.get(evidence_key, [])):
                         abort(409, "此次保存与已登记资料重复，请核对已有条目或联系管理员。")
                 acquired = {**acquired, "acquisition_id": acquisition_id,
                             "saved_fields": {key: values[key] for key in acquired["fields"] if key in values}}
+                if evidence_key == "ris_evidence":
+                    acquired['date_reviewed'] = data.get('ris_date_reviewed') is True
+                    acquired['saved_at'] = now()
+                    acquired['saved_fields'] = {key: values[key] for key in
+                        ['kind', 'title', 'authors', 'published_on', 'publication_title', 'volume', 'issue', 'pages',
+                         'issn', 'doi', 'url', 'abstract', 'keywords', 'language', 'source_id', 'serial_id']}
             rid = "LOCAL-" + uuid.uuid4().hex[:12].upper()
             values.update(id=rid, owner_id=self.actor["id"], created_at=now(), updated_at=now())
             self.db.execute(f"INSERT INTO records ({','.join(values)}) VALUES ({','.join('?' for _ in values)})", list(values.values()))
@@ -327,7 +339,7 @@ class RecordRevisions:
             self.db.execute("UPDATE records SET attachment_ids=? WHERE id=?", (json.dumps(attachments), rid))
             self._relations(rid, linked, associated, cited)
             if acquired:
-                raw = {"intake_evidence": [acquired]}
+                raw = {evidence_key: [acquired]}
                 self.db.execute("UPDATE records SET raw_json=? WHERE id=?", (json.dumps(raw, ensure_ascii=False), rid))
                 items = data.get("intake_bylines")
                 if items is None:

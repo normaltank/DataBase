@@ -62,7 +62,7 @@ class IntakePreviewBrowserTests(unittest.TestCase):
         self.assertTrue(person.ok,person.text())
         page.locator('[data-action=new-record]').first.click()
         form = page.locator('form[data-form=record]')
-        expect(form).not_to_have_attribute('inert')
+        expect(form).not_to_have_attribute('inert', '')
         form.locator('[name=title]').fill('Existing title')
         form.locator('[name=intake_input]').fill('10.5555/preview-regression')
         form.locator('[data-intake-fetch]').click()
@@ -106,7 +106,7 @@ class IntakePreviewBrowserTests(unittest.TestCase):
         # Existing work survives closing and restoring the actual local draft.
         form.locator('[data-action=close]').click()
         page.locator('[data-action=new-record]').first.click()
-        expect(form).not_to_have_attribute('inert')
+        expect(form).not_to_have_attribute('inert', '')
         form.locator('[data-action=restore-draft]').click()
         form.locator('[data-intake-review]>summary').click()
         expect(author.locator('[data-intake-name]')).to_have_value('Hand edited signature')
