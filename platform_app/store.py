@@ -124,6 +124,8 @@ def initialize(data_dir):
     migrate_collaboration(data_dir)
     from .topic_review import migrate as migrate_topic_review
     migrate_topic_review(data_dir)
+    from .journal_collaboration import migrate as migrate_journal_collaboration
+    migrate_journal_collaboration(data_dir)
     from .topic_finals import migrate as migrate_topic_finals
     migrate_topic_finals(data_dir)
 

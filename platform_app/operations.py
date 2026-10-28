@@ -250,9 +250,11 @@ def register(app, ctx):
         avatars = content_export.prepare_people(db(), people)
         from . import topic_finals
         final_files = topic_finals.prepare_export(db(), records)
+        from . import journal_collaboration
+        journal_works = journal_collaboration.export_projection(db(),ctx.records(),set(records))
         payload = {"format": "research-content-v1", "exported_at": now(), "selected_ids": [r["id"] for r in selected],
                    "records": list(records.values()), "sources": sources, "collections": collections, "attachments": list(attachments.values()),
-                   "people": people, "avatars": list(avatars.values())}
+                   "people": people, "avatars": list(avatars.values()), "journal_works": journal_works}
         coverage = content_export.evidence_coverage(records, attachments, sources)
         output = io.BytesIO()
         style = "body{font:16px/1.7 system-ui,sans-serif;max-width:960px;margin:32px auto;padding:0 20px;color:#202f42}a{color:#234e78}pre{font:inherit;white-space:pre-wrap}section{margin:28px 0}"
@@ -380,6 +382,13 @@ def register(app, ctx):
                         content += '<p><a href="../' + source_paths[sid] + '">查看关联来源：' + html.escape(next(s["name"] for s in sources if s["id"] == sid)) + '</a></p>'
                 archive.writestr(paths[rid], page(item["title"], content))
             index += "</ul>"
+            if journal_works:
+                index += '<h2>期刊编译工作及全部原件版本</h2><ul>'
+                for work in journal_works:
+                    index += '<li><a href="'+work['path']+'">'+html.escape(work['journal_name']+' · '+work['coverage'])+'</a></li>'
+                    archive.writestr(work['path'],page(work['journal_name'],journal_collaboration.export_html(work)))
+                index += '</ul>'
+                journal_collaboration.write_export_files(archive,ctx.data_dir,db(),journal_works)
             index += "<h2>来源介绍与登记</h2><ul>"
             for source in sources:
                 index += '<li><a href="' + source_paths[source["id"]] + '">' + html.escape(source["name"]) + '</a></li>'

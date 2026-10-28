@@ -148,8 +148,18 @@ def restore_backup(archive_path, target_dir):
                     topic_review.validate_backup(db)
                 from . import topic_finals
                 if int(version) >= topic_finals.SCHEMA_VERSION:
-                    referenced_ids.update(topic_finals.referenced_files(db))
+                    summary_files = set(topic_finals.referenced_files(db))
+                    if referenced_ids & summary_files:
+                        raise ValueError('整期汇总必须拥有独立提交原件。')
+                    referenced_ids.update(summary_files)
                     topic_finals.validate_backup(db)
+                from . import journal_collaboration
+                if int(version) >= journal_collaboration.SCHEMA_VERSION:
+                    journal_collaboration.validate_backup(db)
+                    journal_files = journal_collaboration.referenced_files(db)
+                    if referenced_ids & journal_files:
+                        raise ValueError('交接原件不能同时归属不同业务。')
+                    referenced_ids.update(journal_files)
                 handoff_files.validate_backup(db, manifest, referenced_ids)
                 collaboration.validate_backup(db)
             for row in db.execute("SELECT stored_name,sha256 FROM attachments"):
