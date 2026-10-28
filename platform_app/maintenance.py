@@ -99,7 +99,7 @@ def restore_backup(archive_path, target_dir):
             if db.execute("PRAGMA integrity_check").fetchone()[0] != "ok" or db.execute("PRAGMA foreign_key_check").fetchall():
                 raise ValueError("数据库完整性检查失败。")
             version = db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0]
-            if version not in {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16"}:
+            if version not in {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17"}:
                 raise ValueError("数据库版本不匹配。")
             from . import evidence
             if int(version) >= evidence.SCHEMA_VERSION:
@@ -116,6 +116,9 @@ def restore_backup(archive_path, target_dir):
             from . import reading_feed
             if int(version) >= reading_feed.SCHEMA_VERSION:
                 reading_feed.validate_backup(db)
+            from . import ingestion
+            if int(version) >= ingestion.SCHEMA_VERSION:
+                ingestion.validate_backup(db)
             for row in db.execute("SELECT stored_name,sha256 FROM attachments"):
                 name = "uploads/" + row["stored_name"]
                 if name not in manifest["files"] or manifest["files"][name]["sha256"] != row["sha256"]:

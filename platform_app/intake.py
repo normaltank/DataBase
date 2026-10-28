@@ -146,7 +146,7 @@ def fetch_document(url, deadline, *, fixed_feed=None):
                 text = content.decode(charset, errors="replace")
             except LookupError:
                 text = content.decode("utf-8", errors="replace")
-            return {"url": canonical, "content_type": mime, "text": text, "bytes": content} if fixed_feed else {"url": canonical, "content_type": mime, "text": text}
+            return {"url": canonical, "content_type": mime, "text": text, "bytes": content}
         except (OSError, http.client.HTTPException, UnicodeError, ValueError) as error:
             if isinstance(error, AcquisitionError):
                 raise

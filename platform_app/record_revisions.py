@@ -357,6 +357,83 @@ class RecordRevisions:
             self._history(rid, "提交资料")
         return rid
 
+    def ingest_public(self, entry_id, lease_token, snapshot, page_error=''):
+        """Commit trusted queued evidence, identity, snapshot and work state together.
+
+        This is a worker boundary, never a member request option. Evidence must
+        already belong to a leased run of an administrator-enabled fixed source.
+        Existing records receive new provenance only; their fields and review
+        state remain under the ordinary editing boundary.
+        """
+        from . import ingestion, translations
+        if self.actor['id'] != ingestion.SYSTEM_ID or self.actor['role'] != 'system':
+            raise ValueError('后台取得只能由专属系统主体提交。')
+        with self._transaction():
+            entry = self.db.execute('SELECT * FROM ingestion_entries WHERE id=?',(entry_id,)).fetchone()
+            run = dict(self.db.execute('SELECT * FROM ingestion_runs WHERE id=?',(entry['run_id'],)).fetchone()) if entry else None
+            if not run or run['lease_token'] != lease_token or not ingestion._owns(self.db,run):
+                raise ValueError('任务租约或已启用来源无效。')
+            acquired = json.loads(entry['evidence_json'])
+            source = discovery.source_for(self.db, entry['source_id'])
+            if acquired['source_id'] != source['id'] or acquired['feed_url'] != discovery.FEED:
+                raise ValueError('取得依据不属于固定来源。')
+            found = discovery.saved_record(self.db,acquired['entry_id'])
+            if found is None:
+                for previous in self.db.execute('SELECT * FROM records'):
+                    if discovery.article_key(previous['url']) == discovery.article_key(acquired['fields']['url']):
+                        found = identity.resolve(self.db,'records',previous['id'])
+                        break
+            if found is not None and (not self.visible(found) or found['visibility'] != 'shared'):
+                self.db.execute("UPDATE ingestion_entries SET stage='blocked',record_id=NULL,error=?,reason=? WHERE id=?",
+                    ('已有受限重复，未改动或披露其信息。','交管理员按原权限检查重复',entry_id))
+                return 'blocked'
+            if found is None:
+                data = dict(acquired['fields'], visibility='shared')
+                if snapshot:
+                    data['authors'] = snapshot['sidebar_credit']
+                values, linked, associated, cited = self._values(data)
+                self._unique_doi(values['doi'])
+                rid = 'LOCAL-'+uuid.uuid4().hex[:12].upper()
+                values.update(id=rid,owner_id=self.actor['id'],created_at=now(),updated_at=now())
+                self.db.execute(f"INSERT INTO records ({','.join(values)}) VALUES ({','.join('?' for _ in values)})",list(values.values()))
+                self._relations(rid,linked,associated,cited)
+                row = self.db.execute('SELECT * FROM records WHERE id=?',(rid,)).fetchone()
+            else:
+                row = found
+                rid = row['id']
+            raw = json.loads(row['raw_json'] or '{}')
+            evidence_items = raw.setdefault('discovery_evidence',[])
+            evidence = dict(acquired,acquisition_id=acquired['entry_id'],saved_at=now(),
+                processing_actor=ingestion.SYSTEM_ID,processing_version=ingestion.ADAPTER,
+                saved_fields={key:row[key] for key in acquired['fields'] if key in row.keys()})
+            evidence_changed = not any(e.get('raw') == acquired['raw'] and e.get('entry_id') == acquired['entry_id'] for e in evidence_items)
+            if evidence_changed:
+                evidence_items.append(evidence)
+            automatic = raw.setdefault('automatic_acquisition',dict(actor_id=ingestion.SYSTEM_ID,adapter=ingestion.ADAPTER,
+                chinese_status='pending_configuration',snapshots=[],attempts=[]))
+            snapshots = automatic.setdefault('snapshots',[])
+            snapshot_changed = snapshot is not None and not any(s['sha256']==snapshot['sha256'] for s in snapshots)
+            if snapshot_changed:
+                snapshots.append(snapshot)
+            changed = found is None or evidence_changed or snapshot_changed or bool(page_error)
+            if changed:
+                automatic.setdefault('attempts',[]).append(dict(run_id=run['id'],retrieved_at=now(),error=page_error,
+                    outcome='page_failed' if page_error else 'page_saved',snapshot_id=snapshot['id'] if snapshot else None))
+            values = dict(raw_json=json.dumps(raw,ensure_ascii=False))
+            if found is None:
+                self.db.execute('UPDATE records SET raw_json=? WHERE id=?',(values['raw_json'],rid))
+                self._history(rid,'系统自动采集：待人工核对')
+            elif changed:
+                self._initial_history(rid)
+                self._finish(row,values,'系统取得依据：保留人工字段与核对状态')
+            current = self.db.execute('SELECT * FROM records WHERE id=?',(rid,)).fetchone()
+            self.db.execute('''INSERT INTO automatic_processing(record_id,source_version,input_hash,created_at)
+                VALUES (?,?,?,?) ON CONFLICT(record_id) DO UPDATE SET source_version=excluded.source_version,input_hash=excluded.input_hash''',
+                (rid,current['version'],translations.digest(*translations.inputs(current)),now()))
+            self.db.execute('UPDATE ingestion_entries SET stage=?,record_id=?,error=? WHERE id=?',
+                ('failed' if page_error else 'saved',rid,page_error,entry_id))
+            return 'failed' if page_error else 'saved'
+
     def edit(self, rid, data, file=None):
         with self._transaction():
             row = self.get(rid, edit=True)

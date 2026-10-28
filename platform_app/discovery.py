@@ -75,7 +75,7 @@ def _duplicates(db, access, fields):
     return dict(duplicates=visible, blocked=hidden)
 
 
-def _parse(content, retrieved_at, source_id, actor):
+def _parse(content, retrieved_at, source_id, actor=None, *, previously_seen=None, admitted_urls=()):
     # Parse bytes to respect the XML encoding declaration. ASCII-compatible and
     # UTF-16/32 encodings are screened before parsing, so declarations cannot hide
     # behind zero bytes. No DTD or declared entity ever reaches ElementTree.
@@ -112,7 +112,8 @@ def _parse(content, retrieved_at, source_id, actor):
         if published:
             if published > end:
                 reason = 'future'
-            elif published < start:
+            elif published < start and (previously_seen is None or
+                    (article_key(raw['link']) in previously_seen and article_key(raw['link']) not in admitted_urls)):
                 reason = 'outside_window'
         url = intake.normalize_url(raw['link'])
         p = urlsplit(url)
@@ -144,17 +145,26 @@ def _parse(content, retrieved_at, source_id, actor):
                         feed_url=FEED, column_url=COLUMN, retrieved_at=retrieved_at, window=window,
                         raw=raw, description=description, fields=fields, authors=[], entry_id=entry_id,
                         provenance=dict(title='item.title', url='item.link', published_on='item.pubDate', description='item.description'))
-        items.append(dict(index=index, type='待人工确认类别', fields=fields, description=description,
+        if previously_seen is not None:
+            evidence['selection'] = 'previously_admitted' if url in admitted_urls else 'newly_discovered'
+            evidence['outside_reference_window'] = published < start
+        item = dict(index=index, type='待人工确认类别', fields=fields, description=description,
                           authors=[], warnings=['署名、语言与摘要未取得；来源公开描述可能只是系列介绍。'],
-                          errors=[], file_duplicates=[], candidates=dict(authors=[], sources=[]), evidence=evidence,
-                          token=_signer().dumps(dict(actor_id=actor['id'], evidence=evidence))))
+                          errors=[], file_duplicates=[], candidates=dict(authors=[], sources=[]), evidence=evidence)
+        if actor is not None:
+            item['token'] = _signer().dumps(dict(actor_id=actor['id'], evidence=evidence))
+        items.append(item)
     earliest = min(dates).isoformat() if dates else None
     warnings = ['仅列当前 RSS 返回的内容；该订阅通常只返回最近 20 条，不代表栏目全部覆盖。']
     if not dates or min(dates) >= start or len(nodes) >= 20 or any(counts.values()) or dates != sorted(dates, reverse=True):
         warnings.append('当前结果可能遗漏窗口内内容：订阅截断、日期或条目异常、乱序及最早日期均需人工核对。')
-    return dict(format='discovery', source_id=source_id, filename='LIIA Opinions 近期发现', sha256=hashlib.sha256(content).hexdigest(),
+    result = dict(format='discovery', source_id=source_id, filename='LIIA Opinions 近期发现', sha256=hashlib.sha256(content).hexdigest(),
                 feed_url=FEED, column_url=COLUMN, retrieved_at=retrieved_at, window=window, returned=len(nodes),
                 earliest=earliest, counts=counts, exclusions=exclusions, warnings=warnings, items=items)
+    if actor is None:
+        result['observed_urls'] = sorted({article_key(node.findtext('link','')) for node in nodes if article_key(node.findtext('link',''))})
+        result['window_role'] = '首次发表日期窗口' if previously_seen is None else '参考日期窗口；本轮按新发现与已纳入身份取得，可包含较早文章'
+    return result
 
 
 def register(app, ctx):
