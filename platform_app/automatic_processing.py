@@ -228,9 +228,6 @@ def run_pending(data_dir, limit=5, scan_limit=500):
 
 
 def validate_backup(db):
-    # Earlier unpublished schema-19 archives predate the processor supplement.
-    if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='automatic_tasks'").fetchone():
-        return
     try:
         for row in db.execute('SELECT * FROM automatic_tasks'):
             value=json.loads(row['input_json']);result=json.loads(row['result_json']);evidence=json.loads(row['evidence_json'])

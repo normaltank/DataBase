@@ -16,6 +16,26 @@ class AutomaticProcessingTests(unittest.TestCase):
     source = ingestion_fixture.IngestionTests.source
     run_worker = ingestion_fixture.IngestionTests.run_worker
 
+    def test_schema19_restore_rejects_missing_required_task_table_despite_valid_manifest(self):
+        import hashlib,sqlite3
+        from platform_app.maintenance import restore_backup
+        response=self.call('/api/backup',user='admin')
+        with zipfile.ZipFile(io.BytesIO(response.data)) as archive:files={name:archive.read(name) for name in archive.namelist()}
+        response.close()
+        database=Path(self.temp.name)/'broken.sqlite3';database.write_bytes(files['platform.sqlite3'])
+        connection=sqlite3.connect(database)
+        with connection:connection.execute('DROP TABLE automatic_tasks')
+        self.assertEqual(connection.execute('PRAGMA integrity_check').fetchone()[0],'ok');connection.close()
+        files['platform.sqlite3']=database.read_bytes()
+        manifest=json.loads(files['manifest.json']);manifest['files']['platform.sqlite3']={'bytes':len(files['platform.sqlite3']),'sha256':hashlib.sha256(files['platform.sqlite3']).hexdigest()}
+        files['manifest.json']=json.dumps(manifest).encode()
+        backup=Path(self.temp.name)/'broken.zip'
+        with zipfile.ZipFile(backup,'w') as archive:
+            for name,content in files.items():archive.writestr(name,content)
+        target=Path(self.temp.name)/'must-not-publish'
+        with self.assertRaisesRegex(ValueError,'自动中文'):restore_backup(backup,target)
+        self.assertFalse(target.exists())
+
     def test_only_saved_public_fields_are_sent_and_human_corrections_keep_priority(self):
         sid=self.source();self.call('/api/sources/'+sid+'/ingestion',{'enabled':True},user='admin',method='PUT');self.run_worker()
         self.call('/api/admin/ai/config',{'cap':'1','currency':'USD'},user='admin')
