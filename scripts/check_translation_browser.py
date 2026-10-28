@@ -34,7 +34,7 @@ try:
    page.goto('http://127.0.0.1:'+str(server.server_port));page.get_by_role('button',name='研究员',exact=True).click()
    def open_reader():
     page.locator('[data-action=detail][data-id="'+rid+'"]').first.click()
-    history=page.locator('.library-reader .reading-translation-history')
+    history=page.locator('.library-reader details').filter(has=page.locator('[data-translations]')).first
     expect(history).to_be_visible(timeout=5000)
     history.locator('>summary').click()
     return page.locator('.library-reader [data-translations]')

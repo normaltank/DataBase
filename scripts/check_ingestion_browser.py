@@ -22,7 +22,8 @@ from platform_app.ingestion import run_pending
 from platform_app import store
 from tests.test_discovery import FEED
 
-URL='http://127.0.0.1:8903'
+PORT=int(os.environ.get('DATABASE_BROWSER_PORT','8903'))
+URL=f'http://127.0.0.1:{PORT}'
 PAGE='<div class="article"><p>Public episode description. No transcript has been acquired.</p><script>window.SOURCE_SCRIPT_EXECUTED=true</script></div><p class="author"><span>Author</span><strong>Ada Example</strong></p>'
 
 
@@ -56,7 +57,7 @@ class IngestionBrowser(unittest.TestCase):
     def test_admin_enable_failure_retry_reader_and_responsive_evidence(self):
         out=Path(tempfile.mkdtemp(prefix='ingestion-browser-'))
         app=create_app(out/'data',testing=True)
-        server=make_server('127.0.0.1',8903,app,threaded=True,request_handler=Quiet)
+        server=make_server('127.0.0.1',PORT,app,threaded=True,request_handler=Quiet)
         source=ThreadingHTTPServer(('127.0.0.1',0),SourceHandler)
         for target in (server.serve_forever,source.serve_forever):
             threading.Thread(target=target,daemon=True).start()
@@ -160,7 +161,7 @@ class IngestionBrowser(unittest.TestCase):
             stop.set()
             if 'worker_thread' in locals():worker_thread.join(5)
             server.shutdown();source.shutdown();server.server_close();source.server_close()
-        (out/'evidence.json').write_text(json.dumps({'ui_port':8903,'source_port':source.server_port,'requests':SourceHandler.requests,'screenshots':[p.name for p in out.glob('*.png')]},indent=2),encoding='utf-8')
+        (out/'evidence.json').write_text(json.dumps({'ui_port':PORT,'source_port':source.server_port,'requests':SourceHandler.requests,'screenshots':[p.name for p in out.glob('*.png')]},indent=2),encoding='utf-8')
         print('Evidence:',out,flush=True)
 
 
