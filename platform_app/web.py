@@ -862,4 +862,6 @@ def create_app(data_dir=None, testing=False):
     topic_finals.register(app, SimpleNamespace(db=db, user=user, body=body, data_dir=data_dir))
     from . import journal_collaboration
     journal_collaboration.register(app, SimpleNamespace(db=db, user=user, body=body, records=records, data_dir=data_dir))
+    from . import collaboration_library
+    collaboration_library.register(app, SimpleNamespace(db=db, user=user, data_dir=data_dir))
     return app

@@ -111,11 +111,13 @@ def referenced_files(db):
     return {r[0] for r in db.execute('SELECT file_id FROM journal_submissions')}
 
 
-def export_projection(db, access, record_ids=None):
+def export_projection(db, access, record_ids=None, work_ids=None):
     """Only authorized journal archives; every historical original stays explicit."""
     service = JournalWorks(db, access)
     result = []
     for row in db.execute('SELECT * FROM journal_works ORDER BY updated_at DESC,id'):
+        if work_ids is not None and row['id'] not in work_ids:
+            continue
         original = db.execute('SELECT * FROM records WHERE id=?', (row['record_id'],)).fetchone()
         if not original or not access.visible(original):
             continue

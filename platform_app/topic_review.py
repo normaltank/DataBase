@@ -4,11 +4,9 @@ Topic membership permits reading; only the current qualified lead decides and
 reviews. Each adopted article has its own series, independent of its author.
 """
 import hashlib
-import io
 import json
 import re
 import uuid
-import zipfile
 from pathlib import Path
 
 from flask import abort, jsonify, request, send_file
@@ -380,27 +378,5 @@ def register(app, ctx):
 
     @app.get("/api/collaboration/topics/<tid>/materials/export")
     def export_process(tid):
-        topic = collaboration.topic_for(db(), user(), tid)
-        workflow = workflow_projection(db(), user(), topic)
-        candidates = collaboration.candidate_projection(db(), tid)
-        payload = {"format": "topic-process-v1", "coverage": "本期已提交的选题报告、会议决定、稿件与退回意见、定稿决定、整期汇总及固定采用版本；不含未提交文件或关联成果正文", "exported_at": now(), "topic": collaboration.projection(db(), user(), topic), "candidates": candidates, "workflow": workflow, "files": []}
-        originals = candidates + workflow["meetings"] + workflow["summaries"] + [r for a in workflow["assignments"] for key in ("submissions", "returns", "finals") for r in a[key]]
-        output = io.BytesIO()
-        with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-            for item in originals:
-                if not item.get("file_id"):
-                    continue
-                original = db().execute("SELECT * FROM handoff_files WHERE id=?", (item["file_id"],)).fetchone()
-                item["path"] = "originals/" + original["stored_name"]
-                if any(f["file_id"] == original["id"] for f in payload["files"]):
-                    continue
-                payload["files"].append({"file_id": original["id"], "name": original["name"], "path": item["path"], "sha256": original["sha256"], "bytes": original["bytes"]})
-                archive.writestr(item["path"], handoff_files.original_path(ctx.data_dir, original).read_bytes())
-            paths = {f["file_id"]: f["path"] for f in payload["files"]}
-            for summary in workflow["summaries"]:
-                for adopted in summary["adoptions"]:
-                    adopted["path"] = paths[adopted["file_id"]]
-            archive.writestr("manifest.json", json.dumps(payload, ensure_ascii=False, indent=2))
-        collaboration.topic_for(db(), user(), tid)
-        output.seek(0)
-        return send_file(output, mimetype="application/zip", as_attachment=True, download_name="topic-process-" + tid + ".zip")
+        from .collaboration_library import material_response
+        return material_response(ctx, 'topic', tid, 'all')

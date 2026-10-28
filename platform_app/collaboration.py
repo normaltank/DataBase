@@ -2,7 +2,7 @@
 import json
 import hashlib
 import re
-import io
+import tempfile
 import zipfile
 import uuid
 from datetime import date
@@ -192,7 +192,7 @@ def register(app, ctx):
             if not can_read(db(), actor, row):
                 continue
             item = projection(db(), actor, row)
-            if scope == "leading" and row["lead_id"] != actor["id"]:
+            if scope == "leading" and not item['can_manage']:
                 continue
             if scope == "participating" and not item["can_submit"]:
                 continue
@@ -292,14 +292,19 @@ def register(app, ctx):
         # This intentionally covers only candidate handoffs. Later material packs
         # can use the same authorized projections and explicit immutable files.
         payload = {"format": "topic-candidates-v1", "exported_at": now(), "coverage": "本期全部已提交选题报告及其原件版本；不含会议、编译或定稿材料", "topic": projection(db(), user(), topic), "submissions": candidate_projection(db(), tid)}
-        output = io.BytesIO()
-        with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-            for submission in payload["submissions"]:
-                original = db().execute("SELECT * FROM handoff_files WHERE id=?", (submission["file_id"],)).fetchone()
-                submission["path"] = "originals/" + original["stored_name"]
-                archive.writestr(submission["path"], handoff_files.original_path(ctx.data_dir, original).read_bytes())
-            archive.writestr("manifest.json", json.dumps(payload, ensure_ascii=False, indent=2))
-        # Recheck the current membership before returning assembled materials.
-        topic_for(db(), user(), tid)
-        output.seek(0)
-        return send_file(output, mimetype="application/zip", as_attachment=True, download_name="topic-candidates-" + tid + ".zip")
+        output = tempfile.TemporaryFile(prefix='database-candidates-', suffix='.zip')
+        try:
+            with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                for submission in payload["submissions"]:
+                    original = db().execute("SELECT * FROM handoff_files WHERE id=?", (submission["file_id"],)).fetchone()
+                    submission["path"] = "originals/" + original["stored_name"]
+                    archive.write(handoff_files.original_path(ctx.data_dir, original), submission["path"])
+                archive.writestr("manifest.json", json.dumps(payload, ensure_ascii=False, indent=2))
+            topic_for(db(), user(), tid)
+            output.seek(0)
+            response = send_file(output, mimetype="application/zip", as_attachment=True, download_name="topic-candidates-" + tid + ".zip")
+            response.call_on_close(output.close)
+            return response
+        except BaseException:
+            output.close()
+            raise
