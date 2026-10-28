@@ -110,11 +110,11 @@ def main():
                 form=page.locator('[data-form=ai-config]');form.locator('[name=cap]').fill('0.000001');form.locator('[name=currency]').fill('USD');form.get_by_role('button',name='保存月额度').click()
                 wait_state(admin,lambda s:s['task_counts'].get('paused')==5)
                 assert len(Provider.requests)==0
-                page.get_by_role('button',name='刷新费用',exact=True).click();page.screenshot(path=str(OUT/'budget-paused-1366.png'),full_page=True)
+                page.get_by_role('button',name='刷新费用',exact=True).click();expect(page.locator('#ai-budget-heading')).to_be_focused();page.locator('.ai-budget-card').screenshot(path=str(OUT/'budget-paused-1366.png'))
                 form=page.locator('[data-form=ai-config]');form.locator('[name=cap]').fill('1');form.get_by_role('button',name='保存月额度').click()
                 failed=wait_state(admin,lambda s:s['task_counts'].get('failed')==5)
                 assert len(Provider.requests)==15
-                page.get_by_role('button',name='刷新费用',exact=True).click();page.screenshot(path=str(OUT/'truncated-exceptions-1366.png'),full_page=True)
+                page.get_by_role('button',name='刷新费用',exact=True).click();expect(page.locator('#ai-budget-heading')).to_be_focused();page.locator('[data-ai-tasks]').screenshot(path=str(OUT/'truncated-exceptions-1366.png'))
                 Provider.mode='ok'
                 for job in failed['tasks']:
                     form=page.locator('[data-form=ai-task-retry][data-id="'+job['id']+'"]')
@@ -125,7 +125,7 @@ def main():
                 complete=wait_state(admin,lambda s:s['task_counts'].get('succeeded')==5)
                 assert len(Provider.requests)==20
                 assert len([e for e in complete['events'] if e['action']=='retry_grant'])==5
-                page.get_by_role('button',name='刷新费用',exact=True).click();page.screenshot(path=str(OUT/'recovered-1366.png'),full_page=True)
+                page.get_by_role('button',name='刷新费用',exact=True).click();expect(page.locator('#ai-budget-heading')).to_be_focused();page.locator('.ai-budget-card').screenshot(path=str(OUT/'recovered-1366.png'))
                 assert errors==[]
                 context.close()
                 for width,zoom in [(1366,1),(390,1),(1366,2)]:
@@ -136,6 +136,7 @@ def main():
                     page.locator('[data-action=detail][data-id="'+rid+'"]').first.click()
                     expect(page.locator('.automatic-processing')).to_contain_text('有据机器概述：拉脱维亚能源安全。')
                     expect(page.locator('.automatic-processing')).to_contain_text('非原始摘要')
+                    assert page.locator('.automatic-processing').evaluate('(e)=>e.getBoundingClientRect().top') < page.locator('.acquisition-reading').evaluate('(e)=>e.getBoundingClientRect().top')
                     if zoom==2:page.evaluate("document.documentElement.style.zoom='2'")
                     page.locator('.automatic-processing').scroll_into_view_if_needed()
                     overflow=page.evaluate('document.documentElement.scrollWidth>innerWidth')

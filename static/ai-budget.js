@@ -9,18 +9,29 @@ async function aiBudgetCard(){
 }
 document.addEventListener('submit',async event=>{
  const form=event.target;if(!['ai-config','ai-resolve','ai-legacy','ai-task-retry'].includes(form.dataset.form))return;
- event.preventDefault();const button=form.querySelector('[type=submit]');button.disabled=true;
- try{const values=Object.fromEntries(new FormData(form));await api(form.dataset.form==='ai-task-retry'?'/api/admin/ai/tasks/'+encodeURIComponent(form.dataset.id)+'/retry':form.dataset.form==='ai-config'?'/api/admin/ai/config':form.dataset.form==='ai-legacy'?'/api/admin/ai/legacy/resolve':'/api/admin/ai/attempts/'+encodeURIComponent(form.dataset.id)+'/resolve',{method:'POST',body:values});toast('AI 费用设置已保存');await route();}
+ event.preventDefault();const saved=aiViewState();const button=form.querySelector('[type=submit]');button.disabled=true;
+ try{const values=Object.fromEntries(new FormData(form));await api(form.dataset.form==='ai-task-retry'?'/api/admin/ai/tasks/'+encodeURIComponent(form.dataset.id)+'/retry':form.dataset.form==='ai-config'?'/api/admin/ai/config':form.dataset.form==='ai-legacy'?'/api/admin/ai/legacy/resolve':'/api/admin/ai/attempts/'+encodeURIComponent(form.dataset.id)+'/resolve',{method:'POST',body:values});toast('AI 费用设置已保存');await aiRefreshView(saved);}
  catch(e){form.querySelector('.form-error').textContent=e.message;button.disabled=false;}
 });
 document.addEventListener('click',async event=>{
- const button=event.target.closest('[data-action^="ai-"]');if(!button)return;button.disabled=true;
- try{if(button.dataset.action==='ai-pause')await api('/api/admin/ai/pause',{method:'POST',body:{paused:button.dataset.paused==='true'}});await route();}
+ const button=event.target.closest('[data-action^="ai-"]');if(!button)return;const saved=aiViewState();button.disabled=true;
+ try{if(button.dataset.action==='ai-pause')await api('/api/admin/ai/pause',{method:'POST',body:{paused:button.dataset.paused==='true'}});await aiRefreshView(saved);}
  catch(e){toast(e.message);button.disabled=false;}
 });
 
 function aiTasksHtml(d){
  const labels={queued:'等待后台',running:'处理中',paused:'暂停待恢复',failed:'需维护者处理',succeeded:'已完成'};
  const names={translation:'题名及摘要翻译',classification:'内容分类',summary:'正文机器概述'};
- return `<section class="section-gap"><h3>自动中文任务与异常</h3><p class="small muted">后台最近心跳：${d.worker_heartbeat?dateTime(d.worker_heartbeat):'尚未检测到'}。配置或月度额度恢复后，暂停任务由后台自动续作。</p><p>${Object.entries(d.task_counts).map(([k,n])=>esc(labels[k]||k)+' '+n).join('；')||'尚无任务'}</p>${d.tasks.map(t=>`<details><summary>${esc(names[t.task]||t.task)} · ${esc(labels[t.status]||t.status)} · ${esc(t.title)}</summary><p>${esc(t.reason||'等待后台处理')}</p><p class="small">下次尝试：${dateTime(t.next_run)}</p>${['failed','paused'].includes(t.status)?`<form data-form="ai-task-retry" data-id="${esc(t.id)}"><p>先处理异常并核实未知费用。每轮最多三次调用，每次仍须通过月额度预留；旧记录及费用保留。</p><label>处理及批准依据<textarea name="basis" minlength="10" maxlength="2000" required></textarea></label><button class="button" type="submit">批准受控重试</button><div class="form-error" role="alert"></div></form>`:''}</details>`).join('')}</section>`;
+ return `<section class="section-gap" data-ai-tasks><h3>自动中文任务与异常</h3><p class="small muted">后台最近心跳：${d.worker_heartbeat?dateTime(d.worker_heartbeat):'尚未检测到'}。配置或月度额度恢复后，暂停任务由后台自动续作。</p><p>${Object.entries(d.task_counts).map(([k,n])=>esc(labels[k]||k)+' '+n).join('；')||'尚无任务'}</p>${d.tasks.map(t=>`<details><summary>${esc(names[t.task]||t.task)} · ${esc(labels[t.status]||t.status)} · ${esc(t.title)}</summary><p>${esc(t.reason||'等待后台处理')}</p><p class="small">下次尝试：${dateTime(t.next_run)}</p>${['failed','paused'].includes(t.status)?`<form data-form="ai-task-retry" data-id="${esc(t.id)}"><p>先处理异常并核实未知费用。每轮最多三次调用，每次仍须通过月额度预留；旧记录及费用保留。</p><label>处理及批准依据<textarea name="basis" minlength="10" maxlength="2000" required></textarea></label><button class="button" type="submit">批准受控重试</button><div class="form-error" role="alert"></div></form>`:''}</details>`).join('')}</section>`;
+}
+
+function aiViewState(){
+ const card=document.querySelector('.ai-budget-card');
+ return {open:[...(card?.querySelectorAll('details[open]')||[])].map(d=>d.querySelector(':scope > summary')?.textContent),task:document.activeElement?.closest('[data-ai-tasks]')!==null};
+}
+async function aiRefreshView(saved){
+ await route();const card=document.querySelector('.ai-budget-card');if(!card)return;
+ card.querySelectorAll('details').forEach(d=>{if(saved.open.includes(d.querySelector(':scope > summary')?.textContent))d.open=true;});
+ const anchor=saved.task?card.querySelector('[data-ai-tasks]'):card;
+ anchor.scrollIntoView({block:'start'});const heading=anchor.querySelector('h2,h3');heading.tabIndex=-1;heading.focus({preventScroll:true});
 }
