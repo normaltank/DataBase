@@ -91,7 +91,7 @@ class SyntheticFixture(unittest.TestCase):
         self.assertIn("Ran 1 test", result.stderr)
 
     def test_check_command_reports_total_and_bounded_slowest_case_lifecycles(self):
-        root = self.checkout(''' 
+        root = self.checkout('''
 import time
 import unittest
 class SlowFixture(unittest.TestCase):
@@ -131,10 +131,13 @@ class SyntheticFixture(unittest.TestCase):
         result = self.run_check(failing)
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("deliberate synthetic failure", result.stderr)
+        self.assertRegex(result.stderr, r"Total check time: [0-9.]+s")
+        self.assertRegex(result.stderr, r"  [0-9.]+s test_fixture.SyntheticFixture.test_sample")
         invalid = self.checkout("", app_source="def invalid syntax\n")
         result = self.run_check(invalid)
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("SyntaxError", result.stderr)
+        self.assertRegex(result.stderr, r"Total check time: [0-9.]+s")
 
     def test_check_command_rejects_empty_and_entirely_skipped_suites(self):
         for source in ["", '''
