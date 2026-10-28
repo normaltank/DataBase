@@ -117,7 +117,9 @@ def main():
         full=evidence/'full.zip';full.write_bytes(response.data)
     target=evidence/'new-restored-directory'
     subprocess.run([sys.executable,'-m','platform_app.maintenance','--restore',str(full),'--target',str(target)],cwd=root,check=True,capture_output=True)
-    restored=login(create_app(target,testing=True),'admin')
+    recovered_app=create_app(target,testing=True)
+    restored=login(recovered_app,'admin')
+    restored_author=login(recovered_app,'researcher')
     detail=restored.get(path).json
     assert detail['current_product_id']==before_restore['current_product_id']
     assert len(restored.get(path+'/history').json['items'])==4
@@ -130,7 +132,8 @@ def main():
         with restored.get(item['file_url']) as response:assert response.data==b'legacy topic candidate'
     for item in before['topic_files']:
         with restored.get(item['url']) as response:assert response.data==item['raw'].encode()
-    assert stored_record(restored.get('/api/records/'+rid).json)==stored_record(before['record'])
+    assert stored_record(restored_author.get('/api/records/'+rid).json)==stored_record(before['record'])
+    assert restored_author.get('/api/history/record/'+rid).json==before['history']
     with restored.get('/api/attachments/'+before['record']['attachments'][0]['id']) as response:assert response.data==b'legacy journal attachment'
     result={'baseline':baseline,'schema_before':21,'schema_after':22,'preupgrade_backup_restored':True,'migration_failure_rolled_back_and_retry_ok':True,'old_record_history_and_attachment_bytes':True,'topic_original_retained':True,'historical_meeting_manuscript_return_files_restored':len(before['topic_files']),'journal_original_sha256':hashes,'product_and_four_events_restored':True,'target_was_new_directory':True}
     (evidence/'results.json').write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')

@@ -221,11 +221,15 @@ class JournalCollaborationTests(unittest.TestCase):
         one=self.upload(wid).json['id']
         two=self.upload(other,key='other-journal-original').json['id']
         self.assertEqual(self.call(f'/api/collaboration/journals/{wid}/product',{'version':2,'submission_id':one}).status_code,200)
+        self.assertEqual(self.call('/api/collaboration/qualifications/researcher',{'version':0,'enabled':True},'admin','PUT').status_code,200)
+        topic=self.call('/api/collaboration/topics',{'theme':'交叉业务原件','participant_ids':[]}).json['id']
+        self.assertEqual(self.call(f'/api/collaboration/topics/{topic}/candidates',{'version':0,'topic_version':1,'request_id':'cross-business-candidate'},file=('整体稿.txt',b'first original')).status_code,201)
         with self.call('/api/backup',user='admin') as response:
             with zipfile.ZipFile(io.BytesIO(response.data)) as archive:
                 base={name:archive.read(name) for name in archive.namelist()}
         mutations=[
             ('fingerprint',"UPDATE journal_submissions SET request_hash='forged' WHERE work_id='"+wid+"'"),
+            ('cross-business-file',"UPDATE journal_submissions SET file_id=(SELECT file_id FROM topic_candidates LIMIT 1) WHERE work_id='"+wid+"'; DELETE FROM handoff_files WHERE id NOT IN (SELECT file_id FROM topic_candidates UNION SELECT file_id FROM journal_submissions)"),
             ('missing-adoption-request',"DELETE FROM journal_product_requests WHERE work_id='"+wid+"'"),
             ('cross-product',"UPDATE journal_works SET current_product_id='"+two+"' WHERE id='"+wid+"'"),
             ('history-gap',"DELETE FROM journal_work_events WHERE work_id='"+wid+"' AND version=2"),
@@ -242,7 +246,10 @@ class JournalCollaborationTests(unittest.TestCase):
                     database.write_bytes(files['platform.sqlite3'])
                     with closing(sqlite3.connect(database)) as db,db:
                         db.executescript(sql)
+                        registered={r[0] for r in db.execute('SELECT stored_name FROM handoff_files')}
                     files['platform.sqlite3']=database.read_bytes()
+                    if name=='cross-business-file':
+                        files={k:v for k,v in files.items() if not k.startswith('handoffs/') or k.split('/',1)[1] in registered}
                 key=next(k for k in files if k.startswith('handoffs/'))
                 if name=='extra-file':
                     files['handoffs/'+'f'*32+'.txt']=b'unowned file'

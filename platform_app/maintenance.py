@@ -149,7 +149,10 @@ def restore_backup(archive_path, target_dir):
                 from . import journal_collaboration
                 if int(version) >= journal_collaboration.SCHEMA_VERSION:
                     journal_collaboration.validate_backup(db)
-                    referenced_ids |= journal_collaboration.referenced_files(db)
+                    journal_files = journal_collaboration.referenced_files(db)
+                    if referenced_ids & journal_files:
+                        raise ValueError('交接原件不能同时归属不同业务。')
+                    referenced_ids.update(journal_files)
                 handoff_files.validate_backup(db, manifest, referenced_ids)
                 collaboration.validate_backup(db)
             for row in db.execute("SELECT stored_name,sha256 FROM attachments"):
