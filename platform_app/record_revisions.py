@@ -259,8 +259,8 @@ class RecordRevisions:
         if not isinstance(associated, list) or len(associated) > 100 or not all(isinstance(s, str) for s in associated):
             abort(400, "关联来源格式不正确。")
         associated = [self.source(sid)["id"] for sid in associated]
-        if values["kind"] == "directory_translation" and not associated:
-            abort(400, "请至少选择一个关联来源。")
+        if values["kind"] == "directory_translation" and not associated and not values['publication_title']:
+            abort(400, "请选择关联来源，或保留已知刊名待补档案。")
         cited = evidence.validate(self.db, data, values, base, self.get, self.upload_dir.parent)
         return values, sorted(set(canonical_links)), sorted(set(associated)), cited
 
@@ -280,7 +280,7 @@ class RecordRevisions:
                         (aid, rid, name, path.name, len(content), hashlib.sha256(content).hexdigest(), now()))
         return current_ids + [aid]
 
-    def create(self, data, file=None):
+    def create(self, data, file=None, *, after_create=None):
         with self._transaction():
             values, linked, associated, cited = self._values(data)
             self._unique_doi(values["doi"])
@@ -334,6 +334,8 @@ class RecordRevisions:
             if "research_subjects" in data:
                 note_subjects.save(self.db, rid, values["kind"], data["research_subjects"], self.actor["id"])
             self._history(rid, "提交资料")
+            if after_create:
+                after_create(rid)
         return rid
 
     def ingest_public(self, entry_id, lease_token, snapshot, page_error=''):
