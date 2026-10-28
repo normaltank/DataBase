@@ -82,7 +82,7 @@ def enrich_workflow(db, actor, topic, workflow):
     finals = final_projection(db, actor, topic["id"])
     for a in workflow["assignments"]:
         a["finals"] = [f for f in finals if f["assignment_id"] == a["id"]]
-        latest = a["submissions"][0] if a["submissions"] else None
+        latest = next((s for s in a["submissions"] if s["id"] == a["current_submission_id"]), None)
         if latest and any(f["submission_id"] == latest["id"] for f in a["finals"]):
             a["status"] = "final"
     workflow["summaries"] = summary_projection(db, actor, topic["id"])
@@ -151,7 +151,9 @@ def validate_backup(db):
                     require(topic["lead_id"] == actor and qualification and qualification[0] == 1)
                     submission = db.execute("SELECT * FROM topic_manuscripts WHERE id=? AND topic_id=? AND assignment_id=?", (row["submission_id"], row["topic_id"], row["assignment_id"])).fetchone()
                     meeting = db.execute("SELECT * FROM topic_meetings WHERE id=? AND topic_id=?", (row["meeting_id"], row["topic_id"])).fetchone()
-                    require(submission and meeting and submission["meeting_id"] == meeting["id"])
+                    require(submission and meeting)
+                    assignment = next((a for a in json.loads(meeting["assignments_json"]) if a["id"] == row["assignment_id"]), None)
+                    require(assignment and assignment["author_id"] == submission["author_id"])
                     require(data.get("submission_id") == submission["id"] and type(data.get("version")) is int and data["version"] == submission["version"])
                     require(data.get("meeting_version") == meeting["version"] and data.get("status") == "pending")
                     require(not db.execute("SELECT 1 FROM topic_returns WHERE submission_id=?", (submission["id"],)).fetchone())
@@ -204,8 +206,8 @@ def register(app, ctx):
             meeting, assignment = review.current_assignment(db(), tid, aid)
             review.expect_version(data, "topic_version", topic["version"])
             review.expect_version(data, "meeting_version", meeting["version"])
-            latest = review.latest_manuscript(db(), tid, aid)
-            if not latest or data.get("submission_id") != latest["id"] or latest["meeting_id"] != meeting["id"] or latest["author_id"] != assignment["author_id"]:
+            latest = review.current_manuscript(db(), tid, assignment)
+            if not latest or data.get("submission_id") != latest["id"]:
                 abort(409, "当前会议、分工或稿件已经变化，请核对最新明确版本后再定稿。")
             review.expect_version(data, "version", latest["version"])
             if data.get("status") != "pending" or db().execute("SELECT 1 FROM topic_returns WHERE submission_id=? UNION ALL SELECT 1 FROM topic_finals WHERE submission_id=?", (latest["id"], latest["id"])).fetchone():

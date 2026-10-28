@@ -114,7 +114,8 @@ def workflow_projection(db, actor, topic):
             for key in ("request_id", "request_hash", "request_json"):
                 item.pop(key)
             a["returns"].append(file_metadata(db, topic["id"], "returns", item))
-        latest = a["submissions"][0] if a["submissions"] else None
+        latest = current_manuscript(db, topic["id"], a) if a["active"] else None
+        a["current_submission_id"] = latest["id"] if latest else None
         a["status"] = ("returned" if any(r["submission_id"] == latest["id"] for r in a["returns"]) else "pending") if latest else "awaiting_submission"
         a["can_submit"] = a["active"] and a["author_id"] == actor["id"] and collaboration.can_read(db, actor, topic) and bool(db.execute("SELECT 1 FROM topic_participants WHERE topic_id=? AND member_id=? AND active=1", (topic["id"], actor["id"])).fetchone())
     from .topic_finals import enrich_workflow
@@ -131,6 +132,16 @@ def current_assignment(db, tid, aid):
 
 def latest_manuscript(db, tid, aid):
     return db.execute("SELECT * FROM topic_manuscripts WHERE topic_id=? AND assignment_id=? ORDER BY version DESC LIMIT 1", (tid, aid)).fetchone()
+
+
+def current_manuscript(db, tid, assignment):
+    """A meeting edit alone does not invalidate an unchanged author's latest draft.
+
+    The article's full version series remains intact, including predecessors.
+    A different author's latest version cannot represent the current assignment.
+    """
+    latest = latest_manuscript(db, tid, assignment["id"])
+    return latest if latest and latest["author_id"] == assignment["author_id"] else None
 
 
 def referenced_files(db):
@@ -348,7 +359,7 @@ def register(app, ctx):
                 return jsonify(id=previous["id"], reused=True)
             expect_version(data, "topic_version", topic["version"])
             expect_version(data, "meeting_version", meeting["version"])
-            latest = latest_manuscript(db(), tid, aid)
+            latest = current_manuscript(db(), tid, assignment)
             if not latest or data.get("submission_id") != latest["id"]:
                 abort(409, "审阅的稿件已变化，不能将意见写到另一版。文件与说明仍保留，请核对最新原件。")
             if db().execute("SELECT 1 FROM topic_returns WHERE submission_id=?", (latest["id"],)).fetchone():
