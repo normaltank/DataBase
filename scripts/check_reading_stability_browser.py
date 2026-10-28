@@ -77,13 +77,21 @@ class ReadingStabilityBrowserTests(unittest.TestCase):
                             expect(page.locator('.library-row')).to_have_count(1)
                             finish(1)
                             expect(page.locator('.library-row')).to_have_count(0)
-                            articles={}
-                            for title in ['A','B','C','D']:
-                                articles[title]=write(page.request, '/api/records', {'title':title,'kind':'report',
-                                    'chinese_title':'' if title=='B' else '窗口词 '+title})
+                            for number in range(4):
+                                write(page.request, '/api/records', {'title':'Synthetic seed '+str(number),'kind':'report'})
+                            # Label the real public batch order. HTTP creation may
+                            # cross a clock second; the fixture must not assume it
+                            # shares an insertion timestamp.
+                            initial=write(page.request,'/api/reading-batches')
+                            ordered=page.request.get(URL+'/api/records',params={'batch':initial['id'],'batch_scope':'all','size':100}).json()['items']
+                            self.assertEqual(len(ordered),4)
+                            articles=dict(zip(['A','B','C','D'],ordered))
+                            for title, article in articles.items():
+                                write(page.request,'/api/records/'+article['id'],{'version':1,'title':title,
+                                    'chinese_title':'' if title=='B' else '窗口词 '+title},'PUT')
                             page.goto(URL+'#library?feed=new&batch_scope=all&q=窗口词&size=2')
                             expect(page.locator('.record-title button')).to_have_text(['窗口词 A','窗口词 C'])
-                            write(page.request, '/api/records/'+articles['B']['id'], {'version':1,'chinese_title':'窗口词 B'}, 'PUT')
+                            write(page.request, '/api/records/'+articles['B']['id'], {'version':2,'chinese_title':'窗口词 B'}, 'PUT')
                             page.get_by_role('button',name='下一页',exact=True).click()
                             expect(page.locator('.record-title button')).to_have_text(['窗口词 D'])
                             expect(page.locator('.results-head')).to_contain_text('3')
@@ -95,11 +103,32 @@ class ReadingStabilityBrowserTests(unittest.TestCase):
                             self.assertEqual(response.value.json()['confirmed'],3)
                             expect(page.locator('.record-title button')).to_have_text(['窗口词 B'])
                             relogin('协作同事')
+                            batch=write(page.request, '/api/reading-batches')
+                            zero_setup={'batch':batch['id'],'batch_scope':'all','q':'Z after empty visit'}
+                            shown=page.request.get(URL+'/api/records',params=zero_setup).json()
+                            write(page.request, '/api/reading-batches/'+batch['id']+'/finish',
+                                  {'conditions':zero_setup,'confirmation':shown['reading_confirmation']})
+                            page.goto(URL+'#library?feed=new&batch_scope=all&q=后补独立词')
+                            expect(page.locator('.library-row')).to_have_count(0)
+                            write(request, '/api/login', {'username':'researcher','password':'LocalDemo2026!'})
+                            write(request, '/api/records/'+articles['C']['id'], {'version':2,'chinese_title':'窗口词 C 后补独立词'}, 'PUT')
+                            page.reload()
+                            expect(page.locator('.library-row')).to_have_count(0)
+                            page.get_by_role('button',name='结束本次浏览',exact=True).click()
+                            expect(page.locator('#modal-root')).to_contain_text('全部未浏览资料继续保留')
+                            page.screenshot(path=str(evidence/'explicit-zero-confirmation-1366.png'))
+                            with page.expect_response(lambda r: '/finish' in r.url and r.request.method=='POST') as response:
+                                page.get_by_role('button',name='确认 0 条并重新查找',exact=True).click()
+                            self.assertEqual(response.value.json()['confirmed'],0)
+                            expect(page.locator('.record-title button')).to_have_text(['窗口词 C 后补独立词'])
+                            expect(page.get_by_role('textbox',name='资料关键词',exact=True)).to_have_value('后补独立词')
+                            self.assertEqual(write(page.request,'/api/reading-batches')['pending_total'],4)
+                            page.screenshot(path=str(evidence/'zero-confirmation-preserved-query-1366.png'))
                             page.goto(URL+'#library?feed=new&batch_scope=all&q=窗口词')
                             expect(page.locator('.library-row')).to_have_count(4)
                             page.get_by_role('button',name='结束本次浏览',exact=True).click()
                             write(request, '/api/login', {'username':'researcher','password':'LocalDemo2026!'})
-                            write(request, '/api/records/'+articles['A']['id'], {'version':1,'visibility':'restricted'}, 'PUT')
+                            write(request, '/api/records/'+articles['A']['id'], {'version':2,'visibility':'restricted'}, 'PUT')
                             with page.expect_response(lambda r: '/finish' in r.url and r.request.method=='POST') as response:
                                 page.get_by_role('button',name='确认这 4 条已浏览',exact=True).click()
                             self.assertEqual(response.value.status,409)
@@ -120,11 +149,12 @@ class ReadingStabilityBrowserTests(unittest.TestCase):
                             rows=list(csv.DictReader(io.StringIO(exported.body().decode('utf-8-sig'))))
                             self.assertEqual([r['稳定编号'] for r in rows],[articles[k]['id'] for k in ['B','C','D']])
                             finish(3)
-                            expect(page.locator('.record-title button')).to_have_text(['Z after empty visit'])
+                            expect(page.locator('.library-row')).to_have_count(0)
                             self.assertEqual(errors,[])
                             (evidence/'result.json').write_text(json.dumps({'empty_refresh_and_relogin':True,
                                 'page_two':['D'],'confirmed_after_translation':3,'permission_conflict':409,
-                                'confirmed_after_reread':3,'remaining_for_colleague':[z['id']], 'javascript_errors':errors},ensure_ascii=False,indent=2),encoding='utf-8')
+                                'confirmed_after_reread':3,'explicit_zero_preserved_pending':4,
+                                'remaining_for_colleague':[], 'javascript_errors':errors},ensure_ascii=False,indent=2),encoding='utf-8')
                         finally:
                             browser.close()
                     finally:

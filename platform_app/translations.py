@@ -250,7 +250,8 @@ def execute(db, job, runner_id):
         runner_version = db.execute('SELECT credential_version FROM users WHERE id=?', (runner_id,)).fetchone()[0]
         if current['status'] != 'queued':
             abort(409, '任务已执行或正在执行；失败时请显式重试。')
-        db.execute("UPDATE translation_jobs SET status='running',attempts=attempts+1,started_at=?,error='' WHERE id=?", (now(), job['id']))
+        started_at = now()
+        db.execute("UPDATE translation_jobs SET status='running',attempts=attempts+1,started_at=?,error='' WHERE id=?", (started_at, job['id']))
     error, output, evidence = '', {}, {'usage':{}, 'usage_state':'not_sent'}
     try:
         output, evidence = request_translation(job['input_title'], job['input_abstract'])
@@ -265,6 +266,7 @@ def execute(db, job, runner_id):
         if not authorized:
             error = '生成期间权限已变化；结果未保存。'
         evidence['outcome'] = 'failed' if error else 'succeeded'
+        evidence['started_at'] = started_at
         evidence['finished_at'] = now()
         db.execute('INSERT INTO translation_calls VALUES(?,?,?,?,?)',
                    (uuid.uuid4().hex, job['id'], current['attempts']+1, json.dumps(evidence, ensure_ascii=False), now()))

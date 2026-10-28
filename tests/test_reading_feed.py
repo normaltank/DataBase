@@ -54,8 +54,9 @@ class ReadingFeedTests(unittest.TestCase):
         self.assertEqual(self.call('/api/reading-batches')['pending_total'], 1)
 
     def test_batch_query_membership_survives_translation_paging_export_and_exact_finish(self):
-        records = [self.record(title=title, chinese_title='' if title=='B' else '窗口词 '+title)
-                   for title in ['A','B','C','D']]
+        with patch('platform_app.record_revisions.now',return_value='2026-10-28T00:00:00+00:00'):
+            records = [self.record(title=title, chinese_title='' if title=='B' else '窗口词 '+title)
+                       for title in ['A','B','C','D']]
         batch = self.call('/api/reading-batches')
         query = {'batch':batch['id'], 'batch_scope':'all', 'q':'窗口词', 'size':2}
         first = self.client.get('/api/records', query_string=query).json
@@ -94,6 +95,20 @@ class ReadingFeedTests(unittest.TestCase):
         self.assertEqual([r['id'] for r in refreshed['items']], [second['id']])
         self.assertEqual(self.call('/api/reading-batches')['id'], batch['id'])
         self.assertEqual(self.finish(batch['id'], query)['confirmed'], 1)
+
+    def test_explicit_zero_confirmation_requeries_without_confirming_unread_articles(self):
+        articles = [self.record(title=title) for title in ['A','B','C','D']]
+        batch = self.call('/api/reading-batches')
+        query = {'batch':batch['id'],'batch_scope':'all','q':'后来中文窗口'}
+        shown = self.client.get('/api/records',query_string=query).json
+        self.assertEqual(shown['total'], 0)
+        self.call('/api/records/'+articles[1]['id'], {'version':1,'chinese_title':'后来中文窗口'}, method='PUT')
+        self.assertEqual(self.client.get('/api/records',query_string=query).json['total'], 0)
+        result = self.call('/api/reading-batches/'+batch['id']+'/finish', {'conditions':query,'confirmation':shown['reading_confirmation']})
+        self.assertEqual(result['confirmed'], 0)
+        following = self.call('/api/reading-batches')
+        self.assertEqual(following['pending_total'], 4)
+        self.assertEqual([r['id'] for r in self.client.get('/api/records',query_string={**query,'batch':following['id']}).json['items']], [articles[1]['id']])
 
     def test_resolved_saved_query_and_membership_restore_with_content_exports(self):
         from platform_app.maintenance import create_backup, restore_backup
