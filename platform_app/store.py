@@ -5,7 +5,7 @@ from pathlib import Path
 
 from werkzeug.security import generate_password_hash
 
-CURRENT_SCHEMA_VERSION = 19
+CURRENT_SCHEMA_VERSION = 20
 
 
 def now():
@@ -120,6 +120,8 @@ def initialize(data_dir):
     migrate_reading_queries(data_dir)
     from .ai_gateway import migrate as migrate_ai
     migrate_ai(data_dir)
+    from .collaboration import migrate as migrate_collaboration
+    migrate_collaboration(data_dir)
 
 
 def decoded(row):
