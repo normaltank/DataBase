@@ -36,7 +36,7 @@ async function savedSearchLibraryPage(render){
   try{const root=document.createElement('div');root.innerHTML=await render();const tools=root.querySelector('[data-library-tools]');if(tools)tools.insertAdjacentHTML('beforeend',savedSearchToolbar());else root.insertAdjacentHTML('afterbegin',savedSearchToolbar());return root.innerHTML;}
   catch(error){
     if(epoch!==savedSearchUI.epoch||account!==state.me?.id||load!==state.loadId)return '';
-    return savedSearchToolbar()+'<h1>检索范围暂不可用</h1><div class="notice error">'+esc(error.message)+' 原条件已保留，请调整来源或专题后重新保存。</div>'+linkButton('调整条件','saved-adjust');
+    return savedSearchToolbar()+'<h1>检索范围暂不可用</h1><div class="notice error">'+esc(error.message)+' 原条件已保留，请调整来源或资料夹后重新保存。</div>'+linkButton('调整条件','saved-adjust');
   }
 }
 function savedSearchDialog(title,body){
@@ -70,12 +70,12 @@ document.addEventListener('click',async event=>{
     else if(action==='saved-open'){if(closeModal()===false)return;savedSearchUI.epoch++;go('library',{saved_search:id});}
     else if(action==='saved-adjust'){
       const value=savedSearchUI.active?.conditions||savedSearchConditions();
-      savedSearchDialog('调整检索范围','<form data-saved-form="adjust"><p>原检索条件继续保留。请明确选择要移除的范围，再用资料库现有筛选调整。</p>'+(value.source?'<label class="saved-remove-scope"><input type="checkbox" name="remove_source">移除来源限制及其内容分区</label>':'')+(value.collection?'<label class="saved-remove-scope"><input type="checkbox" name="remove_collection">移除专题限制</label>':'')+'<p class="saved-condition-summary">'+esc(savedSearchSummary(value))+'</p><div class="form-error" role="alert"></div><button class="button primary" type="submit">应用调整后的条件</button></form>');
+      savedSearchDialog('调整检索范围','<form data-saved-form="adjust"><p>原检索条件继续保留。请明确选择要移除的范围，再用资料库现有筛选调整。</p>'+(value.source?'<label class="saved-remove-scope"><input type="checkbox" name="remove_source">移除来源限制及其内容分区</label>':'')+(value.collection?'<label class="saved-remove-scope"><input type="checkbox" name="remove_collection">移除资料夹限制</label>':'')+'<p class="saved-condition-summary">'+esc(savedSearchSummary(value))+'</p><div class="form-error" role="alert"></div><button class="button primary" type="submit">应用调整后的条件</button></form>');
     }
     else if(action==='saved-edit'||action==='saved-copy')savedSearchNameForm(savedSearchUI.items.find(item=>item.id===id),action==='saved-copy');
     else if(action==='saved-delete'){
       const item=savedSearchUI.items.find(item=>item.id===id);
-      savedSearchDialog('删除检索','<form data-saved-form="delete" data-id="'+esc(id)+'" data-version="'+item.version+'"><p>确认删除个人检索“'+esc(item.name)+'”？</p><p class="small muted">资料、收藏与专题继续保留。</p><div class="form-error" role="alert"></div><div class="saved-actions"><button class="button danger" type="submit">确认删除</button>'+linkButton('取消','saved-manage')+'</div></form>');
+      savedSearchDialog('删除检索','<form data-saved-form="delete" data-id="'+esc(id)+'" data-version="'+item.version+'"><p>确认删除个人检索“'+esc(item.name)+'”？</p><p class="small muted">资料、收藏与资料夹继续保留。</p><div class="form-error" role="alert"></div><div class="saved-actions"><button class="button danger" type="submit">确认删除</button>'+linkButton('取消','saved-manage')+'</div></form>');
     }else if(action==='saved-update'){
       const form=button.closest('form');button.disabled=true;
       const updated=await api('/api/saved-searches/'+encodeURIComponent(id),{method:'PUT',body:{version:Number(button.dataset.version),name:document.querySelector('#saved-search-name').value,conditions:savedSearchUI.current}});

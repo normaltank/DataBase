@@ -314,12 +314,16 @@ class LibraryBrowserTests(unittest.TestCase):
         expect(page.get_by_label('题名 *', exact=True)).to_be_visible()
         page.get_by_role('button', name='关闭并保留草稿', exact=True).click()
         reader.get_by_role('button', name='复制出处', exact=True).click()
-        reader.get_by_role('button', name='写阅读说明', exact=True).click()
-        note = page.locator('form.ux-reading-form')
-        note.locator('[data-rich-input]').fill('这是一段保留原资料关联的合成阅读说明。')
-        note.get_by_role('button', name='保存内容', exact=True).click()
-        expect(note).not_to_be_visible()
-        expect(page.locator('[data-reading-note]').last).to_be_visible()
+        expect(reader.get_by_role('button', name='写阅读说明', exact=True)).to_have_count(0)
+        # Existing reading notes remain reachable; creation is no longer a reader workflow.
+        rid=reader.locator('[data-action=ux-copy]').get_attribute('data-id')
+        csrf=page.request.get(URL+'/api/session').json()['csrf']
+        saved=page.request.post(URL+'/api/records',data={'kind':'research_note','title':'已有合成阅读说明','linked_ids':[rid],
+            'body_html':'<p>保留原资料关联的合成说明。</p>'},headers={'X-CSRF-Token':csrf})
+        self.assertTrue(saved.ok,saved.text())
+        page.reload()
+        page.locator('[data-library-record="'+rid+'"] .record-title button').click()
+        expect(page.locator('[data-reading-note]')).to_be_visible()
 
 
 
