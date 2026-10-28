@@ -289,4 +289,3 @@ with connect(sys.argv[1]) as db:
         state = self.get('/api/admin/ai', user='admin')
         self.assertEqual(state.status_code, 200)
         self.assertEqual(state.json['held_units'], 0)
-
