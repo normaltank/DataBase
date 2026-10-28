@@ -178,6 +178,9 @@ def execute(db, job):
         current=db.execute('SELECT * FROM automatic_tasks WHERE id=?',(job['id'],)).fetchone()
         if current['lease_token']!=job['lease_token']:
             return False
+        if not evidence.get('attempt_id'):
+            previous=json.loads(current['evidence_json'])
+            if previous.get('attempt_id'): evidence={**evidence,'attempt_id':previous['attempt_id']}
         if not authorized(db,job):
             error,code='公开材料或当前权限已变化，未写回结果。','permission'
         state='succeeded' if not error else 'failed' if code in {'retry_limit','permission','invalid_result'} else 'paused'

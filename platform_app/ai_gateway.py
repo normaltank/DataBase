@@ -111,9 +111,12 @@ def reserve(db, scope, task, payload, config):
         success = next((r for r in rows if r['status']=='settled' and json.loads(r['result_json'])), None)
         if success:
             return dict(success), True
-        if len(rows)>=MAX_ATTEMPTS:
+        grants=[json.loads(r[0]) for r in db.execute("SELECT details_json FROM ai_events WHERE action='retry_grant' ORDER BY rowid")]
+        cutoff=max([g['after_attempts'] for g in grants if (g['scope'],g['task'],g['input_hash'])==(scope,task,input_hash)]+[0])
+        round_count=len(rows)-cutoff
+        if round_count>=MAX_ATTEMPTS:
             raise AIBlocked('retry_limit','该输入已达到三次供应商调用上限。')
-        if rows and datetime.fromisoformat(now()) < datetime.fromisoformat(rows[-1]['finished_at']) + timedelta(seconds=BACKOFF_SECONDS * 2**(len(rows)-1)):
+        if round_count and datetime.fromisoformat(now()) < datetime.fromisoformat(rows[-1]['finished_at']) + timedelta(seconds=BACKOFF_SECONDS * 2**(round_count-1)):
             raise AIBlocked('backoff','该输入正在有界退避，请稍后处理。')
         if db.execute("SELECT COUNT(*) FROM ai_attempts WHERE status IN ('sent','unknown')").fetchone()[0] >= MAX_CONCURRENT:
             raise AIBlocked('capacity','AI全局并发或未知费用占用已满。')
@@ -358,10 +361,41 @@ def summary(db):
         paused=bool(paused and paused[0]=='1'),blocked_reasons=reasons,legacy_unknown=int(legacy[0]) if legacy else 0,
         held_units=held,charged_units=charged,months=months,
         attempts=[{k:r[k] for k in ['id','scope','task','month','currency','status','reserved_units','charged_units','created_at','finished_at']} | {'configuration':json.loads(r['config_json']),'evidence':json.loads(r['evidence_json'])} for r in rows[:100]],
+        tasks=[dict(r) for r in db.execute("SELECT a.id,a.record_id,a.task,a.status,a.reason,a.next_run,a.evidence_json,r.title FROM automatic_tasks a JOIN records r ON r.id=a.record_id WHERE a.status<>'succeeded' ORDER BY a.next_run,a.rowid LIMIT 100")],
+        task_counts={r[0]:r[1] for r in db.execute('SELECT status,COUNT(*) FROM automatic_tasks GROUP BY status')},
+        worker_heartbeat=(db.execute("SELECT value FROM settings WHERE key='automatic_worker_heartbeat'").fetchone() or [''])[0],
         events=[dict(r) for r in db.execute('SELECT * FROM ai_events ORDER BY rowid DESC LIMIT 100')])
 
 
 def register(app, ctx):
+    @app.post('/api/admin/ai/tasks/<tid>/retry')
+    def retry_task(tid):
+        ctx.admin()
+        basis=ctx.body().get('basis','')
+        if not isinstance(basis,str) or not 10<=len(basis.strip())<=2000:
+            abort(400,'请填写故障处理及批准新一轮重试的依据（10—2000字）。')
+        db=ctx.db()
+        with db:
+            db.execute('BEGIN IMMEDIATE')
+            job=db.execute('SELECT * FROM automatic_tasks WHERE id=?',(tid,)).fetchone()
+            if not job: abort(404)
+            if job['status'] not in {'failed','paused'}: abort(409,'该任务无需人工重开。')
+            from .automatic_processing import material
+            record=db.execute('SELECT * FROM records WHERE id=?',(job['record_id'],)).fetchone()
+            if material(db,record,job['task'])!=json.loads(job['input_json']): abort(409,'原文或权限已变化，请等待后台取得当前版本。')
+            attempt_id=json.loads(job['evidence_json']).get('attempt_id','')
+            attempt=db.execute('SELECT * FROM ai_attempts WHERE id=?',(attempt_id,)).fetchone()
+            if attempt:
+                rows=db.execute('SELECT * FROM ai_attempts WHERE scope=? AND task=? AND input_hash=?',(attempt['scope'],attempt['task'],attempt['input_hash'])).fetchall()
+                if any(r['status'] in {'sent','unknown'} for r in rows): abort(409,'请先核实未知调用费用；重开不会释放占用。')
+                grants=[json.loads(r[0]) for r in db.execute("SELECT details_json FROM ai_events WHERE action='retry_grant'")]
+                cutoff=max([g['after_attempts'] for g in grants if (g['scope'],g['task'],g['input_hash'])==(attempt['scope'],attempt['task'],attempt['input_hash'])]+[0])
+                if len(rows)-cutoff>=MAX_ATTEMPTS:
+                    audit(db,ctx.user()['id'],'retry_grant',basis.strip(),{k:attempt[k] for k in ['scope','task','input_hash']}|{'after_attempts':len(rows),'limit':MAX_ATTEMPTS},attempt_id)
+            audit(db,ctx.user()['id'],'task_retry',basis.strip(),{'task_id':tid})
+            db.execute("UPDATE automatic_tasks SET status='queued',reason='',next_run=? WHERE id=?",(now(),tid))
+        return jsonify(summary(db))
+
     @app.get('/api/admin/ai')
     def state():
         ctx.admin()
@@ -452,13 +486,18 @@ def validate_backup(db):
             if not re.fullmatch('[A-Z]{3}',policy['currency']): raise ValueError()
         events=[dict(r) for r in db.execute('SELECT * FROM ai_events')]
         for event in events:
-            if not event['actor_id'] or not 1<=len(event['basis'])<=2000 or event['action'] not in {'configure','pause','resolve','legacy_resolve'}:
+            if not event['actor_id'] or not 1<=len(event['basis'])<=2000 or event['action'] not in {'configure','pause','resolve','legacy_resolve','retry_grant','task_retry'}:
                 raise ValueError()
             details=json.loads(event['details_json'])
             if not isinstance(details,dict) or datetime.fromisoformat(event['created_at']).utcoffset()!=timedelta(0): raise ValueError()
             if event['attempt_id'] and not db.execute('SELECT 1 FROM ai_attempts WHERE id=?',(event['attempt_id'],)).fetchone(): raise ValueError()
             if event['action']=='legacy_resolve' and (not re.fullmatch(r'\d{4}-(?:0[1-9]|1[0-2])',details.get('month','')) or not re.fullmatch('[A-Z]{3}',details.get('currency','')) or type(details.get('charged_units')) is not int or not 0<=details['charged_units']<=10**15 or type(details.get('legacy_count')) is not int or details['legacy_count']<=0): raise ValueError()
             if event['action']=='resolve' and (type(details.get('charged_units')) is not int or details['charged_units']<0): raise ValueError()
+            if event['action']=='retry_grant':
+                attempt=db.execute('SELECT * FROM ai_attempts WHERE id=?',(event['attempt_id'],)).fetchone()
+                if (not attempt or any(details.get(k)!=attempt[k] for k in ['scope','task','input_hash'])
+                    or type(details.get('after_attempts')) is not int or details['after_attempts']<MAX_ATTEMPTS or details.get('limit')!=MAX_ATTEMPTS
+                    or details['after_attempts']>db.execute('SELECT COUNT(*) FROM ai_attempts WHERE scope=? AND task=? AND input_hash=?',(attempt['scope'],attempt['task'],attempt['input_hash'])).fetchone()[0]): raise ValueError()
         for row in db.execute('SELECT * FROM ai_attempts'):
             price,config=json.loads(row['price_json']),json.loads(row['config_json'])
             evidence,result=json.loads(row['evidence_json']),json.loads(row['result_json'])

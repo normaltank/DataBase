@@ -16,6 +16,41 @@ class AutomaticProcessingTests(unittest.TestCase):
     source = ingestion_fixture.IngestionTests.source
     run_worker = ingestion_fixture.IngestionTests.run_worker
 
+    def test_admin_can_reopen_exhausted_input_with_audited_bounded_round(self):
+        sid=self.source()
+        self.call('/api/sources/'+sid+'/ingestion',{'enabled':True},user='admin',method='PUT')
+        self.run_worker()
+        self.call('/api/admin/ai/config',{'cap':'1','currency':'USD'},user='admin')
+        from platform_app.automatic_processing import run_pending
+        def respond(request,**kwargs):
+            prompt=json.loads(request.data)
+            output={'countries':[],'topics':[],'type':None} if 'Classify' in prompt['messages'][0]['content'] else {'title':'恢复后译题','abstract':''}
+            response=MagicMock();response.__enter__.return_value=response;response.geturl.return_value=request.full_url
+            response.read.return_value=json.dumps({'model':'deepseek-flash','usage':{'prompt_tokens':23,'completion_tokens':7,'total_tokens':30},'choices':[{'finish_reason':'length' if failing[0] else 'stop','message':{'content':json.dumps(output)}}]}).encode()
+            return response
+        failing=[True]
+        with patch.dict('os.environ',{**ENV,'DEEPSEEK_API_KEY':'synthetic-only'}),patch('urllib.request.OpenerDirector.open',side_effect=respond) as sent:
+            for stamp in ['2026-10-28T12:00:00+00:00','2026-10-28T12:02:00+00:00','2026-10-28T12:04:00+00:00','2026-10-28T12:08:00+00:00']:
+                with patch('platform_app.store.now',return_value=stamp),patch('platform_app.ai_gateway.now',return_value=stamp):
+                    run_pending(self.app.config['DATA_DIR'],limit=4)
+            self.assertEqual(sent.call_count,12)
+            state=self.clients['admin'].get('/api/admin/ai').json
+            job=next(j for j in state['tasks'] if j['task']=='translation')
+            path='/api/admin/ai/tasks/'+job['id']+'/retry'
+            self.assertEqual(self.call(path,{'basis':'供应商故障修复后批准受控重试'},user='researcher').status_code,403)
+            self.assertEqual(self.call(path,{'basis':'短'},user='admin').status_code,400)
+            with patch('platform_app.store.now',return_value='2026-10-28T12:10:00+00:00'),patch('platform_app.ai_gateway.now',return_value='2026-10-28T12:10:00+00:00'):
+                response=self.call(path,{'basis':'供应商故障修复后批准受控重试'},user='admin')
+                self.assertEqual(response.status_code,200,response.json)
+                self.assertEqual(self.call(path,{'basis':'重复批准不能叠加重试次数'},user='admin').status_code,409)
+                failing[0]=False
+                run_pending(self.app.config['DATA_DIR'],limit=4)
+            self.assertEqual(sent.call_count,13)
+        state=self.clients['admin'].get('/api/admin/ai').json
+        self.assertEqual(len(state['attempts']),13)
+        self.assertEqual(len([e for e in state['events'] if e['action']=='retry_grant']),1)
+        self.assertEqual(self.clients['researcher'].get('/api/records?q=恢复后译题').json['total'],1)
+
     def test_only_evidenced_work_body_gets_separate_summary_with_exact_original_locator(self):
         sid=self.source()
         self.call('/api/sources/'+sid+'/ingestion',{'enabled':True},user='admin',method='PUT')
