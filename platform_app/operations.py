@@ -1,5 +1,6 @@
 """Local research collections, member administration and permission-aware export."""
 import hashlib
+import base64
 import html
 import io
 import json
@@ -109,7 +110,7 @@ def register(app, ctx):
     @app.get("/api/members")
     def members():
         ctx.admin()
-        return jsonify(items=[dict(r) for r in db().execute("SELECT id,username,name,role,active FROM users ORDER BY active DESC,name")])
+        return jsonify(items=[dict(r) for r in db().execute("SELECT id,username,name,role,active FROM users WHERE role<>'system' ORDER BY active DESC,name")])
 
     @app.post("/api/members")
     def new_member():
@@ -138,6 +139,8 @@ def register(app, ctx):
         row, data = db().execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone(), body()
         if not row:
             abort(404)
+        if row['role'] == 'system':
+            abort(403,'系统处理主体不属于成员账号，不能启用、重置或改写。')
         values = {}
         for key in ["name", "role", "active"]:
             if key in data:
@@ -315,6 +318,14 @@ def register(app, ctx):
                     content += prose("RIS 交换依据（仅本条题录，非全文或核对结论）", json.dumps(item["ris_evidence"], ensure_ascii=False, indent=2))
                 if item.get("discovery_evidence"):
                     content += prose("来源发现依据（公开描述非已核实摘要）", json.dumps(item["discovery_evidence"], ensure_ascii=False, indent=2))
+                if item.get('automatic_acquisition'):
+                    content += prose('自动取得状态','系统处理，未人工核对；中文待处理；网页说明与作品实质正文分别保留。')
+                    for snapshot in item['automatic_acquisition']['snapshots']:
+                        if snapshot['path'] not in archive.namelist():
+                            archive.writestr(snapshot['path'],base64.b64decode(snapshot['raw_base64']))
+                        content += prose('网页说明快照（未验证作品全文）',snapshot['page_text'])
+                        content += prose('快照出处与版本',snapshot['url']+'\n'+snapshot['retrieved_at']+'\nSHA256: '+snapshot['sha256']+'\n'+snapshot['reason'])
+                        content += '<p>原始响应字节：'+html.escape(snapshot['path'])+'（仅供下载核对，含未执行的原站代码）</p>'
                 content += content_export.record_relations_html(item, prose, source_paths, people)
                 for key, label in [("quote", "原文摘录"), ("translation", "译文"), ("interpretation", "研究员说明"), ("locator", "原文定位")]:
                     content += prose(label, item[key])
