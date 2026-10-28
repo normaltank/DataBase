@@ -3,6 +3,7 @@ import os
 import ssl
 import threading
 import unittest
+from contextlib import closing
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest.mock import patch
 
@@ -86,7 +87,7 @@ class AIBudgetTests(unittest.TestCase):
         self.synthetic()
         from platform_app import ai_gateway
         from platform_app.store import connect
-        with connect(self.data_dir/'platform.sqlite3') as db:
+        with closing(connect(self.data_dir/'platform.sqlite3')) as db:
             for task in ['classification-v1','summary-v1','fulltext-v1']:
                 result,evidence=ai_gateway.request_json(db,scope='synthetic-public',task=task,
                     messages=[{'role':'system','content':'Synthetic instructions'},{'role':'user','content':'Synthetic public input'}],
