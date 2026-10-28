@@ -227,7 +227,7 @@ def create_app(data_dir=None, testing=False):
         g.reading_attachments = {a["id"]: a for group in attachments.values() for a in group}
         favorites = {r[0] for r in db().execute("SELECT record_id FROM favorites WHERE user_id=?", (user()["id"],))}
         q = normalize(args.get("q", "").strip())
-        countries = reading_feed.choices(args.get('country'))
+        countries = {country.casefold() for country in reading_feed.choices(args.get('country'))}
         source_names = {sid: g.record_search.source_text(sid) for sid in g.record_search.sources}
         collection_ids = None
         if args.get("collection"):
@@ -287,7 +287,8 @@ def create_app(data_dir=None, testing=False):
                 continue
             if args.get('language') and not set(reading_feed.choices(args['language'])).intersection(re.split(r'[;,|\s]+', r['language']) if r['language'] else ['__unknown__']):
                 continue
-            if countries and not any((not r['countries'].strip()) if c == '__unknown__' else c.casefold() in r['countries'].casefold() for c in countries):
+            subject_countries = {country.casefold() for country in reading_feed.terms(r['countries'])} or {'__unknown__'}
+            if countries and not countries.intersection(subject_countries):
                 continue
             if args.get('topic') and not any((not r['keywords'].strip()) if t == '__unknown__' else t.casefold() in r['keywords'].casefold() for t in reading_feed.choices(args['topic'])):
                 continue
