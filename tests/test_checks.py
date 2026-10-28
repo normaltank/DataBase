@@ -1,5 +1,6 @@
 """Exercise test discovery and the check command without any external dataset."""
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -88,6 +89,37 @@ class SyntheticFixture(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("SYNTHETIC_SAMPLE_EXECUTED", result.stdout)
         self.assertIn("Ran 1 test", result.stderr)
+
+    def test_check_command_reports_total_and_bounded_slowest_case_lifecycles(self):
+        root = self.checkout(''' 
+import time
+import unittest
+class SlowFixture(unittest.TestCase):
+    def setUp(self):
+        time.sleep(0.12)
+        self.addCleanup(time.sleep, 0.05)
+    def tearDown(self):
+        time.sleep(0.08)
+    def test_lifecycle(self):
+        pass
+class FastFixture(unittest.TestCase):
+    pass
+for number in range(11):
+    setattr(FastFixture, f"test_fast_{number:02}", lambda self: None)
+''')
+        result = self.run_check(root)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Ran 12 tests", result.stderr)
+        total = re.search(r"Total check time: ([0-9.]+)s", result.stderr)
+        self.assertIsNotNone(total, result.stderr)
+        timings = re.findall(r"^  ([0-9.]+)s (test_fixture\S+)$", result.stderr, re.MULTILINE)
+        self.assertEqual(len(timings), 10, result.stderr)
+        durations = [float(seconds) for seconds, _ in timings]
+        self.assertEqual(durations, sorted(durations, reverse=True))
+        self.assertEqual(timings[0][1], "test_fixture.SlowFixture.test_lifecycle")
+        # Empty body: the measured cost must include setup, teardown and cleanup.
+        self.assertGreaterEqual(durations[0], 0.22)
+        self.assertGreaterEqual(float(total.group(1)), durations[0])
 
     def test_check_command_propagates_test_failure_and_syntax_errors(self):
         failing = self.checkout('''
