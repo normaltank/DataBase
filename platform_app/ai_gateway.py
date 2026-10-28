@@ -121,7 +121,10 @@ def settle(db, attempt, evidence, result):
     if 'cached_tokens' in details:
         valid = valid and details['cached_tokens'] <= usage.get('prompt_tokens',0)
     price = json.loads(attempt['price_json'])
-    charged = (cost(Decimal(usage['prompt_tokens'])*max(Decimal(price['input_cache_hit_per_million']),Decimal(price['input_cache_miss_per_million'])) + Decimal(usage['completion_tokens'])*Decimal(price['output_per_million']), price) if valid else 0)
+    hit = usage.get('prompt_cache_hit_tokens', details.get('cached_tokens', 0))
+    if 'prompt_cache_miss_tokens' in usage and 'prompt_cache_hit_tokens' not in usage:
+        hit = usage.get('prompt_tokens',0)-usage['prompt_cache_miss_tokens']
+    charged = (cost(Decimal(hit)*Decimal(price['input_cache_hit_per_million']) + Decimal(usage['prompt_tokens']-hit)*Decimal(price['input_cache_miss_per_million']) + Decimal(usage['completion_tokens'])*Decimal(price['output_per_million']), price) if valid else 0)
     with db:
         db.execute('BEGIN IMMEDIATE')
         db.execute("UPDATE ai_attempts SET status=?,charged_units=?,evidence_json=?,result_json=?,finished_at=? WHERE id=? AND status IN ('sent','unknown')",
