@@ -153,6 +153,21 @@ class ReadingFeedTests(unittest.TestCase):
         # a current library and pretend it is a historic fixture.
         with closing(sqlite3.connect(upgraded/'platform.sqlite3')) as db:
             backup = Path(db.execute("SELECT value FROM settings WHERE key='reading_queries_migration_backup'").fetchone()[0])
+        # Real migration artifacts prove the nonempty v16 -> v17 -> v18 chain.
+        with closing(sqlite3.connect(upgraded/'platform.sqlite3')) as db:
+            stage16 = Path(db.execute("SELECT value FROM settings WHERE key='ingestion_migration_backup'").fetchone()[0])
+        for version, archive in [(16, stage16), (17, backup), (18, create_backup(upgraded))]:
+            stage = restore_backup(archive, Path(self.temp.name)/('restored-stage-'+str(version)))
+            with closing(sqlite3.connect(stage/'platform.sqlite3')) as db:
+                self.assertEqual(db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0], str(version))
+                self.assertIsNotNone(db.execute('SELECT id FROM records WHERE id=?', (rid,)).fetchone())
+                self.assertEqual(bool(db.execute("SELECT name FROM sqlite_master WHERE name='ingestion_sources'").fetchone()), version >= 17)
+                self.assertEqual(bool(db.execute("SELECT name FROM sqlite_master WHERE name='reading_queries'").fetchone()), version >= 18)
+                self.assertEqual(bool(db.execute("SELECT name FROM sqlite_master WHERE name='translation_calls'").fetchone()), version >= 18)
+            for _ in range(2):
+                self.client = create_app(stage, testing=True).test_client()
+                self.login('colleague')
+                self.assertEqual(self.client.get('/api/records/'+rid).json, before)
         prior = restore_backup(backup, Path(self.temp.name)/'before-v18')
         with closing(sqlite3.connect(prior/'platform.sqlite3')) as db, db:
             db.execute("CREATE TRIGGER reject_query_upgrade BEFORE UPDATE ON settings WHEN NEW.value='18' BEGIN SELECT RAISE(ABORT,'synthetic v18 failure'); END")
@@ -160,6 +175,8 @@ class ReadingFeedTests(unittest.TestCase):
             create_app(prior, testing=True)
         recovered = restore_backup(create_backup(prior), Path(self.temp.name)/'recovered-v18-failure')
         with closing(sqlite3.connect(recovered/'platform.sqlite3')) as db, db:
+            self.assertEqual(db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0], '17')
+            self.assertIsNotNone(db.execute("SELECT name FROM sqlite_master WHERE name='ingestion_sources'").fetchone())
             self.assertIsNone(db.execute("SELECT name FROM sqlite_master WHERE name='reading_queries'").fetchone())
             self.assertIsNone(db.execute("SELECT name FROM sqlite_master WHERE name='translation_calls'").fetchone())
             db.execute('DROP TRIGGER reject_query_upgrade')
@@ -172,6 +189,14 @@ class ReadingFeedTests(unittest.TestCase):
         query = {'batch':batch['id'],'batch_scope':'all'}
         self.assertIn(article['id'], [r['id'] for r in self.client.get('/api/records',query_string=query).json['items']])
         self.assertGreaterEqual(self.finish(batch['id'], query)['confirmed'], 1)
+    def test_internal_finished_content_is_not_a_pending_translation_task(self):
+        external = self.record(title='External English material', language='en')
+        source = self.call('/api/sources', {'name':'合成译稿来源','kind':'institution'}, status=201)['id']
+        for kind in ['compilation', 'research_report', 'research_note', 'directory_translation']:
+            self.record(title='已保存中文内容', kind=kind, body_html='<p>已有中文正文</p>',
+                        authors='合成署名', coverage='2026年', related_source_ids=[source])
+        pending = self.client.get('/api/records?availability=translation_pending').json
+        self.assertEqual([row['id'] for row in pending['items']], [external['id']])
 
     def test_chinese_title_and_abstract_are_public_search_and_list_fields(self):
         record = self.record(title='Original title', abstract='Original abstract',

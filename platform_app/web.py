@@ -189,6 +189,8 @@ def create_app(data_dir=None, testing=False):
         obj["has_attachment"] = bool(json.loads(r["attachment_ids"]))
         obj["related_source_ids"] = g.record_search.associated[r["id"]] if "record_search" in g else workflow.source_ids(db(), r["id"])
         text = " ".join(r[k] or "" for k in ["title", "original_title", "aliases", "abstract", "body_text", "coverage"]) + ' ' + obj['display_title'] + ' ' + obj['display_abstract']
+        from .ingestion import searchable_text
+        text += ' '+searchable_text(r)
         obj["search_snippet"] = workflow.snippet(text, request.args.get("q", "")) if request.args.get("q") else ""
         obj["attachment_matches"] = attachment_index().matches(r, request.args.get("q", ""))
         if obj["attachment_matches"] and not any(word in normalize(text) for word in normalize(request.args.get("q", "")).split()):
@@ -313,6 +315,8 @@ def create_app(data_dir=None, testing=False):
             if q:
                 hay = " ".join(str(r[k]) for k in ["title", "original_title", "authors", "abstract", "keywords", "publication_title", "doi", "id", "aliases", "body_text", "coverage", "original_catalogue", "quote", "translation", "interpretation", "locator"]) + " " + " ".join(source_names.get(sid, "") for sid in [r["source_id"], r["serial_id"], *associated])
                 hay += " " + " ".join(g.record_search.bylines[r["id"]])
+                from .ingestion import searchable_text
+                hay += ' '+searchable_text(r)
                 chinese = translations.projection(db(), r)
                 hay += ' ' + chinese['display_title'] + ' ' + chinese['display_abstract']
                 hay += " " + " ".join(s["text"] for s in attachment_index().segments(r))
@@ -377,6 +381,10 @@ def create_app(data_dir=None, testing=False):
             obj["ris_evidence"] = obj["raw_json"]["ris_evidence"]
         if obj.get("raw_json", {}).get("discovery_evidence"):
             obj["discovery_evidence"] = obj["raw_json"]["discovery_evidence"]
+        from .ingestion import acquisition_projection
+        acquired = acquisition_projection(row)
+        if acquired:
+            obj['automatic_acquisition'] = acquired
         obj.update(record_summary(row))
         obj["owner_name"] = db().execute("SELECT name FROM users WHERE id=?", (row["owner_id"],)).fetchone()[0]
         last = reviews.last_modifier(db(), "record", rid)
@@ -674,12 +682,12 @@ def create_app(data_dir=None, testing=False):
     def new_collection():
         values = operations.collection_values(body())
         if not values["name"] or values["visibility"] not in ["shared", "private"]:
-            abort(400, "请填写专题名称并选择共享范围。")
+            abort(400, "请填写资料夹名称并选择共享范围。")
         cid = "COL-" + uuid.uuid4().hex[:10]
         with db():
             values.update(id=cid, owner_id=user()["id"], created_at=now(), updated_at=now())
             db().execute(f"INSERT INTO collections({','.join(values)}) VALUES({','.join('?' for _ in values)})", list(values.values()))
-            save_revision(db(), "collection", cid, "创建研究专题", user()["id"])
+            save_revision(db(), "collection", cid, "创建资料夹", user()["id"])
         return jsonify(id=cid), 201
 
     @app.post("/api/collections/<cid>/items")
@@ -695,7 +703,7 @@ def create_app(data_dir=None, testing=False):
         disposition, rationale = collection_scope.decision({**(dict(existing) if existing else {}), **data})
         with db():
             if not db().execute("SELECT 1 FROM revisions WHERE target_type='collection' AND target_id=?", (cid,)).fetchone():
-                save_revision(db(), "collection", cid, "专题整理前版本", user()["id"])
+                save_revision(db(), "collection", cid, "资料夹整理前版本", user()["id"])
             if data.get("remove") is True:
                 db().execute("DELETE FROM collection_items WHERE collection_id=? AND record_id=?", (cid, rid))
             else:
@@ -704,7 +712,7 @@ def create_app(data_dir=None, testing=False):
                 else:
                     db().execute("INSERT OR IGNORE INTO collection_items(collection_id,record_id) VALUES (?,?)", (cid, rid))
             db().execute("UPDATE collections SET version=version+1,updated_at=? WHERE id=?", (now(), cid))
-            save_revision(db(), "collection", cid, "移出专题资料" if data.get("remove") is True else "修订专题条目决定与理由" if "disposition" in data or "rationale" in data else "加入专题资料", user()["id"])
+            save_revision(db(), "collection", cid, "移出资料夹资料" if data.get("remove") is True else "修订专题条目决定与理由" if "disposition" in data or "rationale" in data else "加入资料夹资料", user()["id"])
         return jsonify(ok=True)
 
     def current_attachment(aid):
@@ -818,6 +826,8 @@ def create_app(data_dir=None, testing=False):
     reading_feed.register(app, SimpleNamespace(db=db, user=user, body=body, filtered_records=filtered_records))
     intake.register(app, SimpleNamespace(db=db, user=user, body=body, records=records))
     discovery.register(app, SimpleNamespace(db=db, user=user, body=body, records=records))
+    from . import ingestion
+    ingestion.register(app, SimpleNamespace(db=db, user=user, body=body, records=records, admin=admin))
     ris.register(app, SimpleNamespace(db=db, user=user, body=body, records=records))
     translations.register(app, SimpleNamespace(db=db, user=user, body=body, records=records))
     bulk.register(app, SimpleNamespace(db=db, user=user, body=body, visible=visible, get_collection=get_collection, export_csv=export_csv))

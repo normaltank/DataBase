@@ -1,5 +1,6 @@
 """Local research collections, member administration and permission-aware export."""
 import hashlib
+import base64
 import html
 import io
 import json
@@ -22,10 +23,10 @@ def collection_values(data, base=None):
     for key in COLLECTION_FIELDS:
         value = data.get(key, base[key] if base else "")
         if not isinstance(value, str) or len(value) > (500000 if key.startswith("comparison_") else 40000):
-            abort(400, "专题字段格式不正确或内容过长。")
+            abort(400, "资料夹字段格式不正确或内容过长。")
         values[key] = value.strip()
     if not values["name"] or values["visibility"] not in {"private", "shared"}:
-        abort(400, "请填写专题名称并选择共享范围。")
+        abort(400, "请填写资料夹名称并选择共享范围。")
     try:
         values["comparison_html"], values["comparison_text"] = workflow.clean_rich(values["comparison_html"])
     except ValueError as error:
@@ -64,13 +65,13 @@ def register(app, ctx):
         ctx.check_version(data, row)
         values = collection_values(data, row)
         if values["visibility"] != row["visibility"] and row["owner_id"] != user()["id"]:
-            abort(403, "只有专题创建者可以调整可见范围。")
+            abort(403, "只有资料夹创建者可以调整可见范围。")
         with db():
             if not db().execute("SELECT 1 FROM revisions WHERE target_type='collection' AND target_id=?", (cid,)).fetchone():
-                save_revision(db(), "collection", cid, "专题修订前版本", user()["id"])
+                save_revision(db(), "collection", cid, "资料夹修订前版本", user()["id"])
             values.update(version=row["version"] + 1, updated_at=now())
             db().execute(f"UPDATE collections SET {','.join(k+'=?' for k in values)} WHERE id=?", [*values.values(), cid])
-            save_revision(db(), "collection", cid, "修订研究问题、比较或阶段判断", user()["id"])
+            save_revision(db(), "collection", cid, "修订资料夹及已有内容", user()["id"])
         return jsonify(id=cid)
 
     @app.get("/api/collections/<cid>/history")
@@ -96,20 +97,20 @@ def register(app, ctx):
             rid = ctx.get_record(item["record_id"])["id"]
             decision = collection_scope.decision(item)
             if rid in records and records[rid] != decision:
-                abort(409, "历史专题条目已合并，但纳入／排除理由不同，请先人工整理。")
+                abort(409, "历史资料夹条目已合并，但纳入／排除理由不同，请先人工整理。")
             records[rid] = decision
         with db():
             values.update(version=row["version"] + 1, updated_at=now())
             db().execute(f"UPDATE collections SET {','.join(k+'=?' for k in values)} WHERE id=?", [*values.values(), cid])
             db().execute("DELETE FROM collection_items WHERE collection_id=?", (cid,))
             db().executemany("INSERT INTO collection_items(collection_id,record_id,disposition,rationale) VALUES (?,?,?,?)", [(cid, rid, *decision) for rid, decision in records.items()])
-            save_revision(db(), "collection", cid, "恢复专题版本 " + str(snapshot["version"]), user()["id"])
+            save_revision(db(), "collection", cid, "恢复资料夹版本 " + str(snapshot["version"]), user()["id"])
         return jsonify(id=cid)
 
     @app.get("/api/members")
     def members():
         ctx.admin()
-        return jsonify(items=[dict(r) for r in db().execute("SELECT id,username,name,role,active FROM users ORDER BY active DESC,name")])
+        return jsonify(items=[dict(r) for r in db().execute("SELECT id,username,name,role,active FROM users WHERE role<>'system' ORDER BY active DESC,name")])
 
     @app.post("/api/members")
     def new_member():
@@ -138,6 +139,8 @@ def register(app, ctx):
         row, data = db().execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone(), body()
         if not row:
             abort(404)
+        if row['role'] == 'system':
+            abort(403,'系统处理主体不属于成员账号，不能启用、重置或改写。')
         values = {}
         for key in ["name", "role", "active"]:
             if key in data:
@@ -315,6 +318,14 @@ def register(app, ctx):
                     content += prose("RIS 交换依据（仅本条题录，非全文或核对结论）", json.dumps(item["ris_evidence"], ensure_ascii=False, indent=2))
                 if item.get("discovery_evidence"):
                     content += prose("来源发现依据（公开描述非已核实摘要）", json.dumps(item["discovery_evidence"], ensure_ascii=False, indent=2))
+                if item.get('automatic_acquisition'):
+                    content += prose('自动取得状态','系统处理，未人工核对；中文待处理；网页说明与作品实质正文分别保留。')
+                    for snapshot in item['automatic_acquisition']['snapshots']:
+                        if snapshot['path'] not in archive.namelist():
+                            archive.writestr(snapshot['path'],base64.b64decode(snapshot['raw_base64']))
+                        content += prose('网页说明快照（未验证作品全文）',snapshot['page_text'])
+                        content += prose('快照出处与版本',snapshot['url']+'\n'+snapshot['retrieved_at']+'\nSHA256: '+snapshot['sha256']+'\n'+snapshot['reason'])
+                        content += '<p>原始响应字节：'+html.escape(snapshot['path'])+'（仅供下载核对，含未执行的原站代码）</p>'
                 content += content_export.record_relations_html(item, prose, source_paths, people)
                 for key, label in [("quote", "原文摘录"), ("translation", "译文"), ("interpretation", "研究员说明"), ("locator", "原文定位")]:
                     content += prose(label, item[key])

@@ -29,7 +29,10 @@ def available(row, projection):
         values.append('file')
     if row['url'] or row['doi']:
         values.append('link')
-    values.append('chinese' if projection['has_chinese'] else 'translation_pending')
+    if projection['has_chinese']:
+        values.append('chinese')
+    elif row['kind'] not in CONTENT_KINDS:
+        values.append('translation_pending')
     if not row['abstract']:
         values.append('no_abstract')
     if not any(x in values for x in ['body', 'file', 'link']):
