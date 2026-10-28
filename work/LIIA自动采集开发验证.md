@@ -47,3 +47,8 @@ RSS 当前20条只证明所见响应，不证明栏目完整覆盖；未遍历73
 - 当前适配器离线重读独立保存原件，RSS20／窗口6、三份HTML字节摘要值、侧栏署名及清洗字符2669／820／111一致，均不提供实质正文。新报告 `C:/Users/27451/AppData/Local/Temp/ingestion-managed-material-check-20261028.json` 仅原环境可查；没有外站新请求、真实库或 AI 调用。
 
 本节为施工自测，不代替 merger 独立验收或 Standards／Spec 审查。未宣称完整套件已在当前提交全部重跑、原站全覆盖、真实作品全文、人工核对、研究结论或正式部署；既有341项与2项失败的历史状态不改写。最终交付 SHA 和同步 SHA 以 Issue #62 的交接评论绑定。
+### 阅读内容顺序的补充复验
+
+指挥复看上轮截图后要求网页内容先于维护折叠出现。本任务只将自己的快照注入从来源发现依据之后移动到摘要／正文之后，#60／#61 其余阅读、证据和权限逻辑保持。先增加首屏内容位置断言，旧位置 red 为1111.875px，超出900px视口；移动后 `python scripts/check_ingestion_browser.py -v` 1项、6.944秒通过，1366／390 的首次打开、快照和依据重新取视口图，下载依据图也滚动到完整证据块。
+
+最新截图与 `evidence.json` 在 `C:/Users/27451/AppData/Local/Temp/ingestion-browser-5o3nnt5x`；red／green 日志为 Temp 下的 `ingestion-managed-reader-order-red-20261028.log`／`ingestion-managed-reader-order-green-20261028.log`，均仅原环境可查。已实际复看：390手机的题名、网页说明与原站入口同处900px首屏；桌面首屏可见快照标题和卡片开头，正文按现有内部阅读区滚动继续。`static/ux.js`、`ingestion.js` 的语法及 diff 空白检查通过；这次只变更显示顺序，33项接口结果保持为移动前相同后端内容的验证，不称已在显示顺序移动后重跑接口组。

@@ -91,6 +91,7 @@ async function uxReadRecord(record,target=null) {
     +(target?'':identities)
     +(record.kind==='research_note'?authorPanel(record):authorControlledKinds.has(record.kind)&&!record.author_confirmed?authorPanel(record):authorControlledKinds.has(record.kind)?'<p class="ux-author">负责作者：'+esc(record.author_name||recordAuthorLabel(record))+' · 已由本人确认</p>':'<p class="ux-author">当前有权读取的有效成员共同编辑</p>')
     +(research?bodySection+abstractSection:abstractSection+bodySection)
+    +(typeof automaticAcquisitionHtml==='function'?automaticAcquisitionHtml(record.automatic_acquisition):'')
     +(!research&&(record.translations?.length||record.chinese_title||record.chinese_abstract)?'<details class="reading-translation-history"><summary>译文来历与处理版本</summary>'+translationPanel(record)+'</details>':'')
     +(!record.body_html&&!record.abstract&&!uxReadingActions(record)?'<p class="ux-empty-line">此条目目前仅保存题录。</p>':'')+uxFiles(record)
     +(target&&identities?'<details class="ux-identities"><summary>作品署名与文章单位</summary>'+identities+'</details>':'')
@@ -107,7 +108,6 @@ async function uxReadRecord(record,target=null) {
     +'<details class="ux-metadata"><summary>题录与维护信息</summary><dl class="detail-grid section-gap">'+detailPair('稳定编号',esc(record.id))+detailPair('上传者',esc(record.owner_name))+detailPair('首次收录',dateTime(record.created_at))+detailPair('最近修订',record.last_modifier?esc(record.last_modifier.name)+' · '+dateTime(record.last_modifier.created_at):dateTime(record.updated_at))+detailPair('卷',esc(record.volume))+detailPair('期',esc(record.issue))+detailPair('页码 / 文章编号',esc(record.pages))+detailPair('ISSN',esc(record.issn))+detailPair('DOI',esc(record.doi))+detailPair('关键词',esc(record.keywords))+detailPair('研究对象',esc(record.countries))+detailPair('发布机构',sourceName(record.source_id))+detailPair('所属刊物',sourceName(record.serial_id)||esc(record.publication_title))+'</dl>'+(record.aliases?'<p class="prose">其他题名：'+esc(record.aliases)+'</p>':'')+(record.upstream_status?'<p class="prose">上游核查信息：'+esc(record.upstream_status)+'</p>':'')+'</details>'
     +(typeof intakeEvidenceHtml==='function'?intakeEvidenceHtml(record.intake_evidence):'')
     +(typeof discoveryEvidenceHtml==='function'?discoveryEvidenceHtml(record.discovery_evidence):'')
-    +(typeof automaticAcquisitionHtml==='function'?automaticAcquisitionHtml(record.automatic_acquisition):'')
     +(typeof risEvidenceHtml==='function'?risEvidenceHtml(record.ris_evidence):'')
     +'<details class="ux-maintenance"><summary>整理、编辑与核对</summary><div class="detail-actions">'+maintenance+'</div>'+(!research&&!record.translations?.length&&!record.chinese_title&&!record.chinese_abstract?translationPanel(record):'')+'</details>'
     +(!hasEvidence&&research&&typeof archivedLinks==='function'?archivedLinks('record',record):'')+'</article>';
