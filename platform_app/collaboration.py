@@ -2,6 +2,8 @@
 import json
 import hashlib
 import re
+import io
+import zipfile
 import uuid
 from datetime import date
 from pathlib import Path
@@ -106,17 +108,21 @@ def candidate_projection(db, tid):
     return items
 
 
+def request_fingerprint(name, digest, note, version, topic_version):
+    return hashlib.sha256(json.dumps({"name": name, "sha256": digest, "note": note, "version": version, "topic_version": topic_version}, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+
 def validate_backup(db):
     """Reject semantic corruption even when an archive's hashes were rewritten."""
     for q in db.execute("SELECT * FROM lead_qualifications"):
         events = db.execute("SELECT * FROM qualification_events WHERE member_id=? ORDER BY version", (q["member_id"],)).fetchall()
-        if ([e["version"] for e in events] != list(range(1, q["version"] + 1)) or events[-1]["enabled"] != q["enabled"]):
+        if (not events or [e["version"] for e in events] != list(range(1, q["version"] + 1)) or events[-1]["enabled"] != q["enabled"]):
             raise ValueError("负责人资格历史不完整。")
     for topic in db.execute("SELECT * FROM collaboration_topics"):
         if not topic["theme"].strip() or not db.execute("SELECT 1 FROM topic_participants WHERE topic_id=? AND member_id=? AND active=1", (topic["id"], topic["lead_id"])).fetchone():
             raise ValueError("主题负责人或参与归属无效。")
         events = db.execute("SELECT * FROM topic_events WHERE topic_id=? ORDER BY version", (topic["id"],)).fetchall()
-        if [e["version"] for e in events] != list(range(1, topic["version"] + 1)):
+        if not events or [e["version"] for e in events] != list(range(1, topic["version"] + 1)):
             raise ValueError("主题维护历史不完整。")
         for event in events:
             try:
@@ -132,12 +138,13 @@ def validate_backup(db):
         members = sorted(r[0] for r in db.execute("SELECT member_id FROM topic_participants WHERE topic_id=? AND active=1", (topic["id"],)))
         if any(last[k] != topic[k] for k in ("theme", "due_on", "lead_id", "version")) or sorted(last["participant_ids"]) != members:
             raise ValueError("主题与最新历史不一致。")
-    for row in db.execute("SELECT s.*,f.uploader_id AS file_uploader,f.created_at AS file_created FROM topic_candidates s JOIN handoff_files f ON f.id=s.file_id"):
+    for row in db.execute("SELECT s.*,f.uploader_id AS file_uploader,f.name,f.sha256 FROM topic_candidates s JOIN handoff_files f ON f.id=s.file_id"):
         topic = db.execute("SELECT * FROM collaboration_topics WHERE id=?", (row["topic_id"],)).fetchone()
         history = db.execute("SELECT snapshot_json FROM topic_events WHERE topic_id=? AND version=?", (row["topic_id"], row["topic_version"])).fetchone()
         if (not topic or not history or row["author_id"] != row["uploader_id"] or row["file_uploader"] != row["uploader_id"]
                 or row["author_id"] not in json.loads(history[0])["participant_ids"]
-                or not re.fullmatch(r"[a-f0-9]{64}", row["request_hash"])):
+                or not re.fullmatch(r"[A-Za-z0-9_-]{8,100}", row["request_id"])
+                or row["request_hash"] != request_fingerprint(row["name"], row["sha256"], row["note"], row["version"] - 1, row["topic_version"])):
             raise ValueError("候选交接归属或原件身份无效。")
     for row in db.execute("SELECT topic_id,author_id,COUNT(*) AS total,MAX(version) AS latest FROM topic_candidates GROUP BY topic_id,author_id"):
         if row["total"] != row["latest"]:
@@ -248,9 +255,9 @@ def register(app, ctx):
         request_id, note = data.get("request_id"), data.get("note", "")
         if not isinstance(request_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{8,100}", request_id):
             abort(400, "提交请求标识无效，请重新打开提交表单。")
-        if not isinstance(note, str) or len(note) > 4000 or data.get("sharing_confirmed") is not True:
-            abort(400, "请检查简短说明并确认文件可在本期共享。")
-        request_hash = hashlib.sha256(json.dumps({"name": uploaded[0], "sha256": hashlib.sha256(uploaded[2]).hexdigest(), "note": note.strip(), "version": data.get("version"), "topic_version": data.get("topic_version")}, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        if not isinstance(note, str) or len(note) > 4000:
+            abort(400, "简短说明格式不正确或超过4000字。")
+        request_hash = request_fingerprint(uploaded[0], hashlib.sha256(uploaded[2]).hexdigest(), note.strip(), data.get("version"), data.get("topic_version"))
         with handoff_files.transaction(db()) as created:
             actor = user()
             topic = topic_for(db(), actor, tid)
@@ -278,3 +285,21 @@ def register(app, ctx):
         if not row:
             abort(404)
         return send_file(handoff_files.original_path(ctx.data_dir, row), as_attachment=True, download_name=row["name"])
+
+    @app.get("/api/collaboration/topics/<tid>/candidates/export")
+    def export_topic_candidates(tid):
+        topic = topic_for(db(), user(), tid)
+        # This intentionally covers only candidate handoffs. Later material packs
+        # can use the same authorized projections and explicit immutable files.
+        payload = {"format": "topic-candidates-v1", "exported_at": now(), "coverage": "本期全部已提交选题报告及其原件版本；不含会议、编译或定稿材料", "topic": projection(db(), user(), topic), "submissions": candidate_projection(db(), tid)}
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for submission in payload["submissions"]:
+                original = db().execute("SELECT * FROM handoff_files WHERE id=?", (submission["file_id"],)).fetchone()
+                submission["path"] = "originals/" + original["stored_name"]
+                archive.writestr(submission["path"], handoff_files.original_path(ctx.data_dir, original).read_bytes())
+            archive.writestr("manifest.json", json.dumps(payload, ensure_ascii=False, indent=2))
+        # Recheck the current membership before returning assembled materials.
+        topic_for(db(), user(), tid)
+        output.seek(0)
+        return send_file(output, mimetype="application/zip", as_attachment=True, download_name="topic-candidates-" + tid + ".zip")

@@ -1,6 +1,9 @@
 """Collaboration is tested through authenticated HTTP and portable backups."""
 import io
 import json
+import sqlite3
+import hashlib
+from contextlib import closing
 import tempfile
 import unittest
 import zipfile
@@ -116,3 +119,124 @@ class CollaborationTests(unittest.TestCase):
                 self.assertEqual(download.data, expected)
         admin = self.login("admin", restored_app)
         self.assertEqual(next(q for q in admin.get("/api/collaboration/qualifications").json["items"] if q["id"] == "researcher")["enabled"], 1)
+
+    def test_candidate_export_is_scoped_and_contains_original_versions(self):
+        tid = self.topic()
+        raw = self.docx("导出的独立原件")
+        uploaded = self.call(f"/api/collaboration/topics/{tid}/candidates", {"request_id": "export-request-1", "version": 0, "topic_version": 1, "note": "仅本期", "sharing_confirmed": True}, file=("候选报告.docx", raw))
+        self.assertEqual(uploaded.status_code, 201)
+        with self.clients["colleague"].get(f"/api/collaboration/topics/{tid}/candidates/export") as response:
+            self.assertEqual(response.status_code, 200)
+            with zipfile.ZipFile(io.BytesIO(response.data)) as archive:
+                manifest = json.loads(archive.read("manifest.json"))
+                self.assertEqual(manifest["topic"]["id"], tid)
+                self.assertEqual(len(manifest["submissions"]), 1)
+                self.assertEqual(archive.read(manifest["submissions"][0]["path"]), raw)
+        other = self.topic([])
+        self.assertEqual(self.clients["colleague"].get(f"/api/collaboration/topics/{other}/candidates/export").status_code, 404)
+
+    def test_restore_rejects_forged_request_fingerprint_even_with_rewritten_archive_hashes(self):
+        tid = self.topic()
+        self.assertEqual(self.call(f"/api/collaboration/topics/{tid}/candidates", {"request_id": "tamper-request-1", "version": 0, "topic_version": 1, "note": "原说明", "sharing_confirmed": True}, file=("原件.txt", b"original")).status_code, 201)
+        with self.call("/api/backup", user="admin") as response:
+            with zipfile.ZipFile(io.BytesIO(response.data)) as archive:
+                files = {name: archive.read(name) for name in archive.namelist()}
+        database = Path(self.temp.name) / "tampered.sqlite3"
+        database.write_bytes(files["platform.sqlite3"])
+        with closing(sqlite3.connect(database)) as db, db:
+            db.execute("UPDATE topic_candidates SET request_hash=?", ("0" * 64,))
+        files["platform.sqlite3"] = database.read_bytes()
+        manifest = json.loads(files["manifest.json"])
+        manifest["files"]["platform.sqlite3"] = {"bytes": len(files["platform.sqlite3"]), "sha256": hashlib.sha256(files["platform.sqlite3"]).hexdigest()}
+        files["manifest.json"] = json.dumps(manifest).encode()
+        corrupt = Path(self.temp.name) / "corrupt.zip"
+        with zipfile.ZipFile(corrupt, "w") as archive:
+            for name, content in files.items():
+                archive.writestr(name, content)
+        target = Path(self.temp.name) / "must-not-be-published"
+        with self.assertRaises(ValueError):
+            restore_backup(corrupt, target)
+        self.assertFalse(target.exists())
+
+    def test_current_membership_revocation_disabled_accounts_and_maintenance_access(self):
+        tid = self.topic()
+        url = f"/api/collaboration/topics/{tid}"
+        submitted = self.call(url + "/candidates", {"request_id": "permission-request-1", "version": 0, "topic_version": 1}, "colleague", file=("选题.docx", self.docx("权限样本")))
+        self.assertEqual(submitted.status_code, 201, submitted.json)
+        file_url = self.clients["colleague"].get(url + "/candidates").json["items"][0]["file_url"]
+        created = self.call("/api/members", {"username": "outside", "name": "未参与成员", "password": "LocalDemo2026!", "role": "researcher"}, "admin")
+        self.assertEqual(created.status_code, 201, created.json)
+        self.clients["outside"] = self.login("outside")
+        for suffix in ("", "/history", "/candidates", "/candidates/export"):
+            self.assertEqual(self.clients["outside"].get(url + suffix).status_code, 404)
+        self.assertEqual(self.clients["outside"].get(file_url).status_code, 404)
+        self.assertEqual(self.clients["outside"].get("/api/collaboration/topics").json["items"], [])
+        self.assertEqual(self.call(url, {"version": 1, "theme": "越权", "participant_ids": []}, "admin", "PUT").status_code, 403)
+        # Removing access preserves the contribution, while every direct history/file path rechecks membership.
+        self.assertEqual(self.call(url, {"version": 1, "theme": "调整参与者", "participant_ids": []}, method="PUT").status_code, 200)
+        for suffix in ("", "/history", "/candidates", "/candidates/export"):
+            self.assertEqual(self.clients["colleague"].get(url + suffix).status_code, 404)
+        self.assertEqual(self.clients["colleague"].get(file_url).status_code, 404)
+        self.assertEqual(len(self.clients["admin"].get(url + "/candidates").json["items"]), 1)
+        self.assertEqual(len(self.clients["admin"].get(url + "/history").json["items"]), 2)
+        self.assertEqual(self.call("/api/collaboration/qualifications/researcher", {"version": 1, "enabled": False}, "admin", "PUT").status_code, 200)
+        self.assertFalse(self.clients["researcher"].get(url).json["can_manage"])
+        self.assertEqual(self.call(url, {"version": 2, "theme": "撤销后维护", "participant_ids": []}, method="PUT").status_code, 403)
+        self.assertEqual(self.call("/api/collaboration/topics", {"theme": "撤销后开期", "participant_ids": []}).status_code, 403)
+        self.assertEqual(self.call("/api/members/researcher", {"active": False}, "admin", "PUT").status_code, 200)
+        self.assertEqual(self.clients["researcher"].get(file_url).status_code, 401)
+        self.assertEqual(self.clients["admin"].get(url).status_code, 200)
+
+    def test_stale_versions_request_collision_invalid_files_and_separate_authored_body(self):
+        tid = self.topic()
+        url = f"/api/collaboration/topics/{tid}"
+        payload = {"request_id": "conflict-request-1", "version": 0, "topic_version": 1, "note": "保留说明"}
+        self.assertEqual(self.call(url + "/candidates", payload, "colleague", file=("候选.docx", self.docx("初稿"))).status_code, 201)
+        self.assertEqual(self.call(url + "/candidates", payload, "colleague", file=("候选.docx", self.docx("不同字节"))).status_code, 409)
+        payload["request_id"] = "conflict-request-2"
+        self.assertEqual(self.call(url + "/candidates", payload, "colleague", file=("候选.docx", self.docx("过期"))).status_code, 409)
+        self.assertEqual(self.call(url, {"version": 1, "theme": "更新主题", "participant_ids": ["colleague"]}, method="PUT").status_code, 200)
+        self.assertEqual(self.call(url, {"version": 1, "theme": "过期主题", "participant_ids": []}, method="PUT").status_code, 409)
+        payload["version"] = 1
+        self.assertEqual(self.call(url + "/candidates", payload, "colleague", file=("候选.docx", self.docx("旧期信息"))).status_code, 409)
+        payload["topic_version"] = 2
+        for filename, content in (("恶意.exe", b"binary"), ("伪装.docx", b"not a docx"), ("伪装.pdf", b"not a pdf"), ("空.txt", b""), ("错误.txt", b"\xff"), ("过大.txt", b"a" * (20 * 1024 * 1024 + 1))):
+            self.assertEqual(self.call(url + "/candidates", payload, "colleague", file=(filename, content)).status_code, 400, filename)
+        self.assertEqual(len(self.clients["researcher"].get(url + "/candidates").json["items"]), 1)
+        report = self.call("/api/records", {"kind": "compilation", "title": "独立作者正文", "body_html": "<p>作者原文</p>", "visibility": "restricted"}, "colleague").json["id"]
+        for who in ("researcher", "admin"):
+            self.assertIn(self.call("/api/records/" + report, {"version": 1, "body_html": "越权改稿"}, who, "PUT").status_code, (403, 404))
+            self.assertIn(self.clients[who].get("/api/history/record/" + report).status_code, (403, 404))
+
+    def test_late_storage_failure_leaves_neither_half_submission_nor_orphan_file(self):
+        tid = self.topic()
+        url = f"/api/collaboration/topics/{tid}/candidates"
+        first = self.docx("成功原件")
+        payload = {"request_id": "rollback-request-1", "version": 0, "topic_version": 1}
+        self.assertEqual(self.call(url, payload, file=("原件.docx", first)).status_code, 201)
+        original = self.clients["colleague"].get(url).json["items"][0]
+        # Inject a failure at the durable database boundary, after the file has been written.
+        with closing(sqlite3.connect(self.data_dir / "platform.sqlite3")) as db, db:
+            db.execute("CREATE TRIGGER reject_synthetic_candidate BEFORE INSERT ON topic_candidates BEGIN SELECT RAISE(ABORT,'synthetic late failure'); END")
+        payload.update(request_id="rollback-request-2", version=1)
+        self.assertEqual(self.call(url, payload, file=("失败.docx", self.docx("失败原件"))).status_code, 409)
+        self.assertEqual(len(self.clients["colleague"].get(url).json["items"]), 1)
+        with self.clients["colleague"].get(original["file_url"]) as response:
+            self.assertEqual(response.data, first)
+        # Independent filesystem inventory catches leaked files omitted from an export.
+        self.assertEqual(len(list((self.data_dir / "handoffs").iterdir())), 1)
+        with closing(sqlite3.connect(self.data_dir / "platform.sqlite3")) as db, db:
+            db.execute("DROP TRIGGER reject_synthetic_candidate")
+        self.assertEqual(self.call(url, payload, file=("恢复.docx", self.docx("成功重试"))).status_code, 201)
+
+    def test_unavailable_file_storage_reports_retryable_failure_without_half_submission(self):
+        tid = self.topic()
+        path = self.data_dir / "handoffs"
+        path.write_bytes(b"synthetic blocked directory")
+        payload = {"request_id": "disk-failure-request", "version": 0, "topic_version": 1}
+        result = self.call(f"/api/collaboration/topics/{tid}/candidates", payload, file=("报告.txt", b"synthetic"))
+        self.assertEqual(result.status_code, 503)
+        self.assertIn("重试", result.json["error"])
+        self.assertEqual(self.clients["researcher"].get(f"/api/collaboration/topics/{tid}/candidates").json["items"], [])
+        path.unlink()
+        self.assertEqual(self.call(f"/api/collaboration/topics/{tid}/candidates", payload, file=("报告.txt", b"synthetic")).status_code, 201)

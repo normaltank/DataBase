@@ -6,6 +6,7 @@ specific work and submission before calling original_path or exposing metadata.
 import hashlib
 import io
 import re
+import sqlite3
 import uuid
 import zipfile
 from contextlib import contextmanager
@@ -59,10 +60,12 @@ def transaction(db):
         db.execute("BEGIN IMMEDIATE")
         yield created
         db.commit()
-    except BaseException:
+    except BaseException as error:
         db.rollback()
         for path in created:
             path.unlink(missing_ok=True)
+        if isinstance(error, (OSError, sqlite3.OperationalError)):
+            abort(503, "保存未完成，原件与说明已保留在当前表单，请稍后重试。")
         raise
 
 
@@ -73,8 +76,8 @@ def save_original(db, data_dir, actor_id, uploaded, created):
     directory = Path(data_dir) / "handoffs"
     directory.mkdir(exist_ok=True)
     path = directory / (fid + suffix)
-    created.append(path)
     with path.open("xb") as stream:
+        created.append(path)
         stream.write(content)
     db.execute("INSERT INTO handoff_files VALUES (?,?,?,?,?,?,?)", (fid, name, path.name, len(content), hashlib.sha256(content).hexdigest(), actor_id, now()))
     return fid
