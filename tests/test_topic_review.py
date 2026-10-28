@@ -52,13 +52,14 @@ class TopicReviewTests(unittest.TestCase):
             "colleague", file=("选题.docx", self.docx("报告含三个候选"))).json["id"]
         rows = [{"title": "报告第2项", "candidate_id": candidate, "candidate_item": "第2项，第3页", "author_id": "colleague", "country": "拉脱维亚"},
                 {"title": "站外另一篇", "source": "https://example.invalid/other", "author_id": "colleague", "country": "波兰"}]
-        result = self.meeting(tid, rows, file=("会议.docx", self.docx("实际会议材料")))
+        meeting_bytes = self.docx("实际会议材料")
+        result = self.meeting(tid, rows, file=("会议.docx", meeting_bytes))
         self.assertEqual(result.status_code, 201, result.json)
         first = self.workflow(tid)
         self.assertEqual(len(first["assignments"]), 2)
         self.assertEqual(first["meetings"][0]["assignments"][0]["candidate_id"], candidate)
         with self.clients["colleague"].get(first["meetings"][0]["file_url"]) as response:
-            self.assertEqual(response.data, self.docx("实际会议材料"))
+            self.assertEqual(response.data, meeting_bytes)
         changed = first["meetings"][0]["assignments"]
         changed[0]["title"] = "会议后更正题名"
         self.assertEqual(self.meeting(tid, changed, version=1).status_code, 201)
@@ -181,3 +182,63 @@ class TopicReviewTests(unittest.TestCase):
         self.assertEqual(self.returned(tid, aid, sid, note="").status_code, 400)
         self.assertEqual(self.workflow(tid)["assignments"][0]["status"], "pending")
 
+    def test_late_meeting_draft_and_return_failures_leave_original_handoffs_intact(self):
+        tid = self.topic()
+        originals = self.data_dir / "handoffs"
+
+        def fail(table, action):
+            before = {p.name: p.read_bytes() for p in originals.iterdir()} if originals.exists() else {}
+            with closing(sqlite3.connect(self.data_dir / "platform.sqlite3")) as db, db:
+                db.execute(f"CREATE TRIGGER reject_handoff BEFORE INSERT ON {table} BEGIN SELECT RAISE(ABORT,'synthetic final write failure'); END")
+            self.assertEqual(action().status_code, 409)
+            after = {p.name: p.read_bytes() for p in originals.iterdir()} if originals.exists() else {}
+            self.assertEqual(after, before)
+            with closing(sqlite3.connect(self.data_dir / "platform.sqlite3")) as db, db:
+                db.execute("DROP TRIGGER reject_handoff")
+            result = action()
+            self.assertEqual(result.status_code, 201, result.json)
+            return result
+
+        fail("topic_meetings", lambda: self.meeting(tid, file=("会议.txt", b"meeting original")))
+        aid = self.workflow(tid)["assignments"][0]["id"]
+        result = fail("topic_manuscripts", lambda: self.draft(tid, aid, file=("稿件.txt", b"manuscript original")))
+        fail("topic_returns", lambda: self.returned(tid, aid, result.json["id"], file=("批注.txt", b"return original")))
+        current = self.workflow(tid)
+        self.assertEqual(len(current["meetings"]), 1)
+        self.assertEqual(len(current["assignments"][0]["submissions"]), 1)
+        self.assertEqual(len(current["assignments"][0]["returns"]), 1)
+
+    def test_restore_rejects_wrong_history_ownership_even_with_rewritten_hashes(self):
+        tid = self.topic()
+        self.assertEqual(self.meeting(tid, file=("会议.txt", b"meeting")).status_code, 201)
+        aid = self.workflow(tid)["assignments"][0]["id"]
+        sid = self.draft(tid, aid, file=("稿件.txt", b"draft")).json["id"]
+        self.assertEqual(self.returned(tid, aid, sid, file=("批注.txt", b"return")).status_code, 201)
+        with self.call("/api/backup", user="admin") as response, zipfile.ZipFile(io.BytesIO(response.data)) as archive:
+            baseline = {name: archive.read(name) for name in archive.namelist()}
+        mutations = ["UPDATE topic_manuscripts SET assignment_id='orphan'",
+                     "UPDATE topic_returns SET actor_id='admin'",
+                     "UPDATE topic_meetings SET qualification_version=99",
+                     "UPDATE topic_returns SET request_hash='forged'",
+                     "UPDATE topic_meetings SET assignments_json='[]'",
+                     "UPDATE topic_manuscripts SET author_id='researcher'",
+                     "UPDATE topic_returns SET meeting_id='missing'"]
+        for index, sql in enumerate(mutations):
+            files = dict(baseline)
+            database = self.data_dir.parent / f"corrupt-{index}.sqlite3"
+            database.write_bytes(files["platform.sqlite3"])
+            with closing(sqlite3.connect(database)) as db, db:
+                db.execute(sql)
+            files["platform.sqlite3"] = database.read_bytes()
+            manifest = json.loads(files["manifest.json"])
+            manifest["files"]["platform.sqlite3"] = {"bytes": len(files["platform.sqlite3"]), "sha256": hashlib.sha256(files["platform.sqlite3"]).hexdigest()}
+            files["manifest.json"] = json.dumps(manifest).encode()
+            corrupt = self.data_dir.parent / f"corrupt-{index}.zip"
+            with zipfile.ZipFile(corrupt, "w") as archive:
+                for name, content in files.items():
+                    archive.writestr(name, content)
+            target = self.data_dir.parent / f"rejected-{index}"
+            with self.assertRaises(ValueError, msg=sql):
+                restore_backup(corrupt, target)
+            self.assertFalse(target.exists())
+        self.assertEqual(self.workflow(tid)["assignments"][0]["status"], "returned")
