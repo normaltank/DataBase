@@ -206,6 +206,8 @@ def create_app(data_dir=None, testing=False):
 
     def filtered_records(args):
         args = saved_searches.resolve(db(), user()['id'], args)
+        from . import reading_queries
+        frozen = reading_queries.get(db(), args)
         date_from, date_to = publication_query_range(args)
         date_field = args.get('date_field', 'published')
         if date_field not in {'published', 'collected', 'updated'}:
@@ -255,6 +257,11 @@ def create_app(data_dir=None, testing=False):
                             and any(source_catalog.matches_scope(source, group, country, source_international)
                                     for group in reading_feed.choices(source_group) or ['']
                                     for country in reading_feed.choices(source_country) or [''])}
+        if frozen is not None:
+            order = {rid: i for i, rid in enumerate(json.loads(frozen['ids_json']))}
+            results = sorted((r for r in rows if r['id'] in order), key=lambda r: order[r['id']])
+            g.reading_confirmation = reading_queries.confirmation(frozen, results)
+            return results, favorites
         for r in rows:
             if args.get("editable") == "1" and not editable(r):
                 continue
@@ -325,6 +332,11 @@ def create_app(data_dir=None, testing=False):
             results.sort(key=lambda r: r["updated_at"], reverse=True)
         elif args.get("sort") == "title":
             results.sort(key=lambda r: r["title"].casefold())
+        frozen = reading_queries.freeze(db(), args, results)
+        if frozen is not None:
+            order = {rid: i for i, rid in enumerate(json.loads(frozen['ids_json']))}
+            results = sorted((r for r in rows if r['id'] in order), key=lambda r: order[r['id']])
+            g.reading_confirmation = reading_queries.confirmation(frozen, results)
         return results, favorites
 
     @app.get("/api/records")
@@ -336,7 +348,7 @@ def create_app(data_dir=None, testing=False):
         except ValueError:
             abort(400, "页码不正确。")
         return jsonify(items=[record_summary(r, favorites) for r in rows[(page - 1)*size:page*size]], total=len(rows), page=page, size=size,
-                       facets=reading_feed.facets(rows, db()))
+                       facets=reading_feed.facets(rows, db()), reading_confirmation=g.get('reading_confirmation'))
 
     @app.get("/api/record-candidates")
     def record_candidates():

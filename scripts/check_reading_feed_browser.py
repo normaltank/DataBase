@@ -29,7 +29,9 @@ class ReadingFeedBrowserTests(unittest.TestCase):
                     response=request.put('/api/records/'+rid,data={'version':record['version'],'chinese_title':'','chinese_abstract':''},headers={'X-CSRF-Token':csrf})
                     assert response.ok,response.text()
             batch=request.post('/api/reading-batches',data={},headers={'X-CSRF-Token':csrf}).json()
-            response=request.post('/api/reading-batches/'+batch['id']+'/finish',data={'conditions':{'q':'no synthetic baseline matches','batch_scope':'all'}},headers={'X-CSRF-Token':csrf})
+            conditions={'q':'no synthetic baseline matches','batch_scope':'all','batch':batch['id']}
+            shown=request.get('/api/records',params=conditions).json()
+            response=request.post('/api/reading-batches/'+batch['id']+'/finish',data={'conditions':conditions,'confirmation':shown['reading_confirmation']},headers={'X-CSRF-Token':csrf})
             assert response.ok,response.text()
         finally:
             request.dispose()
@@ -141,11 +143,17 @@ class ReadingFeedBrowserTests(unittest.TestCase):
                       'status':'confirmed','evidence':'合成可定位署名 https://example.org/author'}],
             'change_note':'浏览器合成关联'},headers={'X-CSRF-Token':token})
         self.assertTrue(result.ok,result.text())
+        current=page.request.get(URL+'/api/records/'+rid).json()
+        response=page.request.put(URL+'/api/records/'+rid,data={'version':current['version'],
+            'chinese_title':'档案往返中文译题','chinese_abstract':'档案往返中文摘要'},headers={'X-CSRF-Token':token})
+        self.assertTrue(response.ok,response.text())
         chosen.locator('.record-title button').focus()
         page.evaluate('window.scrollTo(0,120)')
         return_y=page.evaluate('window.scrollY')
         chosen.locator('.record-title button').click()
         expect(page.locator('.library-reader .detail-title')).to_be_visible()
+        page.get_by_role('button',name='原文',exact=True).click()
+        expect(page.locator('.library-reader .detail-title')).to_have_text(current['title'])
         for profile,selector in [('source','[data-action=source-detail]'),('person','[data-action=byline-target]')]:
             page.locator('.library-reader '+('.ux-metadata>summary' if profile=='source' else '.ux-identities>summary')).click()
             target=page.locator('.library-reader '+selector).first
@@ -158,6 +166,8 @@ class ReadingFeedBrowserTests(unittest.TestCase):
             expect(page.locator('.source-page' if profile=='source' else '.person-page')).to_be_visible()
             page.get_by_role('button',name='返回资料',exact=True).click()
             expect(page.locator('.library-reader .detail-title')).to_be_visible()
+            expect(page.locator('.library-reader .detail-title')).to_have_text(current['title'])
+            expect(page.get_by_role('button',name='原文',exact=True)).to_have_attribute('aria-pressed','true')
             self.assertEqual(page.url,original_url)
             expect(page.locator('[data-library-select="'+rid+'"]').first).to_be_checked()
             self.assertAlmostEqual(page.locator('.library-reader').evaluate('(el)=>el.scrollTop'),panel_y,delta=2)

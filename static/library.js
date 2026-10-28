@@ -36,7 +36,7 @@ function libraryRouteContext(savedVersion=null) {
 }
 function libraryResetAccount() {
   libraryCloseReader(false);libraryClearSelection();
-  Object.assign(libraryWorkspace,{account:null,context:null,items:[],view:'list',returnFocus:null,organizing:false,batch:null});
+  Object.assign(libraryWorkspace,{account:null,context:null,items:[],view:'list',returnFocus:null,organizing:false,batch:null,readingConfirmation:null,finishContext:null});
   state.detail=null;
 }
 function libraryCheckbox(record) {
@@ -65,7 +65,7 @@ function readingLibraryHTML(data){
   const tools=linkButton('批量整理','reading-organize')+(state.schema>=4?linkButton('整理重复','duplicates','record'):'')+linkButton('导出完整内容','export-content','','button tiny').replace('data-id=""','data-query="'+esc(p)+'"')+'<a class="button tiny" href="/api/export?'+esc(p)+'">导出清单</a>';
   return '<div class="ux-library reading-library"><div class="page-heading between"><h1>'+esc(title)+'</h1>'+(state.page==='compilations'?linkButton('导入成品','import-output','','button primary tiny'):linkButton('补充资料','new-record','','button tiny'))+'</div>'
     +(state.page==='library'?'<nav class="reading-tabs" aria-label="资料范围"><button type="button" data-action="reading-feed" data-feed="new" aria-current="'+(isNew?'page':'false')+'">新文章</button><button type="button" data-action="reading-feed" data-feed="all" aria-current="'+(!isNew?'page':'false')+'">全部资料</button></nav>':'')
-    +(batch?'<div class="reading-batch"><div><strong>新增 '+data.total+' 条</strong><span>'+ (batch.reason==='return_visit'?'未确认浏览':p.get('batch_scope')==='all'?'全部未确认':'近30天收录')+' · 共 '+batch.pending_total+' 条待浏览</span></div><div class="row wrap"><button type="button" class="button tiny" data-action="reading-scope">'+(p.get('batch_scope')==='all'?'只看近期新增':'查看全部新增')+'</button><button type="button" class="button tiny" data-action="reading-finish" '+(!data.total?'disabled':'')+'>结束本次浏览</button></div></div>':'')
+    +(batch?'<div class="reading-batch"><div><strong>新增 '+data.total+' 条</strong><span>'+ (batch.reason==='return_visit'?'未确认浏览':p.get('batch_scope')==='all'?'全部未确认':'近30天收录')+' · 共 '+batch.pending_total+' 条待浏览</span></div><div class="row wrap"><button type="button" class="button tiny" data-action="reading-scope">'+(p.get('batch_scope')==='all'?'只看近期新增':'查看全部新增')+'</button><button type="button" class="button tiny" data-action="reading-finish">结束本次浏览</button></div></div>':'')
     +'<form data-reading-filters><div class="reading-quick"><label class="reading-keyword"><span class="sr-only">资料关键词</span><input name="q" value="'+esc(p.get('q'))+'" placeholder="中文题名、摘要、作者或原文"></label>'+readingFacet(data,'country','研究对象国')+'<label class="reading-time-label"><span class="sr-only">时间类型</span><select name="date_field" aria-label="时间类型">'+selectOptions({published:'发表时间',collected:'首次收录',updated:'最近修订'},dateField,'选择时间')+'</select></label><button type="button" class="button tiny" data-action="reading-days" data-days="30">近30天</button><button type="submit" class="button primary">查找</button></div>'
     +'<details class="reading-more"><summary>时间与更多筛选'+(chips.length?' · 已选 '+chips.length+' 项':'')+'</summary><div class="reading-date-range"><label>起始日期<input type="date" name="from" value="'+esc(p.get('from'))+'"></label><label>截止日期<input type="date" name="to" value="'+esc(p.get('to'))+'"></label><label><input type="checkbox" name="date_unknown" value="1" '+(p.get('date_unknown')==='1'?'checked':'')+'>只看日期未知</label><button type="button" class="button tiny" data-action="reading-days" data-days="7">近7天</button><button type="button" class="button tiny" data-action="reading-days" data-days="90">近90天</button></div>'
     +'<p class="small muted">发表年份或年月按可能日期范围相交；研究对象按文章内容登记，与来源国别分开。</p><div class="reading-facets">'+(p.has('source')&&p.get('source_filter')!=='1'?'<p class="small">固定来源：'+esc(p.get('source').split('|').map(id=>sourceById(id)?.name||id).join('、'))+'</p>':readingFacet(data,'source','来源'))+readingFacet(data,'source_country','来源国别')+readingFacet(data,'source_group','来源类型',{institution:'机构',journal:'期刊',publication:'其他出版物'})+readingFacet(data,'kind','文章类型',kinds)+readingFacet(data,'topic','主题')+readingFacet(data,'language','原文语言',languages)+readingFacet(data,'availability','内容可用性',readingAvailability)+'</div><div class="row wrap"><button type="submit" class="button">应用筛选</button><button type="button" class="button light" data-action="reading-reset">重置筛选</button></div></details><div class="form-error" role="alert"></div></form>'
@@ -82,6 +82,13 @@ function readingAbstract(record){
   if(isResearchContent(record.kind))return record.abstract?'<section class="detail-section"><h3>摘要与说明</h3><p class="prose">'+esc(record.abstract)+'</p></section>':'';
   const origin={human:'人工中文 · 当前校订版本',machine:'机器中文 · 尚未人工校订',original:record.has_chinese?'原始中文资料':'原始信息 · 中文待处理'}[record.translation_origin]||'原始信息';
   return '<section class="detail-section reading-language"><div class="row wrap"><span>'+origin+'</span>'+(record.has_chinese?'<button class="button tiny" data-action="reading-language" data-language="chinese" aria-pressed="true">中文</button><button class="button tiny" data-action="reading-language" data-language="original" aria-pressed="false">原文</button>':'')+'</div><div data-reading-abstract="chinese"><h3>'+(record.abstract_is_chinese?'中文摘要':'原文摘要')+'</h3><p class="prose">'+esc(record.display_abstract||'原始摘要缺失。')+'</p></div><div data-reading-abstract="original" hidden><h3>原文摘要</h3><p class="prose">'+esc(record.abstract||'原始摘要缺失。')+'</p></div>'+'<p class="small muted">发表 '+esc(record.published_on||'未知')+' · 首次收录 '+esc(record.created_at?.slice(0,10)||'未知')+' · 最近修订 '+esc(record.updated_at?.slice(0,10)||'未知')+'</p></section>';
+}
+function readingChooseLanguage(article,record,original){
+  if(!article||!record)return;
+  article.dataset.readingLanguage=original?'original':'chinese';
+  article.querySelector('[data-reading-title]').textContent=original?(record.original_title||record.title):(record.display_title||record.title);
+  article.querySelectorAll('[data-reading-abstract]').forEach(el=>el.hidden=el.dataset.readingAbstract!==(original?'original':'chinese'));
+  article.querySelectorAll('[data-action="reading-language"]').forEach(el=>el.setAttribute('aria-pressed',String(el.dataset.language===(original?'original':'chinese'))));
 }
 
 document.addEventListener('submit',event=>{
@@ -103,19 +110,26 @@ document.addEventListener('click',async event=>{
     else if(action==='reading-organize'){libraryWorkspace.organizing=!libraryWorkspace.organizing;document.querySelector('.library-workspace')?.classList.toggle('library-organizing',libraryWorkspace.organizing);button.textContent=libraryWorkspace.organizing?'结束整理':'批量整理';}
     else if(action==='reading-finish'){
       const count=libraryWorkspace.total;
-      modal('结束本次浏览','<p>将当前筛选结果中的 '+count+' 条资料确认为已浏览。打开页面本身不会确认；被当前筛选排除的新增继续保留。</p><p class="small muted">'+esc(savedSearchSummary(savedSearchConditions()))+'</p><button class="button primary" data-action="reading-confirm-finish">确认这 '+count+' 条已浏览</button>');
+      libraryWorkspace.finishContext={conditions:Object.fromEntries(recordQuery()),confirmation:libraryWorkspace.readingConfirmation,batch:libraryWorkspace.batch.id};
+      const explanation=count?'将当前筛选结果中的 '+count+' 条资料确认为已浏览。打开页面本身不会确认；被当前筛选排除的新增继续保留。':'当前筛选没有结果，本次确认 0 条。全部未浏览资料继续保留；结束后保留条件重新查找。';
+      modal('结束本次浏览','<p>'+explanation+'</p><p class="small muted">'+esc(savedSearchSummary(savedSearchConditions()))+'</p><button class="button primary" data-action="reading-confirm-finish">'+(count?'确认这 '+count+' 条已浏览':'确认 0 条并重新查找')+'</button>');
     }else if(action==='reading-confirm-finish'){
-      button.disabled=true;const conditions=Object.fromEntries(recordQuery());
-      const result=await api('/api/reading-batches/'+encodeURIComponent(libraryWorkspace.batch.id)+'/finish',{method:'POST',body:{conditions}});
+      button.disabled=true;const pending=libraryWorkspace.finishContext;
+      const result=await api('/api/reading-batches/'+encodeURIComponent(pending.batch)+'/finish',{method:'POST',body:{conditions:pending.conditions,confirmation:pending.confirmation}});
       if(account!==state.me?.id||load!==state.loadId||!button.isConnected)return;
-      toast('已确认当前结果 '+result.confirmed+' 条，其余新增继续保留。');go('library',{feed:'new'});
+      if(result.confirmed){toast('已确认当前结果 '+result.confirmed+' 条，其余新增继续保留。');go('library',{feed:'new'});}
+      else{const next=new URLSearchParams(pending.conditions);next.delete('batch');next.delete('page');next.set('feed','new');toast('本次确认 0 条，全部未浏览资料继续保留。');go('library',next);}
+    }else if(action==='reading-reread'){
+      closeModal();go(state.page,parameters({page:''}));
     }else if(action==='reading-language'){
       const article=button.closest('.ux-reading-article'),record=libraryWorkspace.readerRecord||state.detail?.data;if(!article||!record)return;
-      const original=button.dataset.language==='original';article.querySelector('[data-reading-title]').textContent=original?(record.original_title||record.title):(record.display_title||record.title);
-      article.querySelectorAll('[data-reading-abstract]').forEach(el=>el.hidden=el.dataset.readingAbstract!==(original?'original':'chinese'));
-      article.querySelectorAll('[data-action="reading-language"]').forEach(el=>el.setAttribute('aria-pressed',String(el===button)));
+      readingChooseLanguage(article,record,button.dataset.language==='original');
+      if(typeof continuityRemember==='function')continuityRemember();
     }
-  }catch(error){if(account===state.me?.id&&load===state.loadId){toast(error.message);if(button.isConnected)button.disabled=false;}}
+  }catch(error){if(account===state.me?.id&&load===state.loadId){
+    if(action==='reading-confirm-finish'&&error.status===409)modal('请重新读取结果','<p>'+esc(error.message)+'</p><button class="button primary" data-action="reading-reread">保留条件，重新读取</button>');
+    else{toast(error.message);if(button.isConnected)button.disabled=false;}
+  }}
 });
 
 function libraryRow(record) {
@@ -141,7 +155,7 @@ async function libraryWorkspacePage() {
   const query=recordQuery();if(!query.has('size'))query.set('size','20');
   const data=await api('/api/records?'+query);
   if(account!==state.me?.id||loadId!==state.loadId)throw new Error('资料查找已更新。');
-  Object.assign(libraryWorkspace,{items:data.items,page:data.page,total:data.total,size:data.size});
+  Object.assign(libraryWorkspace,{items:data.items,page:data.page,total:data.total,size:data.size,readingConfirmation:data.reading_confirmation});
   const root=document.createElement('div');root.innerHTML=await uxLibraryPage(data);
   const library=root.firstElementChild;
   library.classList.add('library-workspace');library.dataset.view=libraryWorkspace.view;
