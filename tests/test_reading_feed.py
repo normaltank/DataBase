@@ -101,6 +101,47 @@ class ReadingFeedTests(unittest.TestCase):
                                 'kind': 'report|policy', 'date_field': 'collected', 'availability': 'body'}}, status=201)
         self.assertEqual(self.client.get('/api/records?saved_search='+saved['id']).json['total'], 1)
 
+    def test_country_selection_matches_whole_entries_in_list_batch_and_exports(self):
+        guinea = self.record(title='Guinea research', countries='几内亚')
+        papua = self.record(title='Papua New Guinea research', countries='巴布亚新几内亚')
+        selected = self.client.get('/api/records', query_string={'country':'几内亚'}).json
+        self.assertEqual(selected['total'], 1)
+        self.assertEqual([row['id'] for row in selected['items']], [guinea['id']])
+        self.assertEqual(selected['facets']['country'], [{'value':'几内亚','count':1}])
+        batch = self.call('/api/reading-batches')
+        query = {'batch':batch['id'], 'batch_scope':'all', 'country':'几内亚'}
+        self.assertEqual([row['id'] for row in self.client.get('/api/records', query_string=query).json['items']], [guinea['id']])
+        export = self.client.get('/api/export', query_string=query)
+        rows = list(csv.DictReader(io.StringIO(export.data.decode('utf-8-sig'))))
+        self.assertEqual([row['稳定编号'] for row in rows], [guinea['id']])
+        package = self.client.get('/api/export/content', query_string=query)
+        with zipfile.ZipFile(io.BytesIO(package.data)) as archive:
+            rows = json.loads(archive.read('content.json'))['records']
+            self.assertEqual([row['id'] for row in rows], [guinea['id']])
+        confirmed = self.call('/api/reading-batches/'+batch['id']+'/finish', {'conditions':query})
+        self.assertEqual(confirmed['confirmed'], 1)
+        following = self.call('/api/reading-batches')
+        remaining = self.client.get('/api/records', query_string={'batch':following['id'], 'batch_scope':'all'}).json
+        self.assertEqual([row['id'] for row in remaining['items']], [papua['id']])
+
+    def test_country_whole_entries_keep_multicountry_or_unknown_and_casefold(self):
+        guinea = self.record(title='Guinea', countries='几内亚')
+        self.record(title='Papua New Guinea', countries='巴布亚新几内亚')
+        multiple = self.record(title='Multiple subjects', countries=' LATVIA；Finland,几内亚，Estonia|Lithuania ')
+        unknown = self.record(title='No subject entries', countries=' ;；,，| ')
+        for selection in ['几内亚|latvia', ' 几内亚 | LaTvIa ']:
+            rows = self.client.get('/api/records', query_string={'country':selection}).json
+            self.assertEqual({row['id'] for row in rows['items']}, {guinea['id'],multiple['id']})
+        for selection in ['Finland','Estonia','Lithuania','LATVIA']:
+            rows = self.client.get('/api/records', query_string={'country':selection}).json
+            self.assertEqual([row['id'] for row in rows['items']], [multiple['id']])
+        rows = self.client.get('/api/records', query_string={'country':'__unknown__|latvia'}).json
+        self.assertEqual({row['id'] for row in rows['items']}, {multiple['id'],unknown['id']})
+        rows = self.client.get('/api/records', query_string={'country':'__unknown__'}).json
+        self.assertEqual([row['id'] for row in rows['items']], [unknown['id']])
+        self.assertEqual(rows['facets']['country'], [{'value':'__unknown__','count':1}])
+        self.assertEqual(self.client.get('/api/records', query_string={'country':'Fin'}).json['total'], 0)
+
     def test_source_multi_selection_includes_unknown_without_expanding_to_other_sources(self):
         source = self.call('/api/sources', {'name':'Selected source', 'kind':'institution'}, status=201)
         other = self.call('/api/sources', {'name':'Other source', 'kind':'institution'}, status=201)
