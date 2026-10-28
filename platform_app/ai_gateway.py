@@ -36,6 +36,8 @@ def migrate(data_dir):
         with db:
             db.execute('BEGIN IMMEDIATE')
             if int(db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0]) >= SCHEMA_VERSION:
+                from .automatic_processing import create_schema
+                create_schema(db)
                 return
             from .maintenance import create_backup
             backup = create_backup(data_dir)
@@ -48,6 +50,8 @@ def migrate(data_dir):
                 result_json TEXT NOT NULL DEFAULT '{}')''')
             db.execute('CREATE TABLE ai_events (id TEXT PRIMARY KEY,attempt_id TEXT NOT NULL,actor_id TEXT NOT NULL,action TEXT NOT NULL,basis TEXT NOT NULL,details_json TEXT NOT NULL,created_at TEXT NOT NULL)')
             db.execute('CREATE INDEX ai_input ON ai_attempts(scope,task,input_hash)')
+            from .automatic_processing import create_schema
+            create_schema(db)
             # Legacy running jobs may already have been billed. Preserve uncertainty and refuse automatic retry.
             db.execute("UPDATE translation_jobs SET status='failed',error='旧任务调用费用未知；禁止自动重试，请管理员核对供应商账单。' WHERE status='running'")
             db.execute("INSERT OR REPLACE INTO settings VALUES ('ai_legacy_unknown',?)", (str(db.execute("SELECT changes()").fetchone()[0]),))
