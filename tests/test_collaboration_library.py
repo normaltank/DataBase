@@ -204,6 +204,3 @@ class CollaborationLibraryTests(unittest.TestCase):
         finally:
             tracemalloc.stop()
         self.assertLess(peak, 12 * 1024 * 1024, 'Export retained an entire original history or ZIP in memory')
-
-
-
