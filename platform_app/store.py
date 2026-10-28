@@ -122,6 +122,8 @@ def initialize(data_dir):
     migrate_ai(data_dir)
     from .collaboration import migrate as migrate_collaboration
     migrate_collaboration(data_dir)
+    from .topic_review import migrate as migrate_topic_review
+    migrate_topic_review(data_dir)
 
 
 def decoded(row):
