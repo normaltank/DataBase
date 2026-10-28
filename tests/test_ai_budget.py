@@ -97,6 +97,23 @@ class AIBudgetTests(unittest.TestCase):
         self.assertEqual(len(Provider.requests),3)
         self.assertEqual(self.get('/api/admin/ai','admin').json['charged_units'],75)
 
+    def test_admin_reconciles_unknown_with_basis_without_deleting_history(self):
+        self.synthetic();Provider.mode='missing'
+        rid=self.record(title='Reconcile unknown')
+        self.run_job(rid)
+        state=self.get('/api/admin/ai','admin').json
+        aid=state['attempts'][0]['id']
+        path=f'/api/admin/ai/attempts/{aid}/resolve'
+        self.assertEqual(self.call(path,{'charged':'0.000025','basis':''},user='admin').status_code,400)
+        result=self.call(path,{'charged':'0.000025','basis':'Synthetic invoice confirms 25 micro USD'},user='admin')
+        self.assertEqual(result.status_code,200,result.json)
+        self.assertEqual(result.json['held_units'],0)
+        self.assertEqual(result.json['charged_units'],25)
+        self.assertEqual(len(result.json['attempts']),1)
+        self.assertEqual(result.json['events'][0]['basis'],'Synthetic invoice confirms 25 micro USD')
+        self.assertEqual(self.call(path,{'charged':'0','basis':'change history'},user='admin').status_code,409)
+        self.assertEqual(self.call(path,{'charged':'0','basis':'member cannot'},user='researcher').status_code,403)
+
     def test_admin_persists_cap_and_members_cannot_change_it(self):
         result = self.call('/api/admin/ai/config', {'cap':'0.125','currency':'USD'}, user='admin')
         self.assertEqual(result.status_code, 200, result.json)

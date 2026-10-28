@@ -289,15 +289,53 @@ def request_json(db, *, scope, task, messages, validate, authorized, max_tokens=
         raise AIFailure(error,evidence)
     return output,evidence
 
+def audit(db, actor, action, basis, details, attempt_id=''):
+    db.execute('INSERT INTO ai_events VALUES(?,?,?,?,?,?,?)',
+        (uuid.uuid4().hex,attempt_id,actor,action,basis,json.dumps(details),now()))
+
+
+def amount_units(value, *, positive=False):
+    try:
+        amount=Decimal(str(value))
+        units=amount*SCALE
+        if not amount.is_finite() or amount<0 or amount>Decimal('1000000000') or units!=units.to_integral_value() or (positive and amount<=0):
+            raise ValueError()
+        return int(units)
+    except (ValueError,TypeError,InvalidOperation):
+        raise ValueError('金额须为非负数，最多六位小数；月额度必须大于零。') from None
+
+
 def summary(db):
     rows = [dict(r) for r in db.execute('SELECT * FROM ai_attempts ORDER BY rowid DESC')]
     paused = db.execute("SELECT value FROM settings WHERE key='ai_paused'").fetchone()
-    policy_row = db.execute("SELECT value FROM settings WHERE key='ai_policy'").fetchone()
-    policy = json.loads(policy_row[0]) if policy_row else {}
-    return dict(cap_units=int(Decimal(policy.get('cap','0'))*SCALE),currency=policy.get('currency',''),month=now()[:7],timezone='UTC',unit='microcurrency',paused=bool(paused and paused[0]=='1'),
-        held_units=sum(r['reserved_units'] for r in rows if r['status'] in {'sent','unknown'}),
-        charged_units=sum(r['charged_units'] for r in rows if r['month']==now()[:7]),
-        attempts=[{k:r[k] for k in ['id','scope','task','month','currency','status','reserved_units','charged_units','created_at']} for r in rows[:100]])
+    legacy=db.execute("SELECT value FROM settings WHERE key='ai_legacy_unknown'").fetchone()
+    policy_row=db.execute("SELECT value FROM settings WHERE key='ai_policy'").fetchone()
+    policy=json.loads(policy_row[0]) if policy_row else {}
+    reasons=[]
+    if paused and paused[0]=='1': reasons.append('管理员已暂停')
+    if not policy: reasons.append('尚未设置有效月额度及币种')
+    if legacy and int(legacy[0]): reasons.append('升级前运行中的旧调用费用待核对')
+    if any(r['status']=='unknown' for r in rows): reasons.append('存在费用未知调用，保留占用并暂停新调用')
+    try:
+        _,_,_,config=runtime_configuration()
+        local_policy(db,config)
+    except ValueError:
+        reasons.append('本地凭据、模型价格版本或匹配币种未配置有效')
+    months=[]
+    for month,currency in sorted({(r['month'],r['currency']) for r in rows},reverse=True):
+        group=[r for r in rows if (r['month'],r['currency'])==(month,currency)]
+        months.append({'month':month,'currency':currency,'held_units':sum(r['reserved_units'] for r in group if r['status'] in {'sent','unknown'}),
+                       'charged_units':sum(r['charged_units'] for r in group)})
+    cap=int(Decimal(policy.get('cap','0'))*SCALE)
+    current=[r for r in rows if r['month']==now()[:7]]
+    held=sum(r['reserved_units'] for r in current if r['status'] in {'sent','unknown'})
+    charged=sum(r['charged_units'] for r in current)
+    if cap and held+charged>=cap: reasons.append('本月额度已用完或全部预留')
+    return dict(cap_units=cap,currency=policy.get('currency',''),month=now()[:7],timezone='UTC',unit='microcurrency',
+        paused=bool(paused and paused[0]=='1'),blocked_reasons=reasons,legacy_unknown=int(legacy[0]) if legacy else 0,
+        held_units=held,charged_units=charged,months=months,
+        attempts=[{k:r[k] for k in ['id','scope','task','month','currency','status','reserved_units','charged_units','created_at','finished_at']} for r in rows[:100]],
+        events=[dict(r) for r in db.execute('SELECT * FROM ai_events ORDER BY rowid DESC LIMIT 100')])
 
 
 def register(app, ctx):
@@ -323,6 +361,7 @@ def register(app, ctx):
             if db.execute('SELECT 1 FROM ai_attempts WHERE month=? AND currency<>?', (now()[:7],currency)).fetchone():
                 abort(409, '本月已有账本，不能更换币种。')
             db.execute("INSERT OR REPLACE INTO settings VALUES('ai_policy',?)", (json.dumps({'cap':str(cap),'currency':currency}),))
+            audit(db,ctx.user()['id'],'configure','管理员设置月额度',{'cap':str(cap),'currency':currency})
         return jsonify(summary(db))
 
     @app.post('/api/admin/ai/pause')
@@ -333,7 +372,45 @@ def register(app, ctx):
             abort(400)
         with ctx.db():
             ctx.db().execute("INSERT OR REPLACE INTO settings VALUES('ai_paused',?)", ('1' if value else '0',))
+            audit(ctx.db(),ctx.user()['id'],'pause','管理员调整暂停状态',{'paused':value})
         return jsonify(summary(ctx.db()))
+
+    @app.post('/api/admin/ai/attempts/<aid>/resolve')
+    def resolve(aid):
+        ctx.admin()
+        data=ctx.body()
+        basis=data.get('basis','')
+        if not isinstance(basis,str) or not 10<=len(basis.strip())<=2000:
+            abort(400,'请填写可复核的供应商账单或明确未发送依据（10—2000字）。')
+        try:
+            charged=amount_units(data.get('charged',''))
+        except ValueError as failure:
+            abort(400,str(failure))
+        db=ctx.db()
+        with db:
+            db.execute('BEGIN IMMEDIATE')
+            attempt=db.execute('SELECT * FROM ai_attempts WHERE id=?',(aid,)).fetchone()
+            if not attempt: abort(404)
+            if attempt['status'] not in {'sent','unknown'}:
+                abort(409,'该调用已经结算，原记录及历史不能改写。')
+            audit(db,ctx.user()['id'],'resolve',basis.strip(),{'charged_units':charged,'previous_status':attempt['status']},aid)
+            db.execute("UPDATE ai_attempts SET status='settled',charged_units=?,finished_at=?,result_json='{}' WHERE id=?",(charged,now(),aid))
+        return jsonify(summary(db))
+
+    @app.post('/api/admin/ai/legacy/resolve')
+    def resolve_legacy():
+        ctx.admin()
+        data=ctx.body();basis=data.get('basis','')
+        if not isinstance(basis,str) or not 10<=len(basis.strip())<=2000:
+            abort(400,'请填写旧调用供应商账单已核对、当前账期外部费用已处理的依据。')
+        db=ctx.db()
+        with db:
+            db.execute('BEGIN IMMEDIATE')
+            old=db.execute("SELECT value FROM settings WHERE key='ai_legacy_unknown'").fetchone()
+            if not old or int(old[0])==0: abort(409)
+            audit(db,ctx.user()['id'],'legacy_resolve',basis.strip(),{'legacy_count':int(old[0])})
+            db.execute("UPDATE settings SET value='0' WHERE key='ai_legacy_unknown'")
+        return jsonify(summary(db))
 
 
 def validate_backup(db):
