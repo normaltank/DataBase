@@ -119,7 +119,8 @@ def workflow_projection(db, actor, topic):
         latest = a["submissions"][0] if a["submissions"] else None
         a["status"] = ("returned" if any(r["submission_id"] == latest["id"] for r in a["returns"]) else "pending") if latest else "awaiting_submission"
         a["can_submit"] = a["active"] and a["author_id"] == actor["id"] and collaboration.can_read(db, actor, topic) and bool(db.execute("SELECT 1 FROM topic_participants WHERE topic_id=? AND member_id=? AND active=1", (topic["id"], actor["id"])).fetchone())
-    return {"meeting_version": meetings[0]["version"] if meetings else 0, "meetings": meetings, "assignments": assignments}
+    from .topic_finals import enrich_workflow
+    return enrich_workflow(db, actor, topic, {"meeting_version": meetings[0]["version"] if meetings else 0, "meetings": meetings, "assignments": assignments})
 
 
 def current_assignment(db, tid, aid):
@@ -354,6 +355,8 @@ def register(app, ctx):
                 abort(409, "审阅的稿件已变化，不能将意见写到另一版。文件与说明仍保留，请核对最新原件。")
             if db().execute("SELECT 1 FROM topic_returns WHERE submission_id=?", (latest["id"],)).fetchone():
                 abort(409, "这一版已经退回，原退回意见继续保留，请等研究员修改后重交。")
+            if db().execute("SELECT 1 FROM topic_finals WHERE submission_id=?", (latest["id"],)).fetchone():
+                abort(409, "这一版已经确认定稿；此前定稿决定继续留档，新稿请另行提交。")
             fid = handoff_files.save_original(db(), ctx.data_dir, actor["id"], uploaded, created) if uploaded else None
             rid = uuid.uuid4().hex
             qv = db().execute("SELECT version FROM lead_qualifications WHERE member_id=?", (actor["id"],)).fetchone()[0]
@@ -380,8 +383,8 @@ def register(app, ctx):
         topic = collaboration.topic_for(db(), user(), tid)
         workflow = workflow_projection(db(), user(), topic)
         candidates = collaboration.candidate_projection(db(), tid)
-        payload = {"format": "topic-process-v1", "coverage": "本期选题报告、会议决定、编译稿与退回意见及历史；不含尚未形成的定稿或汇总", "exported_at": now(), "topic": collaboration.projection(db(), user(), topic), "candidates": candidates, "workflow": workflow, "files": []}
-        originals = candidates + workflow["meetings"] + [r for a in workflow["assignments"] for key in ("submissions", "returns") for r in a[key]]
+        payload = {"format": "topic-process-v1", "coverage": "本期已提交的选题报告、会议决定、稿件与退回意见、定稿决定、整期汇总及固定采用版本；不含未提交文件或关联成果正文", "exported_at": now(), "topic": collaboration.projection(db(), user(), topic), "candidates": candidates, "workflow": workflow, "files": []}
+        originals = candidates + workflow["meetings"] + workflow["summaries"] + [r for a in workflow["assignments"] for key in ("submissions", "returns", "finals") for r in a[key]]
         output = io.BytesIO()
         with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             for item in originals:
@@ -389,6 +392,8 @@ def register(app, ctx):
                     continue
                 original = db().execute("SELECT * FROM handoff_files WHERE id=?", (item["file_id"],)).fetchone()
                 item["path"] = "originals/" + original["stored_name"]
+                if any(f["file_id"] == original["id"] for f in payload["files"]):
+                    continue
                 payload["files"].append({"file_id": original["id"], "name": original["name"], "path": item["path"], "sha256": original["sha256"], "bytes": original["bytes"]})
                 archive.writestr(item["path"], handoff_files.original_path(ctx.data_dir, original).read_bytes())
             archive.writestr("manifest.json", json.dumps(payload, ensure_ascii=False, indent=2))

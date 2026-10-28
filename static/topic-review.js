@@ -13,7 +13,7 @@ function topicReviewReturn(r,s){
 }
 
 function topicReviewManuscript(s,a){
-  return collaborationFileCard(s)+a.returns.filter(r=>r.submission_id===s.id).map(r=>topicReviewReturn(r,s)).join('');
+  return collaborationFileCard(s)+a.returns.filter(r=>r.submission_id===s.id).map(r=>topicReviewReturn(r,s)).join('')+(a.finals||[]).filter(f=>f.submission_id===s.id).map(topicFinalDecision).join('');
 }
 
 function topicReviewForm(t,w,a,review=false){
@@ -24,11 +24,11 @@ function topicReviewForm(t,w,a,review=false){
 function topicReviewSections(t,w){
   const sorted=[...w.assignments].sort((a,b)=>Number(b.can_submit)-Number(a.can_submit)||Number(b.active)-Number(a.active)||Number(!!b.submissions.length)-Number(!!a.submissions.length));
   const manuscripts=sorted.length?'<section class="panel" data-topic-manuscripts><h2>编译稿与返修</h2>'+sorted.map(a=>{
-    const latest=a.submissions[0],longTitle=a.title.length>60,title=longTitle?a.title.slice(0,48)+'…':a.title,status=!a.active?'已调整分工':({awaiting_submission:'待交稿',pending:'待审',returned:'返修'}[a.status]||a.status);
-    return '<article class="topic-assignment" data-assignment-card="'+esc(a.id)+'" data-mine="'+a.can_submit+'"><h3>'+esc(title)+' <span class="badge neutral">'+esc(status)+'</span></h3>'+(longTitle?'<details><summary>完整题名</summary><p>'+esc(a.title)+'</p></details>':'')+'<p>编译者：'+esc(a.author_name)+(a.country?' · 分工：'+esc(a.country):'')+'</p>'+(a.source||a.candidate_id?'<details><summary>采用出处与报告依据</summary>'+(a.source?'<p class="collaboration-note">'+esc(a.source)+'</p>':'')+(a.candidate_id?'<p>所据选题报告版本：'+esc(a.candidate_item||'未注明项目位置')+'</p><a class="button" href="/api/collaboration/topics/'+esc(t.id)+'/candidates/'+esc(a.candidate_id)+'/file" download>下载所据选题报告</a>':'')+'</details>':'')+(latest?topicReviewManuscript(latest,a):'<p class="muted">尚未提交编译稿。</p>')+(a.submissions.length>1?'<details><summary>此前 '+(a.submissions.length-1)+' 版稿件及退回意见</summary>'+a.submissions.slice(1).map(s=>topicReviewManuscript(s,a)).join('')+'</details>':'')+(a.can_submit?topicReviewForm(t,w,a):'')+(a.active&&t.can_manage&&latest&&a.status==='pending'?topicReviewForm(t,w,a,true):'')+'</article>';
+    const latest=a.submissions[0],longTitle=a.title.length>60,title=longTitle?a.title.slice(0,48)+'…':a.title,status=!a.active?'已调整分工':({awaiting_submission:'待交稿',pending:'待审',returned:'返修',final:'已定稿'}[a.status]||a.status);
+    return '<article class="topic-assignment" data-assignment-card="'+esc(a.id)+'" data-mine="'+a.can_submit+'"><h3>'+esc(title)+' <span class="badge neutral">'+esc(status)+'</span></h3>'+(longTitle?'<details><summary>完整题名</summary><p>'+esc(a.title)+'</p></details>':'')+'<p>编译者：'+esc(a.author_name)+(a.country?' · 分工：'+esc(a.country):'')+'</p>'+(a.source||a.candidate_id?'<details><summary>采用出处与报告依据</summary>'+(a.source?'<p class="collaboration-note">'+esc(a.source)+'</p>':'')+(a.candidate_id?'<p>所据选题报告版本：'+esc(a.candidate_item||'未注明项目位置')+'</p><a class="button" href="/api/collaboration/topics/'+esc(t.id)+'/candidates/'+esc(a.candidate_id)+'/file" download>下载所据选题报告</a>':'')+'</details>':'')+(latest?topicReviewManuscript(latest,a):'<p class="muted">尚未提交编译稿。</p>')+(a.submissions.length>1?'<details><summary>此前 '+(a.submissions.length-1)+' 版稿件及退回意见</summary>'+a.submissions.slice(1).map(s=>topicReviewManuscript(s,a)).join('')+'</details>':'')+(a.can_submit?topicReviewForm(t,w,a):'')+(a.active&&t.can_manage&&latest&&a.status==='pending'?'<button class="button primary" data-action="topic-finals-confirm" data-topic="'+esc(t.id)+'" data-id="'+esc(a.id)+'">确认当前稿件定稿</button>'+topicReviewForm(t,w,a,true):'')+'</article>';
   }).join('')+'</section>':'';
   const meetings='<section class="panel"><div class="between wrap"><h2>选题会决定</h2>'+(w.meeting_version?'<a class="button" href="/api/collaboration/topics/'+esc(t.id)+'/materials/export" download>下载本期过程材料</a>':'')+'</div>'+(w.meetings.length?topicReviewDecision(w.meetings[0])+(w.meetings.length>1?'<details><summary>此前 '+(w.meetings.length-1)+' 版会议决定</summary>'+w.meetings.slice(1).map(topicReviewDecision).join('')+'</details>':''):'<p class="muted">尚未记录会议决定。负责人可保存实际会议材料及采用文章分工。</p>')+'</section>';
-  return manuscripts+meetings;
+  return manuscripts+topicFinalSections(t,w)+meetings;
 }
 
 function topicReviewAssignmentRow(a,t,candidates){
