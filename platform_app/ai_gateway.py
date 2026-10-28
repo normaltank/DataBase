@@ -22,6 +22,14 @@ MAX_CONCURRENT = 2
 BACKOFF_SECONDS = 30
 
 
+class AIBlocked(ValueError):
+    """No new request was sent. code is stable for processor state/backoff mapping."""
+    def __init__(self, code, message):
+        super().__init__(message)
+        self.code=code
+        self.evidence={'usage_state':'not_sent'}
+
+
 def migrate(data_dir):
     db = connect(Path(data_dir) / 'platform.sqlite3')
     try:
@@ -62,7 +70,7 @@ def local_policy(db, config):
             raise ValueError()
         return int((cap * SCALE).to_integral_value(rounding='ROUND_FLOOR')), currency, price
     except (ValueError, KeyError, InvalidOperation):
-        raise ValueError('AI未启用：需在本地配置正月额度、匹配币种及有效模型价格版本。') from None
+        raise AIBlocked('configuration','AI未启用：需在本地配置正月额度、匹配币种及有效模型价格版本。') from None
 
 
 def cost(tokens, price=None):
@@ -70,7 +78,8 @@ def cost(tokens, price=None):
 
 
 def reserve(db, scope, task, payload, config):
-    cap, currency, price = local_policy(db, config)
+    local_policy(db, config)
+    price = config['pricing']
     serialized = json.dumps(payload, ensure_ascii=True).encode()
     input_hash = hashlib.sha256(json.dumps({'messages':payload['messages'],'response_format':payload.get('response_format')},ensure_ascii=True,sort_keys=True).encode()).hexdigest()
     # Each UTF-8 byte can conservatively represent one token; include provider chat framing.
@@ -85,28 +94,31 @@ def reserve(db, scope, task, payload, config):
     month = now()[:7]  # UTC month; frozen on every attempt.
     with db:
         db.execute('BEGIN IMMEDIATE')
+        cap, currency, price = local_policy(db, config)
         pause = db.execute("SELECT value FROM settings WHERE key='ai_paused'").fetchone()
         legacy = db.execute("SELECT value FROM settings WHERE key='ai_legacy_unknown'").fetchone()
         if (pause and pause[0]=='1') or (legacy and int(legacy[0])>0):
-            raise ValueError('AI暂停：管理员暂停或旧调用费用待核对。')
+            raise AIBlocked('paused','AI暂停：管理员暂停或旧调用费用待核对。')
         if db.execute("SELECT 1 FROM ai_attempts WHERE status='unknown'").fetchone():
-            raise ValueError('AI暂停：存在费用未知调用，请管理员核对。')
+            raise AIBlocked('unknown_cost','AI暂停：存在费用未知调用，请管理员核对。')
         rows = db.execute('SELECT * FROM ai_attempts WHERE scope=? AND task=? AND input_hash=? ORDER BY rowid', (scope,task,input_hash)).fetchall()
         if any(r['status'] in {'sent','unknown'} for r in rows):
-            raise ValueError('该输入已有费用未知调用；保留占用，禁止重复发送。')
+            raise AIBlocked('unknown_cost','该输入已有费用未知调用；保留占用，禁止重复发送。')
         success = next((r for r in rows if r['status']=='settled' and json.loads(r['result_json'])), None)
         if success:
             return dict(success), True
-        if len(rows) >= MAX_ATTEMPTS or (rows and datetime.fromisoformat(now()) < datetime.fromisoformat(rows[-1]['finished_at']) + timedelta(seconds=BACKOFF_SECONDS * 2**(len(rows)-1))):
-            raise ValueError('该输入重试达到上限或正在退避，请稍后处理。')
+        if len(rows)>=MAX_ATTEMPTS:
+            raise AIBlocked('retry_limit','该输入已达到三次供应商调用上限。')
+        if rows and datetime.fromisoformat(now()) < datetime.fromisoformat(rows[-1]['finished_at']) + timedelta(seconds=BACKOFF_SECONDS * 2**(len(rows)-1)):
+            raise AIBlocked('backoff','该输入正在有界退避，请稍后处理。')
         if db.execute("SELECT COUNT(*) FROM ai_attempts WHERE status IN ('sent','unknown')").fetchone()[0] >= MAX_CONCURRENT:
-            raise ValueError('AI全局并发或未知费用占用已满。')
+            raise AIBlocked('capacity','AI全局并发或未知费用占用已满。')
         monthly = db.execute('SELECT * FROM ai_attempts WHERE month=?', (month,)).fetchall()
         if any(r['currency'] != currency for r in monthly):
-            raise ValueError('本月账本币种已冻结，不能通过切换币种绕过额度。')
+            raise AIBlocked('currency','本月账本币种已冻结，不能通过切换币种绕过额度。')
         used = sum(r['reserved_units'] if r['status'] in {'sent','unknown'} else r['charged_units'] for r in monthly)
         if used + reserved > cap:
-            raise ValueError('AI本月额度不足，原文仍可阅读；新月或调整配置后续作。')
+            raise AIBlocked('budget','AI本月额度不足，原文仍可阅读；新月或调整配置后续作。')
         aid = uuid.uuid4().hex
         db.execute('''INSERT INTO ai_attempts(id,scope,task,input_hash,month,currency,price_json,config_json,
             input_bound,output_bound,reserved_units,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,'sent',?)''',
@@ -150,9 +162,10 @@ def settle(db, attempt, evidence, result):
 
 
 class AIFailure(ValueError):
-    def __init__(self, message, evidence):
+    def __init__(self, message, evidence, code='provider_failure'):
         super().__init__(message)
         self.evidence = evidence
+        self.code = code
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -212,7 +225,10 @@ def request_json(db, *, scope, task, messages, validate, authorized, max_tokens=
         raise ValueError('AI网关不能在写事务内执行。')
     if not scope or not task or type(max_tokens) is not int or not 1<=max_tokens<=6000:
         raise ValueError('AI任务身份或输出上界无效。')
-    key,endpoint,model,config=runtime_configuration()
+    try:
+        key,endpoint,model,config=runtime_configuration()
+    except ValueError as failure:
+        raise AIBlocked('configuration',str(failure)) from None
     config={**config,'max_tokens':max_tokens}
     if not isinstance(messages,list) or not messages or any(not isinstance(m,dict) or set(m)!={'role','content'} or m['role'] not in {'system','user','assistant'} or not isinstance(m['content'],str) for m in messages):
         raise ValueError('AI输入格式无效。')
@@ -222,7 +238,7 @@ def request_json(db, *, scope, task, messages, validate, authorized, max_tokens=
     request=urllib.request.Request(endpoint+'/chat/completions',data=json.dumps(payload,ensure_ascii=True).encode(),
         headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},method='POST')
     if not authorized():
-        raise ValueError('资料或当前权限已变化；未发送。')
+        raise AIBlocked('permission','资料或当前权限已变化；未发送。')
     attempt,cached=reserve(db,scope,task,payload,config)
     evidence={'attempt_id':attempt['id'],'requested_model':model,'response_model':'','finish_reason':'','response_id':'',
               'system_fingerprint':'','usage':{},'configuration':json.loads(attempt['config_json']),'usage_state':'unknown'}
@@ -285,7 +301,7 @@ def request_json(db, *, scope, task, messages, validate, authorized, max_tokens=
     try:
         settle(db,attempt,evidence,output if not error else {})
     except ValueError as failure:
-        raise AIFailure(str(failure),evidence) from None
+        raise AIFailure(str(failure),evidence,'unknown_cost') from None
     if error:
         raise AIFailure(error,evidence)
     return output,evidence
@@ -335,7 +351,7 @@ def summary(db):
     return dict(cap_units=cap,currency=policy.get('currency',''),month=now()[:7],timezone='UTC',unit='microcurrency',
         paused=bool(paused and paused[0]=='1'),blocked_reasons=reasons,legacy_unknown=int(legacy[0]) if legacy else 0,
         held_units=held,charged_units=charged,months=months,
-        attempts=[{k:r[k] for k in ['id','scope','task','month','currency','status','reserved_units','charged_units','created_at','finished_at']} for r in rows[:100]],
+        attempts=[{k:r[k] for k in ['id','scope','task','month','currency','status','reserved_units','charged_units','created_at','finished_at']} | {'configuration':json.loads(r['config_json']),'evidence':json.loads(r['evidence_json'])} for r in rows[:100]],
         events=[dict(r) for r in db.execute('SELECT * FROM ai_events ORDER BY rowid DESC LIMIT 100')])
 
 

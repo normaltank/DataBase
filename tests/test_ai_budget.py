@@ -1,6 +1,8 @@
 import json
 import os
 import ssl
+import subprocess
+import sys
 import threading
 import unittest
 from contextlib import closing
@@ -27,14 +29,16 @@ class Provider(BaseHTTPRequestHandler):
         if self.mode == 'negative': body['usage']['prompt_cache_hit_tokens']=-1
         if self.mode == 'failed': body['choices'][0]['finish_reason']='length'
         raw=json.dumps(body).encode()
-        self.send_response(200);self.send_header('Content-Length',str(len(raw)));self.end_headers();self.wfile.write(raw)
+        try:
+            self.send_response(200);self.send_header('Content-Length',str(len(raw)));self.end_headers();self.wfile.write(raw)
+        except (BrokenPipeError,ConnectionResetError,ConnectionAbortedError):pass
     def log_message(self,*args): pass
 
 from tests import test_translation as translation_tests
 
 
 class AIBudgetTests(unittest.TestCase):
-    setUp = translation_tests.TranslationTests.setUp
+    setUp = translation_tests.workflow_tests.WorkflowTests.setUp
     login = translation_tests.TranslationTests.login
     call = translation_tests.TranslationTests.call
     get = translation_tests.TranslationTests.get
@@ -181,6 +185,90 @@ class AIBudgetTests(unittest.TestCase):
             db.execute('UPDATE ai_attempts SET reserved_units=1')
         with self.assertRaises(ValueError):
             restore_backup(create_backup(self.data_dir),self.data_dir.parent/'bad-ai')
+
+    def test_concurrent_manual_and_other_task_share_cap_without_holding_write_lock(self):
+        self.synthetic()
+        entered,release=threading.Event(),threading.Event()
+        self.addCleanup(release.set)
+        def hold(): entered.set();release.wait(10)
+        Provider.before_reply=hold
+        self.call('/api/admin/ai/config',{'cap':'0.020000','currency':'USD'},user='admin')
+        rid=self.record(title='Concurrent public original')
+        jid=self.call(f'/api/records/{rid}/translations',{'version':1,'request_id':'concurrent'}).json['id']
+        token=self.clients['researcher'].get('/api/session').json['csrf']
+        result=[]
+        thread=threading.Thread(target=lambda:result.append(self.clients['researcher'].post(f'/api/translations/{jid}/run',json={},headers={'X-CSRF-Token':token})),daemon=True)
+        thread.start();self.assertTrue(entered.wait(5))
+        try:
+            state=self.get('/api/admin/ai','admin').json
+            self.assertGreater(state['held_units'],12000)
+            # The supplier is blocked, but another administrator write succeeds immediately.
+            self.assertEqual(self.call('/api/admin/ai/pause',{'paused':False},user='admin').status_code,200)
+            from platform_app import ai_gateway
+            from platform_app.store import connect
+            with closing(connect(self.data_dir/'platform.sqlite3')) as db:
+                with self.assertRaisesRegex(ValueError,'额度不足'):
+                    ai_gateway.request_json(db,scope='other-public',task='summary-v1',messages=[{'role':'user','content':'Other synthetic input'}],validate=lambda v:v,authorized=lambda:True)
+            self.assertEqual(len(Provider.requests),1)
+        finally:
+            release.set();thread.join(5)
+        self.assertEqual(result[0].json['status'],'succeeded')
+        self.assertEqual(self.get('/api/admin/ai','admin').json['charged_units'],25)
+
+    def test_sent_process_interruption_never_blindly_resends_after_restart(self):
+        self.synthetic()
+        entered,release=threading.Event(),threading.Event()
+        self.addCleanup(release.set)
+        Provider.before_reply=lambda:(entered.set(),release.wait(10))
+        rid=self.record(title='Crash after supplier accepted')
+        script="""import sys,ssl
+from platform_app.store import connect
+from platform_app.translations import request_translation
+ssl.SSLContext.wrap_socket=lambda context,sock,*a,**k:sock
+with connect(sys.argv[1]) as db:
+ request_translation(db,sys.argv[2],'Crash after supplier accepted','',lambda:True)
+"""
+        process=subprocess.Popen([sys.executable,'-c',script,str(self.data_dir/'platform.sqlite3'),rid],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        self.addCleanup(lambda:process.poll() is None and process.kill())
+        self.assertTrue(entered.wait(5))
+        process.terminate();process.wait(5)
+        release.set()
+        from platform_app.web import create_app
+        app=create_app(self.data_dir,testing=True)
+        self.clients={name:self.login(name,app) for name in self.clients}
+        self.assertEqual(self.run_job(rid,'crash-retry').json['status'],'failed')
+        state=self.get('/api/admin/ai','admin').json
+        self.assertGreater(state['held_units'],0)
+        self.assertEqual(len(state['attempts']),1)
+        self.assertEqual(len(Provider.requests),1)
+
+    def test_permission_change_after_send_preserves_hold_and_hides_output(self):
+        self.synthetic()
+        rid=self.record(title='Permissions change during supplier call')
+        jid=self.call(f'/api/records/{rid}/translations',{'version':1,'request_id':'revoke'},user='colleague').json['id']
+        def revoke():
+            self.assertEqual(self.call(f'/api/records/{rid}',{'version':1,'visibility':'restricted'},method='PUT').status_code,200)
+        Provider.before_reply=revoke
+        result=self.call(f'/api/translations/{jid}/run',user='colleague')
+        self.assertEqual(result.status_code,404)
+        state=self.get('/api/admin/ai','admin').json
+        self.assertEqual(state['attempts'][0]['status'],'unknown')
+        self.assertGreater(state['held_units'],0)
+        self.assertEqual(self.detail(rid)['translations'][0]['output_title'],'')
+        self.assertEqual(len(Provider.requests),1)
+
+    def test_proven_not_sent_releases_reservation_and_keeps_attempt(self):
+        self.synthetic()
+        from platform_app import ai_gateway
+        from platform_app.store import connect
+        checks=iter([True,False])
+        with closing(connect(self.data_dir/'platform.sqlite3')) as db:
+            with self.assertRaisesRegex(ValueError,'未发送'):
+                ai_gateway.request_json(db,scope='public-input',task='classification-v1',messages=[{'role':'user','content':'Synthetic'}],validate=lambda v:v,authorized=lambda:next(checks))
+        state=self.get('/api/admin/ai','admin').json
+        self.assertEqual(state['held_units'],0)
+        self.assertEqual(state['attempts'][0]['status'],'released')
+        self.assertEqual(len(Provider.requests),0)
 
     def test_admin_persists_cap_and_members_cannot_change_it(self):
         result = self.call('/api/admin/ai/config', {'cap':'0.125','currency':'USD'}, user='admin')
