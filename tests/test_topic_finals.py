@@ -118,10 +118,23 @@ class TopicFinalTests(unittest.TestCase):
                 self.assertEqual(exported["assignments"][0]["status"], "awaiting_submission")
                 self.assertEqual(exported["summaries"][0]["adoptions"][0]["submission_id"], sid)
                 self.assertIn(b"independent final original", [pack.read(f["path"]) for f in manifest["files"]])
-        with self.clients["colleague"].get("/api/export/content?ids=" + summary["record_id"]) as response:
+        # Content export contains the readable query result, not an `ids` filter.
+        # Final and summary records can share a timestamp; select exact identities.
+        with self.clients["colleague"].get("/api/export/content") as response:
+            self.assertEqual(response.status_code, 200)
             with zipfile.ZipFile(io.BytesIO(response.data)) as pack:
-                work = json.loads(pack.read("content.json"))["records"][0]["collaboration_works"][0]
-                self.assertEqual(work["adoptions"][0]["submission_id"], sid)
+                payload = json.loads(pack.read("content.json"))
+                records = [r for r in payload["records"] if r["id"] == summary["record_id"]]
+                self.assertEqual(len(records), 1)
+                works = [w for w in records[0]["collaboration_works"] if w["kind"] == "summary" and w["id"] == summary["id"]]
+                self.assertEqual(len(works), 1)
+                work = works[0]
+                self.assertEqual(work["topic_id"], tid)
+                self.assertEqual(len(work["adoptions"]), 1)
+                adopted = work["adoptions"][0]
+                self.assertEqual((adopted["id"], adopted["submission_id"], adopted["version"]), (final["id"], sid, 1))
+                self.assertEqual(pack.read(work["path"]), b"actual assembled issue original")
+                self.assertEqual(pack.read(adopted["path"]), b"independent final original")
         returned_tid, returned_aid, returned_sid = self.ready()
         returned = self.returned(returned_tid, returned_aid, returned_sid, file=("old-review.txt", b"previous author review original"))
         self.assertEqual(returned.status_code, 201)
