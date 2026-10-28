@@ -32,6 +32,132 @@ class ReadingFeedTests(unittest.TestCase):
     def record(self, **values):
         return self.call('/api/records', {'title': 'Original', 'kind': 'report', **values}, status=201)
 
+    def finish(self, bid, conditions):
+        result = self.client.get('/api/records', query_string={**conditions, 'batch':bid})
+        self.assertEqual(result.status_code, 200, result.json)
+        return self.call('/api/reading-batches/'+bid+'/finish',
+                         {'conditions':conditions, 'confirmation':result.json['reading_confirmation']})
+
+    def test_empty_batch_refresh_and_relogin_can_receive_later_articles(self):
+        empty = self.call('/api/reading-batches')
+        self.assertEqual(empty['pending_total'], 0)
+        self.assertEqual(self.call('/api/reading-batches')['id'], empty['id'])
+        article = self.record(title='Arrived after an empty visit')
+        self.login()
+        fresh = self.call('/api/reading-batches')
+        self.assertNotEqual(fresh['id'], empty['id'])
+        self.assertEqual(fresh['pending_total'], 1)
+        rows = self.client.get('/api/records', query_string={'batch':fresh['id'], 'batch_scope':'all'}).json
+        self.assertEqual([r['id'] for r in rows['items']], [article['id']])
+        self.record(title='Arrived during a nonempty visit')
+        self.assertEqual(self.call('/api/reading-batches')['id'], fresh['id'])
+        self.assertEqual(self.call('/api/reading-batches')['pending_total'], 1)
+
+    def test_batch_query_membership_survives_translation_paging_export_and_exact_finish(self):
+        records = [self.record(title=title, chinese_title='' if title=='B' else '窗口词 '+title)
+                   for title in ['A','B','C','D']]
+        batch = self.call('/api/reading-batches')
+        query = {'batch':batch['id'], 'batch_scope':'all', 'q':'窗口词', 'size':2}
+        first = self.client.get('/api/records', query_string=query).json
+        self.assertEqual([r['title'] for r in first['items']], ['A','C'])
+        self.call('/api/records/'+records[1]['id'], {'version':1, 'chinese_title':'窗口词 B'}, method='PUT')
+        second = self.client.get('/api/records', query_string={**query, 'page':2}).json
+        self.assertEqual([r['title'] for r in second['items']], ['D'])
+        self.assertEqual(second['total'], 3)
+        self.assertEqual(self.client.get('/api/records', query_string=query).json['reading_confirmation'], first['reading_confirmation'])
+        rows = list(csv.DictReader(io.StringIO(self.client.get('/api/export', query_string=query).data.decode('utf-8-sig'))))
+        self.assertEqual([r['稳定编号'] for r in rows], [records[i]['id'] for i in [0,2,3]])
+        result = self.call('/api/reading-batches/'+batch['id']+'/finish',
+                           {'conditions':query, 'confirmation':first['reading_confirmation']})
+        self.assertEqual(result['confirmed'], 3)
+        following = self.call('/api/reading-batches')
+        remaining = self.client.get('/api/records', query_string={'batch':following['id'], 'batch_scope':'all'}).json
+        self.assertEqual([r['title'] for r in remaining['items']], ['B'])
+
+    def test_confirmation_requires_the_seen_query_and_rechecks_permissions(self):
+        first = self.record(title='Visible A')
+        second = self.record(title='Visible B')
+        self.login('colleague')
+        batch = self.call('/api/reading-batches')
+        query = {'batch':batch['id'], 'batch_scope':'all'}
+        shown = self.client.get('/api/records', query_string=query).json
+        self.call('/api/reading-batches/'+batch['id']+'/finish', {'conditions':query}, status=409)
+        self.call('/api/reading-batches/'+batch['id']+'/finish',
+                  {'conditions':{**query,'q':'Visible A'}, 'confirmation':shown['reading_confirmation']}, status=409)
+        self.login()
+        self.call('/api/records/'+first['id'], {'version':1,'visibility':'restricted'}, method='PUT')
+        self.login('colleague')
+        conflict = self.call('/api/reading-batches/'+batch['id']+'/finish',
+                             {'conditions':query,'confirmation':shown['reading_confirmation']}, status=409)
+        self.assertIn('重新读取', conflict['error'])
+        refreshed = self.client.get('/api/records', query_string=query).json
+        self.assertEqual([r['id'] for r in refreshed['items']], [second['id']])
+        self.assertEqual(self.call('/api/reading-batches')['id'], batch['id'])
+        self.assertEqual(self.finish(batch['id'], query)['confirmed'], 1)
+
+    def test_resolved_saved_query_and_membership_restore_with_content_exports(self):
+        from platform_app.maintenance import create_backup, restore_backup
+        included = self.record(title='Included', chinese_title='恢复窗口')
+        excluded = self.record(title='Excluded')
+        saved = self.call('/api/saved-searches', {'name':'恢复检索','conditions':{'q':'恢复窗口','feed':'new'}}, status=201)
+        batch = self.call('/api/reading-batches')
+        query = {'saved_search':saved['id'],'batch':batch['id'],'batch_scope':'all','q':'ignored override'}
+        shown = self.client.get('/api/records', query_string=query).json
+        self.assertEqual([r['id'] for r in shown['items']], [included['id']])
+        self.call('/api/records/'+excluded['id'], {'version':1,'chinese_title':'恢复窗口 稍后'}, method='PUT')
+        archive = create_backup(self.data_dir)
+        restored = restore_backup(archive, Path(self.temp.name)/'restored-query')
+        self.client = create_app(restored, testing=True).test_client()
+        self.login()
+        self.assertEqual(self.call('/api/reading-batches')['id'], batch['id'])
+        again = self.client.get('/api/records', query_string={**query,'page':1,'size':1}).json
+        self.assertEqual([r['id'] for r in again['items']], [included['id']])
+        self.assertEqual(again['reading_confirmation'], shown['reading_confirmation'])
+        direct = {'batch':batch['id'],'batch_scope':'all','q':' 恢复窗口  ','date_field':'published','sort':'title'}
+        self.assertEqual(self.client.get('/api/records', query_string=direct).json['reading_confirmation'], shown['reading_confirmation'])
+        with zipfile.ZipFile(io.BytesIO(self.client.get('/api/export/content', query_string=query).data)) as package:
+            self.assertEqual([r['id'] for r in json.loads(package.read('content.json'))['records']], [included['id']])
+        result = self.call('/api/reading-batches/'+batch['id']+'/finish', {'conditions':query,'confirmation':shown['reading_confirmation']})
+        self.assertEqual(result['confirmed'], 1)
+
+    def test_query_migration_failure_rolls_back_and_restores_the_prior_complete_library(self):
+        import sqlite3
+        from contextlib import closing
+        from platform_app.maintenance import create_backup, restore_backup
+        fixtures = Path(__file__).parent/'fixtures'
+        legacy = Path(self.temp.name)/'query-nonempty-v11'
+        legacy.mkdir()
+        with closing(sqlite3.connect(legacy/'platform.sqlite3')) as db:
+            db.executescript((fixtures/'collection_scope_v11.sql').read_text(encoding='utf-8'))
+        upgraded = restore_backup(create_backup(legacy), Path(self.temp.name)/'query-upgraded')
+        self.client = create_app(upgraded, testing=True).test_client()
+        self.login('colleague')
+        rid = json.loads((fixtures/'collection_scope_v11.json').read_text(encoding='utf-8'))['record_id']
+        before = self.client.get('/api/records/'+rid).json
+        # Retrieve the real pre-v18 migration artifact; never remove tables from
+        # a current library and pretend it is a historic fixture.
+        with closing(sqlite3.connect(upgraded/'platform.sqlite3')) as db:
+            backup = Path(db.execute("SELECT value FROM settings WHERE key='reading_queries_migration_backup'").fetchone()[0])
+        prior = restore_backup(backup, Path(self.temp.name)/'before-v18')
+        with closing(sqlite3.connect(prior/'platform.sqlite3')) as db, db:
+            db.execute("CREATE TRIGGER reject_query_upgrade BEFORE UPDATE ON settings WHEN NEW.value='18' BEGIN SELECT RAISE(ABORT,'synthetic v18 failure'); END")
+        with self.assertRaises(sqlite3.IntegrityError):
+            create_app(prior, testing=True)
+        recovered = restore_backup(create_backup(prior), Path(self.temp.name)/'recovered-v18-failure')
+        with closing(sqlite3.connect(recovered/'platform.sqlite3')) as db, db:
+            self.assertIsNone(db.execute("SELECT name FROM sqlite_master WHERE name='reading_queries'").fetchone())
+            self.assertIsNone(db.execute("SELECT name FROM sqlite_master WHERE name='translation_calls'").fetchone())
+            db.execute('DROP TRIGGER reject_query_upgrade')
+        self.client = create_app(recovered, testing=True).test_client()
+        self.login('colleague')
+        after = self.client.get('/api/records/'+rid).json
+        self.assertEqual(after, before)
+        article = self.record(title='After transactional recovery')
+        batch = self.call('/api/reading-batches')
+        query = {'batch':batch['id'],'batch_scope':'all'}
+        self.assertIn(article['id'], [r['id'] for r in self.client.get('/api/records',query_string=query).json['items']])
+        self.assertGreaterEqual(self.finish(batch['id'], query)['confirmed'], 1)
+
     def test_chinese_title_and_abstract_are_public_search_and_list_fields(self):
         record = self.record(title='Original title', abstract='Original abstract',
                              chinese_title='波罗的海政策', chinese_abstract='跨境能源安全')
@@ -61,8 +187,7 @@ class ReadingFeedTests(unittest.TestCase):
         self.assertEqual(set(ids), {first['id'], second['id']})
         self.assertEqual(self.call('/api/reading-batches')['id'], batch['id'])
         self.assertEqual(self.client.get('/api/records', query_string={**query, 'batch_scope': 'all'}).json['total'], 3)
-        self.call('/api/reading-batches/' + batch['id'] + '/finish',
-                  {'conditions': {**query, 'country': '拉脱维亚'}})
+        self.finish(batch['id'], {**query, 'country': '拉脱维亚'})
         next_batch = self.call('/api/reading-batches')
         remaining = self.client.get('/api/records', query_string={'batch': next_batch['id'], 'batch_scope': 'all'}).json
         self.assertEqual({x['id'] for x in remaining['items']}, {old['id'], second['id'], late['id']})
@@ -109,7 +234,7 @@ class ReadingFeedTests(unittest.TestCase):
         with zipfile.ZipFile(io.BytesIO(package.data)) as archive:
             rows = json.loads(archive.read('content.json'))['records']
             self.assertEqual([row['id'] for row in rows], [guinea['id']])
-        confirmed = self.call('/api/reading-batches/'+batch['id']+'/finish', {'conditions':query})
+        confirmed = self.finish(batch['id'], query)
         self.assertEqual(confirmed['confirmed'], 1)
         following = self.call('/api/reading-batches')
         remaining = self.client.get('/api/records', query_string={'batch':following['id'], 'batch_scope':'all'}).json
@@ -149,7 +274,7 @@ class ReadingFeedTests(unittest.TestCase):
         provider = MagicMock()
         provider.__enter__.return_value = provider
         provider.geturl.return_value = 'https://api.deepseek.com/chat/completions'
-        provider.read.return_value = json.dumps({'choices': [{'message': {'content': json.dumps({'title': '机器能源译题', 'abstract': '中文处理摘要'})}}]}).encode()
+        provider.read.return_value = json.dumps({'choices': [{'finish_reason':'stop', 'message': {'content': json.dumps({'title': '机器能源译题', 'abstract': '中文处理摘要'})}}]}).encode()
         with patch('urllib.request.OpenerDirector.open', return_value=provider):
             self.call('/api/translations/'+job['id']+'/run')
         result = self.client.get('/api/records?q=中文处理').json
@@ -215,7 +340,7 @@ class ReadingFeedTests(unittest.TestCase):
         query = {'batch':other_batch['id'], 'batch_scope':'all'}
         self.assertEqual(self.client.get('/api/records', query_string=query).json['total'], 0)
         self.assertEqual(self.call('/api/reading-batches')['pending_total'], 0)
-        self.assertEqual(self.call('/api/reading-batches/'+other_batch['id']+'/finish', {'conditions':query})['confirmed'], 0)
+        self.assertEqual(self.finish(other_batch['id'], query)['confirmed'], 0)
         self.login()
         self.call('/api/records/'+record['id'], {'version':2, 'visibility':'shared'}, method='PUT')
         self.login('colleague')
@@ -226,7 +351,7 @@ class ReadingFeedTests(unittest.TestCase):
         self.record(title='Existing')
         with patch('platform_app.reading_feed.now', return_value='2026-01-01T00:00:00+00:00'):
             first = self.call('/api/reading-batches')
-            self.call('/api/reading-batches/'+first['id']+'/finish', {'conditions':{'batch_scope':'all'}})
+            self.finish(first['id'], {'batch_scope':'all'})
         with patch('platform_app.record_revisions.now', return_value='2026-02-01T00:00:00+00:00'):
             old = self.record(title='Older unconfirmed')
         recent = self.record(title='Recent unconfirmed')

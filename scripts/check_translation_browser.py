@@ -23,11 +23,11 @@ provider_delay = {'seconds': 0}
 def provider(*args,**kwargs):
  time.sleep(provider_delay['seconds'])
  response=MagicMock();response.__enter__.return_value=response;response.geturl.return_value='https://api.deepseek.com/chat/completions'
- response.read.return_value=json.dumps({'choices':[{'message':{'content':json.dumps({'title':'合成机器译题','abstract':'合成机器摘要'})}}]}).encode()
+ response.read.return_value=json.dumps({'choices':[{'finish_reason':'stop','message':{'content':json.dumps({'title':'合成机器译题','abstract':'合成机器摘要'})}}]}).encode()
  return response
 results={}
 try:
- with patch.dict(os.environ,{'DEEPSEEK_API_KEY':'synthetic-browser-key','DEEPSEEK_BASE_URL':'https://api.deepseek.com','DEEPSEEK_MODEL':'deepseek-chat'}),patch('urllib.request.OpenerDirector.open',side_effect=provider),sync_playwright() as p:
+ with patch.dict(os.environ,{'DEEPSEEK_API_KEY':'synthetic-browser-key','DEEPSEEK_BASE_URL':'https://api.deepseek.com','DEEPSEEK_MODEL':'deepseek-flash'}),patch('urllib.request.OpenerDirector.open',side_effect=provider),sync_playwright() as p:
   browser=p.chromium.launch(executable_path=os.environ.get('DATABASE_BROWSER_EXECUTABLE') or None,args=['--no-sandbox'])
   for width in [1366,390]:
    ctx=browser.new_context(viewport={'width':width,'height':900});page=ctx.new_page();errors=[];page.on('pageerror',lambda e:errors.append(str(e)))

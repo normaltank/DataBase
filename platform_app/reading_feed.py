@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from flask import abort, jsonify
+from flask import abort, jsonify, g
 
 from .store import connect, now
 from .workflow import CONTENT_KINDS
@@ -111,10 +111,15 @@ def register(app, ctx):
         with db:
             db.execute('BEGIN IMMEDIATE')
             row = db.execute("SELECT * FROM reading_batches WHERE owner_id=? AND finished_at=''", (owner,)).fetchone()
-            if row is None:
+            if row is None or not json.loads(row['ids_json']):
                 rows, _ = ctx.filtered_records({})
                 confirmed = {r[0] for r in db.execute('SELECT record_id FROM reading_confirmed WHERE owner_id=?', (owner,))}
                 rows = [r for r in rows if r['kind'] not in CONTENT_KINDS and r['id'] not in confirmed]
+                if row is not None:
+                    if not rows:
+                        return jsonify(public(row))
+                    # An empty visit has no unread membership to preserve or confirm.
+                    db.execute('UPDATE reading_batches SET finished_at=? WHERE id=?', (now(), row['id']))
                 rows.sort(key=lambda r: (r['title'].casefold(), r['id']))
                 rows.sort(key=lambda r: (r['created_at'], r['published_on']), reverse=True)
                 stamp = now()
@@ -132,7 +137,8 @@ def register(app, ctx):
     @app.post('/api/reading-batches/<bid>/finish')
     def finish(bid):
         db, owner = ctx.db(), ctx.user()['id']
-        data = ctx.body().get('conditions', {})
+        body = ctx.body()
+        data = body.get('conditions', {})
         if not isinstance(data, dict) or any(not isinstance(v, str) and not isinstance(v, int) for v in data.values()):
             abort(400, '请保留当前查找条件后确认。')
         conditions = {k: str(v) for k, v in data.items()}
@@ -142,7 +148,13 @@ def register(app, ctx):
             row = get(db, owner, bid)
             if row['finished_at']:
                 abort(409, '本批已结束，请打开当前新增。')
+            from . import reading_queries, saved_searches
+            resolved = saved_searches.resolve(db, owner, conditions)
+            if reading_queries.get(db, resolved) is None:
+                abort(409, '请先重新读取当前结果，再确认已浏览。查找条件已保留。')
             selected, _ = ctx.filtered_records(conditions)
+            if body.get('confirmation') != g.get('reading_confirmation'):
+                abort(409, '结果范围或访问权限已变化，请重新读取当前结果后再确认。查找条件已保留。')
             stamp = now()
             db.executemany('INSERT OR IGNORE INTO reading_confirmed VALUES(?,?,?)', [(owner, r['id'], stamp) for r in selected])
             db.execute('UPDATE reading_batches SET finished_at=? WHERE id=?', (stamp, bid))

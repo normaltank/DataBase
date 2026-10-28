@@ -36,7 +36,7 @@ function libraryRouteContext(savedVersion=null) {
 }
 function libraryResetAccount() {
   libraryCloseReader(false);libraryClearSelection();
-  Object.assign(libraryWorkspace,{account:null,context:null,items:[],view:'list',returnFocus:null,organizing:false,batch:null});
+  Object.assign(libraryWorkspace,{account:null,context:null,items:[],view:'list',returnFocus:null,organizing:false,batch:null,readingConfirmation:null,finishContext:null});
   state.detail=null;
 }
 function libraryCheckbox(record) {
@@ -82,6 +82,13 @@ function readingAbstract(record){
   const origin={human:'人工中文 · 当前校订版本',machine:'机器中文 · 尚未人工校订',original:record.has_chinese?'原始中文资料':'原始信息 · 中文待处理'}[record.translation_origin]||'原始信息';
   return '<section class="detail-section reading-language"><div class="row wrap"><span>'+origin+'</span>'+(record.has_chinese?'<button class="button tiny" data-action="reading-language" data-language="chinese" aria-pressed="true">中文</button><button class="button tiny" data-action="reading-language" data-language="original" aria-pressed="false">原文</button>':'')+'</div><div data-reading-abstract="chinese"><h3>'+(record.abstract_is_chinese?'中文摘要':'原文摘要')+'</h3><p class="prose">'+esc(record.display_abstract||'原始摘要缺失，尚无可用摘要。')+'</p></div><div data-reading-abstract="original" hidden><h3>原文摘要</h3><p class="prose">'+esc(record.abstract||'原始摘要缺失。')+'</p></div>'+(record.original_abstract_missing?'<p class="small muted">原始摘要缺失；题名翻译不补造摘要。</p>':'')+'<p class="small muted">发表 '+esc(record.published_on||'未知')+' · 首次收录 '+esc(record.created_at?.slice(0,10)||'未知')+' · 最近修订 '+esc(record.updated_at?.slice(0,10)||'未知')+'</p></section>';
 }
+function readingChooseLanguage(article,record,original){
+  if(!article||!record)return;
+  article.dataset.readingLanguage=original?'original':'chinese';
+  article.querySelector('[data-reading-title]').textContent=original?(record.original_title||record.title):(record.display_title||record.title);
+  article.querySelectorAll('[data-reading-abstract]').forEach(el=>el.hidden=el.dataset.readingAbstract!==(original?'original':'chinese'));
+  article.querySelectorAll('[data-action="reading-language"]').forEach(el=>el.setAttribute('aria-pressed',String(el.dataset.language===(original?'original':'chinese'))));
+}
 
 document.addEventListener('submit',event=>{
   const form=event.target.closest('[data-reading-filters]');if(!form)return;event.preventDefault();
@@ -102,19 +109,24 @@ document.addEventListener('click',async event=>{
     else if(action==='reading-organize'){libraryWorkspace.organizing=!libraryWorkspace.organizing;document.querySelector('.library-workspace')?.classList.toggle('library-organizing',libraryWorkspace.organizing);button.textContent=libraryWorkspace.organizing?'结束整理':'批量整理';}
     else if(action==='reading-finish'){
       const count=libraryWorkspace.total;
+      libraryWorkspace.finishContext={conditions:Object.fromEntries(recordQuery()),confirmation:libraryWorkspace.readingConfirmation,batch:libraryWorkspace.batch.id};
       modal('结束本次浏览','<p>将当前筛选结果中的 '+count+' 条资料确认为已浏览。打开页面本身不会确认；被当前筛选排除的新增继续保留。</p><p class="small muted">'+esc(savedSearchSummary(savedSearchConditions()))+'</p><button class="button primary" data-action="reading-confirm-finish">确认这 '+count+' 条已浏览</button>');
     }else if(action==='reading-confirm-finish'){
-      button.disabled=true;const conditions=Object.fromEntries(recordQuery());
-      const result=await api('/api/reading-batches/'+encodeURIComponent(libraryWorkspace.batch.id)+'/finish',{method:'POST',body:{conditions}});
+      button.disabled=true;const pending=libraryWorkspace.finishContext;
+      const result=await api('/api/reading-batches/'+encodeURIComponent(pending.batch)+'/finish',{method:'POST',body:{conditions:pending.conditions,confirmation:pending.confirmation}});
       if(account!==state.me?.id||load!==state.loadId||!button.isConnected)return;
       toast('已确认当前结果 '+result.confirmed+' 条，其余新增继续保留。');go('library',{feed:'new'});
+    }else if(action==='reading-reread'){
+      closeModal();go(state.page,parameters({page:''}));
     }else if(action==='reading-language'){
       const article=button.closest('.ux-reading-article'),record=libraryWorkspace.readerRecord||state.detail?.data;if(!article||!record)return;
-      const original=button.dataset.language==='original';article.querySelector('[data-reading-title]').textContent=original?(record.original_title||record.title):(record.display_title||record.title);
-      article.querySelectorAll('[data-reading-abstract]').forEach(el=>el.hidden=el.dataset.readingAbstract!==(original?'original':'chinese'));
-      article.querySelectorAll('[data-action="reading-language"]').forEach(el=>el.setAttribute('aria-pressed',String(el===button)));
+      readingChooseLanguage(article,record,button.dataset.language==='original');
+      if(typeof continuityRemember==='function')continuityRemember();
     }
-  }catch(error){if(account===state.me?.id&&load===state.loadId){toast(error.message);if(button.isConnected)button.disabled=false;}}
+  }catch(error){if(account===state.me?.id&&load===state.loadId){
+    if(action==='reading-confirm-finish'&&error.status===409)modal('请重新读取结果','<p>'+esc(error.message)+'</p><button class="button primary" data-action="reading-reread">保留条件，重新读取</button>');
+    else{toast(error.message);if(button.isConnected)button.disabled=false;}
+  }}
 });
 
 function libraryRow(record) {
@@ -140,7 +152,7 @@ async function libraryWorkspacePage() {
   const query=recordQuery();if(!query.has('size'))query.set('size','20');
   const data=await api('/api/records?'+query);
   if(account!==state.me?.id||loadId!==state.loadId)throw new Error('资料查找已更新。');
-  Object.assign(libraryWorkspace,{items:data.items,page:data.page,total:data.total,size:data.size});
+  Object.assign(libraryWorkspace,{items:data.items,page:data.page,total:data.total,size:data.size,readingConfirmation:data.reading_confirmation});
   const root=document.createElement('div');root.innerHTML=await uxLibraryPage(data);
   const library=root.firstElementChild;
   library.classList.add('library-workspace');library.dataset.view=libraryWorkspace.view;

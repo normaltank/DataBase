@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import unittest
 from unittest.mock import patch
 from tests import test_workflow as workflow_tests
@@ -36,11 +37,104 @@ class TranslationTests(unittest.TestCase):
     def provider(self, title='合成译题', abstract='合成摘要'):
         response = unittest.mock.MagicMock()
         response.geturl.return_value = "https://api.deepseek.com/chat/completions"
-        response.read.return_value = json.dumps({'choices': [{'message': {'content': json.dumps({'title': title, 'abstract': abstract})}}]}).encode()
+        response.read.return_value = json.dumps({'choices': [{'finish_reason':'stop', 'message': {'content': json.dumps({'title': title, 'abstract': abstract})}}]}).encode()
         response.__enter__.return_value = response
         return response
 
-    @patch.dict('os.environ', {'DEEPSEEK_API_KEY': 'synthetic-secret-test', 'DEEPSEEK_BASE_URL': 'https://api.deepseek.com', 'DEEPSEEK_MODEL': 'deepseek-chat'})
+    @patch.dict('os.environ', {'DEEPSEEK_API_KEY': 'synthetic-secret-test', 'DEEPSEEK_BASE_URL': 'https://api.deepseek.com', 'DEEPSEEK_MODEL': 'deepseek-flash'})
+    def test_incomplete_json_never_enters_reading_and_attempt_usage_survives_retry(self):
+        rid = self.record(title='Original incomplete request')
+        jid = self.call(f'/api/records/{rid}/translations', {'version':1, 'request_id':'incomplete'}).json['id']
+        for attempt, reason in enumerate(['length','insufficient_system_resource','aborted'], 1):
+            provider = self.provider('截断但合法的译题', '')
+            provider.read.return_value = json.dumps({'id':'synthetic-completion-'+str(attempt),
+                'model':'synthetic-resolved-v4', 'choices':[{'finish_reason':reason,
+                'message':{'content':json.dumps({'title':'截断但合法的译题','abstract':''})}}],
+                'usage':{'prompt_tokens':23,'completion_tokens':7,'total_tokens':30,
+                         'prompt_cache_hit_tokens':3,'prompt_cache_miss_tokens':20}}).encode()
+            with patch('urllib.request.OpenerDirector.open', return_value=provider):
+                response = self.call(f'/api/translations/{jid}/run')
+            self.assertEqual(response.json['status'], 'failed', reason)
+            self.assertEqual(response.json['output_title'], '')
+            self.assertEqual(response.json['model'], 'synthetic-resolved-v4')
+            detail = self.detail(rid)
+            self.assertEqual(detail['translation_origin'], 'original')
+            evidence = detail['translations'][0]['calls']
+            self.assertEqual(len(evidence), attempt)
+            self.assertEqual(evidence[-1]['finish_reason'], reason)
+            self.assertEqual(evidence[-1]['usage']['total_tokens'], 30)
+            self.assertEqual(evidence[-1]['response_model'], 'synthetic-resolved-v4')
+            if attempt < 3:
+                self.assertEqual(self.call(f'/api/translations/{jid}/retry').status_code, 200)
+        from pathlib import Path
+        import zipfile
+        from platform_app.maintenance import create_backup, restore_backup
+        from platform_app.web import create_app
+        with self.get('/api/export/content') as response, zipfile.ZipFile(io.BytesIO(response.data)) as archive:
+            record = next(r for r in json.loads(archive.read('content.json'))['records'] if r['id']==rid)
+            self.assertEqual(record['translations'][0]['calls'], evidence)
+        restored = restore_backup(create_backup(self.data_dir), Path(self.temp.name)/'restored-incomplete-calls')
+        with patch('urllib.request.OpenerDirector.open') as network:
+            app = create_app(restored, testing=True)
+            self.clients = {name:self.login(name, app) for name in self.clients}
+            self.assertEqual(self.detail(rid)['translations'][0]['calls'], evidence)
+            network.assert_not_called()
+
+    @patch.dict('os.environ', {'DEEPSEEK_API_KEY':'synthetic-secret-test','DEEPSEEK_BASE_URL':'https://api.deepseek.com'})
+    def test_other_noncomplete_or_invalid_content_preserves_reported_usage(self):
+        for reason in ['content_filter','tool_calls','future_reason',None,'missing','stop']:
+            with self.subTest(reason=reason):
+                rid = self.record(title='Original '+str(reason))
+                jid = self.call(f'/api/records/{rid}/translations', {'version':1,'request_id':'reason-'+str(reason)}).json['id']
+                choice = {'message':{'content':json.dumps({'title':23} if reason=='stop' else {'title':'不能展示','abstract':''})}}
+                if reason != 'missing':
+                    choice['finish_reason'] = reason
+                response = self.provider()
+                response.read.return_value = json.dumps({'model':'synthetic-resolved','usage':{'prompt_tokens':8,
+                    'completion_tokens':4,'total_tokens':12},'choices':[choice]}).encode()
+                with patch('urllib.request.OpenerDirector.open', return_value=response):
+                    result = self.call(f'/api/translations/{jid}/run')
+                self.assertEqual(result.json['status'], 'failed')
+                job = self.detail(rid)['translations'][0]
+                self.assertEqual(job['calls'][0]['usage']['total_tokens'], 12)
+                self.assertEqual(job['calls'][0]['usage_state'], 'reported')
+                self.assertEqual(job['model'], 'synthetic-resolved')
+                self.assertEqual(self.detail(rid)['translation_origin'], 'original')
+
+    @patch.dict('os.environ', {'DEEPSEEK_API_KEY':'synthetic-secret-test','DEEPSEEK_BASE_URL':'https://api.deepseek.com'})
+    def test_default_model_uses_explicit_nonthinking_and_versions_runtime_pricing(self):
+        from urllib.error import HTTPError
+        os.environ.pop('DEEPSEEK_MODEL', None)
+        os.environ.pop('DEEPSEEK_PRICING_JSON', None)
+        rid = self.record(title='Current model configuration')
+        jid = self.call(f'/api/records/{rid}/translations', {'version':1,'request_id':'model-current'}).json['id']
+        def provider(request, **kwargs):
+            payload = json.loads(request.data)
+            if payload['model'] in {'deepseek-chat','deepseek-reasoner'}:
+                raise HTTPError(request.full_url, 400, 'Retired synthetic model', {}, None)
+            self.assertEqual(payload['model'], 'deepseek-flash')
+            self.assertEqual(payload['thinking'], {'type':'disabled'})
+            return self.provider('当前配置译题', '')
+        with patch('urllib.request.OpenerDirector.open', side_effect=provider):
+            result = self.call(f'/api/translations/{jid}/run')
+        self.assertEqual(result.json['status'], 'succeeded')
+        configuration = self.detail(rid)['translations'][0]['calls'][0]['configuration']
+        self.assertEqual(configuration['model'], 'deepseek-flash')
+        self.assertEqual(configuration['pricing'], {})
+        pricing = {'version':'synthetic-price-v7','model':'deepseek-v4-pro','currency':'USD',
+                   'input_cache_hit_per_million':'0.02','input_cache_miss_per_million':'0.5','output_per_million':'2'}
+        with patch.dict(os.environ, {'DEEPSEEK_MODEL':'deepseek-v4-pro','DEEPSEEK_MODEL_VERSION':'synthetic-pro-revision',
+                                    'DEEPSEEK_CONFIG_VERSION':'local-v2','DEEPSEEK_PRICING_JSON':json.dumps(pricing)}):
+            other = self.call(f'/api/records/{rid}/translations', {'version':1,'request_id':'configured-model'}).json['id']
+            with patch('urllib.request.OpenerDirector.open', return_value=self.provider('显式配置译题', '')) as network:
+                self.assertEqual(self.call(f'/api/translations/{other}/run').json['status'], 'succeeded')
+                self.assertEqual(json.loads(network.call_args.args[0].data)['model'], 'deepseek-v4-pro')
+        calls = next(j for j in self.detail(rid)['translations'] if j['id']==other)['calls']
+        self.assertEqual(calls[0]['configuration']['pricing'], pricing)
+        self.assertEqual(calls[0]['configuration']['model_version'], 'synthetic-pro-revision')
+        self.assertEqual(calls[0]['configuration']['version'], 'local-v2')
+
+    @patch.dict('os.environ', {'DEEPSEEK_API_KEY': 'synthetic-secret-test', 'DEEPSEEK_BASE_URL': 'https://api.deepseek.com', 'DEEPSEEK_MODEL': 'deepseek-flash'})
     def test_run_adopt_edit_history_and_rerun_preserve_original_and_human(self):
         rid = self.record(title='Original title', abstract='Original abstract', body_html='<p>Never send body</p>')
         jid = self.call(f'/api/records/{rid}/translations', {'version': 1, 'request_id': 'adopt'}).json['id']
@@ -67,7 +161,7 @@ class TranslationTests(unittest.TestCase):
         self.assertEqual(self.call(f"/api/history/{adopted_revision['id']}/restore", {'version': 3}).status_code, 200)
         self.assertEqual(self.detail(rid)['chinese_title'], '人工校订题名')
 
-    @patch.dict('os.environ', {'DEEPSEEK_API_KEY': 'synthetic-secret-test', 'DEEPSEEK_BASE_URL': 'https://api.deepseek.com', 'DEEPSEEK_MODEL': 'deepseek-chat'})
+    @patch.dict('os.environ', {'DEEPSEEK_API_KEY': 'synthetic-secret-test', 'DEEPSEEK_BASE_URL': 'https://api.deepseek.com', 'DEEPSEEK_MODEL': 'deepseek-flash'})
     def test_failure_retry_missing_abstract_and_idempotency(self):
         rid = self.record(title='Title only')
         jid = self.call(f'/api/records/{rid}/translations', {'version': 1, 'request_id': 'unique'}).json['id']
@@ -86,7 +180,7 @@ class TranslationTests(unittest.TestCase):
             self.assertEqual(self.call(f'/api/translations/{jid}/run').status_code, 409)
             network.assert_not_called()
 
-    @patch.dict('os.environ', {'DEEPSEEK_API_KEY': 'synthetic-secret-test', 'DEEPSEEK_BASE_URL': 'https://api.deepseek.com', 'DEEPSEEK_MODEL': 'deepseek-chat'})
+    @patch.dict('os.environ', {'DEEPSEEK_API_KEY': 'synthetic-secret-test', 'DEEPSEEK_BASE_URL': 'https://api.deepseek.com', 'DEEPSEEK_MODEL': 'deepseek-flash'})
     def test_stale_result_refused_and_latest_permissions_rechecked(self):
         rid = self.record(title='Unchanged input')
         jid = self.call(f'/api/records/{rid}/translations', {'version': 1, 'request_id': 'late'}).json['id']
@@ -101,7 +195,7 @@ class TranslationTests(unittest.TestCase):
         for path, method in [(f'/api/records/{rid}/translations', 'GET'), (f'/api/records/{rid}/translations', 'POST'), (f'/api/translations/{jid}/run', 'POST'), (f'/api/translations/{jid}/retry', 'POST'), (f'/api/translations/{jid}/adopt', 'POST')]:
             self.assertEqual(self.call(path, {'version': 3, 'request_id': 'denied'}, user='colleague', method=method).status_code, 404)
 
-    @patch.dict('os.environ', {'DEEPSEEK_API_KEY': 'synthetic-secret-test', 'DEEPSEEK_BASE_URL': 'https://api.deepseek.com', 'DEEPSEEK_MODEL': 'deepseek-chat'})
+    @patch.dict('os.environ', {'DEEPSEEK_API_KEY': 'synthetic-secret-test', 'DEEPSEEK_BASE_URL': 'https://api.deepseek.com', 'DEEPSEEK_MODEL': 'deepseek-flash'})
     def test_exports_and_backup_restore_retain_versions_without_running_jobs(self):
         import zipfile
         from pathlib import Path
@@ -142,7 +236,7 @@ class TranslationTests(unittest.TestCase):
             self.assertEqual(next(x for x in detail['translations'] if x['id'] == pending)['status'], 'queued')
             network.assert_not_called()
 
-    @patch.dict('os.environ', {'DEEPSEEK_API_KEY': 'synthetic-secret-test', 'DEEPSEEK_BASE_URL': 'https://api.deepseek.com', 'DEEPSEEK_MODEL': 'deepseek-chat'})
+    @patch.dict('os.environ', {'DEEPSEEK_API_KEY': 'synthetic-secret-test', 'DEEPSEEK_BASE_URL': 'https://api.deepseek.com', 'DEEPSEEK_MODEL': 'deepseek-flash'})
     def test_invalid_outputs_never_become_versions_and_retry_is_bounded(self):
         rid = self.record(title='Title only')
         jid = self.call(f'/api/records/{rid}/translations', {'version': 1, 'request_id': 'invalid'}).json['id']
@@ -155,7 +249,7 @@ class TranslationTests(unittest.TestCase):
             retry = self.call(f'/api/translations/{jid}/retry')
             self.assertEqual(retry.status_code, 409 if result.json['attempts'] == 3 else 200)
 
-    @patch.dict('os.environ', {'DEEPSEEK_API_KEY': 'synthetic-secret-test', 'DEEPSEEK_BASE_URL': 'https://api.deepseek.com', 'DEEPSEEK_MODEL': 'deepseek-chat'})
+    @patch.dict('os.environ', {'DEEPSEEK_API_KEY': 'synthetic-secret-test', 'DEEPSEEK_BASE_URL': 'https://api.deepseek.com', 'DEEPSEEK_MODEL': 'deepseek-flash'})
     def test_permission_removed_during_network_discards_result(self):
         rid = self.record(title='Initially shared')
         jid = self.call(f'/api/records/{rid}/translations', {'version': 1, 'request_id': 'revoked'}, user='colleague').json['id']
@@ -299,7 +393,7 @@ class TranslationTests(unittest.TestCase):
                     self.assertEqual([exported[k] for k in ['卷', '期', '页码', 'ISSN']],
                                      ['', '', '', ''] if schema == 11 else ['OldVol', 'OldIssue', '1-2', '1111-1111'])
 
-    @patch.dict('os.environ', {'DEEPSEEK_API_KEY': 'synthetic-secret-test', 'DEEPSEEK_BASE_URL': 'https://api.deepseek.com', 'DEEPSEEK_MODEL': 'deepseek-chat'})
+    @patch.dict('os.environ', {'DEEPSEEK_API_KEY': 'synthetic-secret-test', 'DEEPSEEK_BASE_URL': 'https://api.deepseek.com', 'DEEPSEEK_MODEL': 'deepseek-flash'})
     def test_merge_does_not_adopt_archived_record_translation_into_survivor(self):
         keep = self.record(title='Surviving original')
         old = self.record(title='Archived original')
