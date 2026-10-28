@@ -413,7 +413,9 @@ def create_app(data_dir=None, testing=False):
         obj["translations"] = translations.items(db(), row)
         obj["translation_history"] = translations.human_history(db(), row["id"])
         from .topic_finals import record_works
-        obj["collaboration_works"] = record_works(db(), user(), rid)
+        works = record_works(db(), user(), rid)
+        if works:
+            obj["collaboration_works"] = works
         return jsonify(obj)
 
     @app.get("/api/records/<rid>/copy-text")

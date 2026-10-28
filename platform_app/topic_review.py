@@ -396,6 +396,10 @@ def register(app, ctx):
                     continue
                 payload["files"].append({"file_id": original["id"], "name": original["name"], "path": item["path"], "sha256": original["sha256"], "bytes": original["bytes"]})
                 archive.writestr(item["path"], handoff_files.original_path(ctx.data_dir, original).read_bytes())
+            paths = {f["file_id"]: f["path"] for f in payload["files"]}
+            for summary in workflow["summaries"]:
+                for adopted in summary["adoptions"]:
+                    adopted["path"] = paths[adopted["file_id"]]
             archive.writestr("manifest.json", json.dumps(payload, ensure_ascii=False, indent=2))
         collaboration.topic_for(db(), user(), tid)
         output.seek(0)

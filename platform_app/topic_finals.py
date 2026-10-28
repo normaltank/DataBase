@@ -19,8 +19,11 @@ SCHEMA = [
 def migrate(data_dir):
     db = connect(Path(data_dir) / "platform.sqlite3")
     try:
-        if int(db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0]) >= SCHEMA_VERSION:
+        previous = int(db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0])
+        if previous >= SCHEMA_VERSION:
             return
+        if previous != 22:
+            raise ValueError("定稿结构升级须先完成期刊编译结构22。")
         from .maintenance import create_backup
         backup = create_backup(data_dir)
         with db:
@@ -152,6 +155,7 @@ def validate_backup(db):
                     require(data.get("submission_id") == submission["id"] and type(data.get("version")) is int and data["version"] == submission["version"])
                     require(data.get("meeting_version") == meeting["version"] and data.get("status") == "pending")
                     require(not db.execute("SELECT 1 FROM topic_returns WHERE submission_id=?", (submission["id"],)).fetchone())
+                    author_id = submission["author_id"]
                 else:
                     original = db.execute("SELECT * FROM handoff_files WHERE id=?", (row["file_id"],)).fetchone()
                     require(original and original["uploader_id"] == actor and data.get("author_id") == row["author_id"] and row["author_id"] in topic["participant_ids"])
@@ -161,6 +165,18 @@ def validate_backup(db):
                     for fid in adopted:
                         final = db.execute("SELECT * FROM topic_finals WHERE id=? AND topic_id=?", (fid, row["topic_id"])).fetchone()
                         require(final and final["created_at"] <= row["created_at"])
+                    author_id = row["author_id"]
+                if data.get("record_id"):
+                    from . import identity
+                    requested = identity.resolve(db, "records", data["record_id"])
+                    saved = identity.resolve(db, "records", row["record_id"])
+                    require(requested and saved and requested["id"] == saved["id"] and type(data.get("record_version")) is int and 0 < data["record_version"] <= requested["version"])
+                else:
+                    initial = db.execute("SELECT actor_id,snapshot_json FROM revisions WHERE target_type='record' AND target_id=? ORDER BY id LIMIT 1", (row["record_id"],)).fetchone()
+                    require(initial and initial["actor_id"] == actor)
+                    record = json.loads(initial["snapshot_json"])
+                    require(record["kind"] == "compilation" and record["owner_id"] == actor and record["author_id"] == author_id and record["author_confirmed"] == int(actor == author_id) and json.loads(record["editors"]) == [])
+                    require(record["visibility"] == data.get("visibility", "restricted"))
                 identity = {"data": data, "file": [original["name"], original["sha256"]] if original else None}
                 require(review.fingerprint(identity) == row["request_hash"])
             except (KeyError, TypeError, json.JSONDecodeError):

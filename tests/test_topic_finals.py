@@ -115,7 +115,7 @@ class TopicFinalTests(unittest.TestCase):
         self.clients["outside"] = self.login("outside")
         readable = self.clients["outside"].get("/api/records/" + rid).json
         self.assertEqual(readable["body_html"], "<p>作者既有正文</p>")
-        self.assertEqual(readable["collaboration_works"], [])
+        self.assertEqual(readable.get("collaboration_works", []), [])
         final_url = after["collaboration_works"][0]["file_url"]
         self.assertEqual(self.clients["outside"].get(final_url).status_code, 404)
         with self.clients["outside"].get("/api/attachments/" + before["attachment_ids"][0]) as response:

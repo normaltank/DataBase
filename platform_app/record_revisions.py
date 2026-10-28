@@ -348,9 +348,9 @@ class RecordRevisions:
         if not self.db.in_transaction:
             raise RuntimeError("Work identity requires its caller's transaction.")
         rid = data.get("record_id")
+        if rid is not None and not isinstance(rid, str):
+            abort(400, "已有成果编号格式不正确。")
         if rid:
-            if not isinstance(rid, str):
-                abort(400, "已有成果编号格式不正确。")
             row = self.get(rid)
             check_version({"version": data.get("record_version")}, row)
             if row["kind"] not in {"compilation", "research_report"} or row["author_id"] != author_id:
