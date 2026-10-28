@@ -35,7 +35,14 @@ class CollaborationTests(unittest.TestCase):
             options["data"] = {"data": json.dumps(data or {}), "file": (io.BytesIO(file[1]), file[0])}
         else:
             options["json"] = data or {}
-        return client.open(path, method=method, **options)
+        result = client.open(path, method=method, **options)
+        # Multipart builders may spool large input to disk; close request streams
+        # once the synchronous HTTP request has completed.
+        result.request.close()
+        stream = result.request.environ.get("wsgi.input")
+        if stream:
+            stream.close()
+        return result
 
     def topic(self, participants=None, theme="合成主题"):
         current = self.clients["admin"].get("/api/collaboration/qualifications").json["items"]

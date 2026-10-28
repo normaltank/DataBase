@@ -852,6 +852,8 @@ def create_app(data_dir=None, testing=False):
                                             check_version=check_version, data_dir=data_dir, records=records))
     from . import collaboration
     collaboration.register(app, SimpleNamespace(db=db, user=user, body=body, admin=admin, data_dir=data_dir))
+    from . import topic_review
+    topic_review.register(app, SimpleNamespace(db=db, user=user, body=body, data_dir=data_dir))
     from . import journal_collaboration
     journal_collaboration.register(app, SimpleNamespace(db=db, user=user, body=body, records=records, data_dir=data_dir))
     return app

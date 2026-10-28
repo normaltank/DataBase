@@ -111,7 +111,7 @@ def restore_backup(archive_path, target_dir):
             if db.execute("PRAGMA integrity_check").fetchone()[0] != "ok" or db.execute("PRAGMA foreign_key_check").fetchall():
                 raise ValueError("数据库完整性检查失败。")
             version = db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0]
-            if version not in {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "22"}:
+            if version not in {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22"}:
                 raise ValueError("数据库版本不匹配。")
             from . import evidence
             if int(version) >= evidence.SCHEMA_VERSION:
@@ -141,12 +141,16 @@ def restore_backup(archive_path, target_dir):
                 validate_automatic(db)
             from . import collaboration, handoff_files
             if int(version) >= collaboration.SCHEMA_VERSION:
-                referenced = {r[0] for r in db.execute("SELECT file_id FROM topic_candidates")}
+                referenced_ids = {r[0] for r in db.execute("SELECT file_id FROM topic_candidates")}
+                from . import topic_review
+                if int(version) >= topic_review.SCHEMA_VERSION:
+                    referenced_ids.update(topic_review.referenced_files(db))
+                    topic_review.validate_backup(db)
                 from . import journal_collaboration
                 if int(version) >= journal_collaboration.SCHEMA_VERSION:
                     journal_collaboration.validate_backup(db)
-                    referenced |= journal_collaboration.referenced_files(db)
-                handoff_files.validate_backup(db, manifest, referenced)
+                    referenced_ids |= journal_collaboration.referenced_files(db)
+                handoff_files.validate_backup(db, manifest, referenced_ids)
                 collaboration.validate_backup(db)
             for row in db.execute("SELECT stored_name,sha256 FROM attachments"):
                 name = "uploads/" + row["stored_name"]
