@@ -850,4 +850,6 @@ def create_app(data_dir=None, testing=False):
                                             get_collection=get_collection, record_summary=record_summary,
                                             record_detail=record_detail, filtered_records=filtered_records,
                                             check_version=check_version, data_dir=data_dir, records=records))
+    from . import collaboration
+    collaboration.register(app, SimpleNamespace(db=db, user=user, body=body, admin=admin, data_dir=data_dir))
     return app

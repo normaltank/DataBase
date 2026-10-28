@@ -269,29 +269,8 @@ class RecordRevisions:
             return current_ids
         if data.get("sharing_confirmed") is not True:
             abort(400, "请确认附件可在所选范围内共享。")
-        name = file.filename.replace("\\", "/").rsplit("/", 1)[-1]
-        if len(name) > 180 or any(ord(c) < 32 for c in name):
-            abort(400, "文件名过长或包含无效字符。")
-        suffix = Path(name).suffix.lower()
-        if suffix not in [".pdf", ".docx", ".txt", ".md"]:
-            abort(400, "支持 PDF、DOCX、TXT 和 Markdown，单文件最多 20 MB。")
-        content = file.read(20 * 1024 * 1024 + 1)
-        if not content or len(content) > 20 * 1024 * 1024:
-            abort(400, "文件为空或超过 20 MB。")
-        if suffix == ".pdf" and not content.startswith(b"%PDF-"):
-            abort(400, "文件内容不是有效的 PDF。")
-        if suffix == ".docx":
-            try:
-                with zipfile.ZipFile(io.BytesIO(content)) as archive:
-                    if "word/document.xml" not in archive.namelist():
-                        raise ValueError()
-            except (ValueError, zipfile.BadZipFile):
-                abort(400, "文件内容不是有效的 DOCX。")
-        if suffix in [".txt", ".md"]:
-            try:
-                content.decode("utf-8-sig")
-            except UnicodeDecodeError:
-                abort(400, "文本文件请使用 UTF-8 编码。")
+        from .handoff_files import read_upload
+        name, suffix, content = read_upload(file)
         aid = uuid.uuid4().hex
         path = self.upload_dir / (aid + suffix)
         # Track before writing: even a partial write or failed INSERT is cleaned.
