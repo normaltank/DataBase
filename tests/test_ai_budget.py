@@ -13,12 +13,18 @@ PRICE = {'version':'synthetic-price-v1','model':'deepseek-flash','currency':'USD
 class Provider(BaseHTTPRequestHandler):
     requests = []
     mode = 'ok'
+    before_reply = None
     def do_POST(self):
         self.__class__.requests.append(json.loads(self.rfile.read(int(self.headers['Content-Length']))))
+        if self.before_reply: type(self).before_reply()
         body = {'model':'deepseek-flash','id':'synthetic-1','usage':{'prompt_tokens':23,'completion_tokens':7,'total_tokens':30,
                 'prompt_cache_hit_tokens':3,'prompt_cache_miss_tokens':20},
                 'choices':[{'finish_reason':'stop','message':{'content':json.dumps({'title':'合成译题','abstract':''})}}]}
         if self.mode == 'missing': body.pop('usage')
+        if self.mode == 'contradictory': body['usage']['prompt_tokens_details']={'cached_tokens':4}
+        if self.mode == 'overbound': body['usage'].update(completion_tokens=7000,total_tokens=7023)
+        if self.mode == 'model': body['model']='unpriced-model'
+        if self.mode == 'negative': body['usage']['prompt_cache_hit_tokens']=-1
         if self.mode == 'failed': body['choices'][0]['finish_reason']='length'
         raw=json.dumps(body).encode()
         self.send_response(200);self.send_header('Content-Length',str(len(raw)));self.end_headers();self.wfile.write(raw)
@@ -37,7 +43,7 @@ class AIBudgetTests(unittest.TestCase):
     provider = translation_tests.TranslationTests.provider
 
     def synthetic(self):
-        Provider.requests=[];Provider.mode='ok'
+        Provider.requests=[];Provider.mode='ok';Provider.before_reply=None
         server=ThreadingHTTPServer(('127.0.0.1',0),Provider)
         threading.Thread(target=server.serve_forever,daemon=True).start()
         self.addCleanup(server.server_close);self.addCleanup(server.shutdown)
@@ -113,6 +119,68 @@ class AIBudgetTests(unittest.TestCase):
         self.assertEqual(result.json['events'][0]['basis'],'Synthetic invoice confirms 25 micro USD')
         self.assertEqual(self.call(path,{'charged':'0','basis':'change history'},user='admin').status_code,409)
         self.assertEqual(self.call(path,{'charged':'0','basis':'member cannot'},user='researcher').status_code,403)
+
+    def test_failed_complete_response_still_charged_and_retries_are_input_bounded(self):
+        self.synthetic();Provider.mode='failed'
+        rid=self.record(title='Failed but billed')
+        for index,clock in enumerate(['2026-10-28T00:00:00+00:00','2026-10-28T00:01:00+00:00','2026-10-28T00:03:00+00:00']):
+            with patch('platform_app.ai_gateway.now',return_value=clock):
+                self.assertEqual(self.run_job(rid,'attempt-'+str(index)).json['status'],'failed')
+        self.assertEqual(len(Provider.requests),3)
+        self.assertEqual(self.get('/api/admin/ai','admin').json['charged_units'],75)
+        with patch('platform_app.ai_gateway.now',return_value='2026-10-28T00:10:00+00:00'):
+            self.assertEqual(self.run_job(rid,'fourth-new-request').json['status'],'failed')
+        self.assertEqual(len(Provider.requests),3)
+
+    def test_conflicting_usage_and_unpriced_model_keep_full_hold(self):
+        self.synthetic()
+        for index,mode in enumerate(['contradictory','overbound','model','negative']):
+            Provider.mode=mode
+            rid=self.record(title='Usage check '+mode)
+            self.assertEqual(self.run_job(rid,'invalid-'+mode).json['status'],'failed')
+            state=self.get('/api/admin/ai','admin').json
+            self.assertGreater(state['held_units'],0)
+            self.assertEqual(state['attempts'][0]['status'],'unknown')
+            self.assertEqual(len(Provider.requests),index+1)
+            self.call('/api/admin/ai/attempts/'+state['attempts'][0]['id']+'/resolve',{'charged':'0','basis':'Synthetic provider confirms no invoice for this case'},user='admin')
+
+    def test_frozen_month_price_and_currency_cannot_rewrite_old_attempt(self):
+        self.synthetic()
+        clock={'value':'2026-10-31T23:59:59+00:00'}
+        newprice={**PRICE,'version':'synthetic-price-v2','output_per_million':'4'}
+        def rollover():
+            clock['value']='2026-11-01T00:00:01+00:00'
+            os.environ['DEEPSEEK_PRICING_JSON']=json.dumps(newprice)
+            Provider.before_reply=None
+        Provider.before_reply=rollover
+        with patch('platform_app.ai_gateway.now',side_effect=lambda:clock['value']):
+            first=self.record(title='Cross-month request')
+            self.assertEqual(self.run_job(first).json['status'],'succeeded')
+            state=self.get('/api/admin/ai','admin').json
+            self.assertEqual(state['months'][0],{'month':'2026-10','currency':'USD','charged_units':25,'held_units':0})
+            second=self.record(title='New price request')
+            self.assertEqual(self.run_job(second,'new-price').json['status'],'succeeded')
+            self.assertEqual(self.get('/api/admin/ai','admin').json['charged_units'],39)
+            self.assertEqual(self.call('/api/admin/ai/config',{'cap':'1','currency':'EUR'},user='admin').status_code,409)
+        self.assertEqual(len(Provider.requests),2)
+
+    def test_backup_new_directory_retains_unknown_and_rejects_underreserved_ledger(self):
+        self.synthetic();Provider.mode='missing'
+        rid=self.record(title='Restore unknown')
+        self.run_job(rid)
+        from platform_app.maintenance import create_backup,restore_backup
+        from platform_app.web import create_app
+        from platform_app.store import connect
+        restored=restore_backup(create_backup(self.data_dir),self.data_dir.parent/'restored-ai')
+        app=create_app(restored,testing=True)
+        self.clients={name:self.login(name,app) for name in self.clients}
+        self.assertEqual(self.run_job(rid,'after-restore').json['status'],'failed')
+        self.assertEqual(len(Provider.requests),1)
+        self.assertGreater(self.get('/api/admin/ai','admin').json['held_units'],0)
+        with closing(connect(self.data_dir/'platform.sqlite3')) as db,db:
+            db.execute('UPDATE ai_attempts SET reserved_units=1')
+        with self.assertRaises(ValueError):
+            restore_backup(create_backup(self.data_dir),self.data_dir.parent/'bad-ai')
 
     def test_admin_persists_cap_and_members_cannot_change_it(self):
         result = self.call('/api/admin/ai/config', {'cap':'0.125','currency':'USD'}, user='admin')

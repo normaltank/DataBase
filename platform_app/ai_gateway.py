@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import re
+import sqlite3
 import uuid
 import urllib.request
 from datetime import datetime, timezone, timedelta
@@ -74,7 +75,7 @@ def reserve(db, scope, task, payload, config):
     input_hash = hashlib.sha256(json.dumps({'messages':payload['messages'],'response_format':payload.get('response_format')},ensure_ascii=True,sort_keys=True).encode()).hexdigest()
     # Each UTF-8 byte can conservatively represent one token; include provider chat framing.
     bound = len(serialized) + 1024
-    if bound > 128000:
+    if bound + payload['max_tokens'] > 128000:
         raise ValueError('AI输入超过安全上界；原始材料仍可阅读。')
     output = payload['max_tokens']
     worst = max(Decimal(price['input_cache_hit_per_million']), Decimal(price['input_cache_miss_per_million']))
@@ -414,15 +415,44 @@ def register(app, ctx):
 
 
 def validate_backup(db):
-    for row in db.execute('SELECT * FROM ai_attempts'):
-        try:
-            price, config = json.loads(row['price_json']), json.loads(row['config_json'])
-            if (row['status'] not in {'sent','unknown','settled','released'} or not re.fullmatch(r'\d{4}-\d{2}', row['month'])
-                or not re.fullmatch('[A-Z]{3}',row['currency']) or row['currency'] != price['currency']
-                or price != config['pricing'] or price['model'] != config['model'] or not price['version']
-                or row['reserved_units']<=0 or not 0<=row['charged_units']<=row['reserved_units']
-                or row['input_bound']<=0 or row['output_bound']<=0 or not re.fullmatch('[0-9a-f]{64}',row['input_hash'])):
+    """Reject inconsistent frozen prices, reservation arithmetic, admin history and policy."""
+    try:
+        policy=db.execute("SELECT value FROM settings WHERE key='ai_policy'").fetchone()
+        if policy:
+            policy=json.loads(policy[0])
+            amount_units(policy['cap'],positive=True)
+            if not re.fullmatch('[A-Z]{3}',policy['currency']): raise ValueError()
+        events=[dict(r) for r in db.execute('SELECT * FROM ai_events')]
+        for event in events:
+            if not event['actor_id'] or not 1<=len(event['basis'])<=2000 or event['action'] not in {'configure','pause','resolve','legacy_resolve'}:
                 raise ValueError()
-            json.loads(row['evidence_json']); json.loads(row['result_json'])
-        except (ValueError,KeyError,TypeError):
-            raise ValueError('AI费用账本无效。') from None
+            details=json.loads(event['details_json'])
+            if not isinstance(details,dict) or datetime.fromisoformat(event['created_at']).utcoffset()!=timedelta(0): raise ValueError()
+            if event['attempt_id'] and not db.execute('SELECT 1 FROM ai_attempts WHERE id=?',(event['attempt_id'],)).fetchone(): raise ValueError()
+            if event['action']=='resolve' and (type(details.get('charged_units')) is not int or details['charged_units']<0): raise ValueError()
+        for row in db.execute('SELECT * FROM ai_attempts'):
+            price,config=json.loads(row['price_json']),json.loads(row['config_json'])
+            evidence,result=json.loads(row['evidence_json']),json.loads(row['result_json'])
+            if (row['status'] not in {'sent','unknown','settled','released'} or not re.fullmatch(r'\d{4}-(?:0[1-9]|1[0-2])',row['month'])
+                or not re.fullmatch('[A-Z]{3}',row['currency']) or row['currency']!=price['currency']
+                or price!=config['pricing'] or price['model']!=config['model'] or not price['version']
+                or not 0<=row['charged_units']<=10**15 or row['reserved_units']<=0
+                or not 0<row['input_bound']<=128000 or not 0<row['output_bound']<=6000
+                or row['input_bound']+row['output_bound']>128000 or not re.fullmatch('[0-9a-f]{64}',row['input_hash'])
+                or not row['scope'] or not row['task'] or not isinstance(evidence,dict) or not isinstance(result,dict)
+                or datetime.fromisoformat(row['created_at']).utcoffset()!=timedelta(0) or row['month']!=row['created_at'][:7]):
+                raise ValueError()
+            rates=[Decimal(price[k]) for k in ['input_cache_hit_per_million','input_cache_miss_per_million','output_per_million']]
+            if any(not value.is_finite() or value<0 for value in rates): raise ValueError()
+            expected=cost(Decimal(row['input_bound'])*max(rates[:2])+Decimal(row['output_bound'])*rates[2])
+            if row['reserved_units']!=expected: raise ValueError()
+            if row['finished_at'] and datetime.fromisoformat(row['finished_at']).utcoffset()!=timedelta(0): raise ValueError()
+            if row['status'] in {'unknown','sent','released'} and (row['charged_units'] or result): raise ValueError()
+            resolutions=[e for e in events if e['attempt_id']==row['id'] and e['action']=='resolve']
+            if len(resolutions)>1: raise ValueError()
+            if resolutions:
+                if row['status']!='settled' or json.loads(resolutions[0]['details_json'])['charged_units']!=row['charged_units'] or result: raise ValueError()
+            elif row['charged_units']>row['reserved_units']: raise ValueError()
+            if row['status']=='settled' and not row['finished_at']: raise ValueError()
+    except (ValueError,KeyError,TypeError,InvalidOperation,sqlite3.DatabaseError):
+        raise ValueError('AI费用账本、预留或操作历史无效。') from None
