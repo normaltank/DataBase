@@ -214,7 +214,7 @@ def run_pending(data_dir, limit=5, scan_limit=500):
         for unused in range(limit):
             with db:
                 db.execute('BEGIN IMMEDIATE')
-                row=db.execute("SELECT * FROM automatic_tasks WHERE (status IN ('queued','paused') AND next_run<=?) OR (status='running' AND lease_until<=?) ORDER BY CASE task WHEN 'translation' THEN 0 ELSE 1 END,created_at,rowid LIMIT 1",(store.now(),store.now())).fetchone()
+                row=db.execute("SELECT * FROM automatic_tasks WHERE (status IN ('queued','paused') AND next_run<=?) OR (status='running' AND lease_until<=?) ORDER BY finished_at,next_run,CASE task WHEN 'translation' THEN 0 ELSE 1 END,created_at,rowid LIMIT 1",(store.now(),store.now())).fetchone()
                 if not row:
                     break
                 job=dict(row)

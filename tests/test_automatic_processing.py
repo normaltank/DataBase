@@ -16,6 +16,20 @@ class AutomaticProcessingTests(unittest.TestCase):
     source = ingestion_fixture.IngestionTests.source
     run_worker = ingestion_fixture.IngestionTests.run_worker
 
+    def test_paused_translation_does_not_starve_other_material_or_classification(self):
+        sid=self.source()
+        self.call('/api/sources/'+sid+'/ingestion',{'enabled':True},user='admin',method='PUT')
+        self.run_worker()
+        from platform_app.automatic_processing import run_pending
+        with patch.dict('os.environ',{'DEEPSEEK_API_KEY':''}):
+            for minute in range(4):
+                stamp=f'2026-10-28T12:0{minute}:00+00:00'
+                with patch('platform_app.store.now',return_value=stamp),patch('platform_app.ai_gateway.now',return_value=stamp):
+                    run_pending(self.app.config['DATA_DIR'],limit=1,scan_limit=1)
+        state=self.clients['admin'].get('/api/admin/ai').json
+        self.assertEqual(state['task_counts'],{'paused':4})
+        self.assertEqual(state['attempts'],[])
+
     def test_admin_can_reopen_exhausted_input_with_audited_bounded_round(self):
         sid=self.source()
         self.call('/api/sources/'+sid+'/ingestion',{'enabled':True},user='admin',method='PUT')
@@ -50,6 +64,41 @@ class AutomaticProcessingTests(unittest.TestCase):
         self.assertEqual(len(state['attempts']),13)
         self.assertEqual(len([e for e in state['events'] if e['action']=='retry_grant']),1)
         self.assertEqual(self.clients['researcher'].get('/api/records?q=恢复后译题').json['total'],1)
+
+    def test_budget_and_configuration_recover_automatically_in_new_month_without_reader_retry(self):
+        sid=self.source()
+        self.call('/api/sources/'+sid+'/ingestion',{'enabled':True},user='admin',method='PUT')
+        self.run_worker()
+        from platform_app.automatic_processing import run_pending
+        from tests.test_ai_budget import Provider
+        from http.server import ThreadingHTTPServer
+        import threading,ssl
+        Provider.requests=[];Provider.mode='ok';Provider.before_reply=None
+        class HighUsageProvider(Provider):
+            def do_POST(self):
+                self.__class__.requests.append(json.loads(self.rfile.read(int(self.headers['Content-Length']))))
+                raw=json.dumps({'model':'deepseek-flash','usage':{'prompt_tokens':23,'completion_tokens':6000,'total_tokens':6023},'choices':[{'finish_reason':'stop','message':{'content':json.dumps({'title':'合成译题','abstract':''})}}]}).encode()
+                self.send_response(200);self.send_header('Content-Length',str(len(raw)));self.end_headers();self.wfile.write(raw)
+        server=ThreadingHTTPServer(('127.0.0.1',0),HighUsageProvider)
+        threading.Thread(target=server.serve_forever,daemon=True).start()
+        self.addCleanup(server.server_close);self.addCleanup(server.shutdown)
+        env={**ENV,'DEEPSEEK_API_KEY':'synthetic-only','DEEPSEEK_BASE_URL':f'https://127.0.0.1:{server.server_port}'}
+        with patch.dict('os.environ',env),patch.object(ssl.SSLContext,'wrap_socket',lambda context,sock,*a,**k:sock):
+            with patch('platform_app.store.now',return_value='2026-10-31T23:55:00+00:00'),patch('platform_app.ai_gateway.now',return_value='2026-10-31T23:55:00+00:00'):
+                run_pending(self.app.config['DATA_DIR'],limit=4,scan_limit=1)
+                self.assertEqual(len(Provider.requests),0)
+                self.call('/api/admin/ai/config',{'cap':'0.014','currency':'USD'},user='admin')
+            with patch('platform_app.store.now',return_value='2026-10-31T23:56:00+00:00'),patch('platform_app.ai_gateway.now',return_value='2026-10-31T23:56:00+00:00'):
+                run_pending(self.app.config['DATA_DIR'],limit=4,scan_limit=1)
+                self.assertEqual(len(Provider.requests),1)
+                self.assertEqual(self.clients['researcher'].get('/api/records?q=合成译题').json['total'],1)
+            with patch('platform_app.store.now',return_value='2026-11-01T00:01:00+00:00'),patch('platform_app.ai_gateway.now',return_value='2026-11-01T00:01:00+00:00'):
+                run_pending(self.app.config['DATA_DIR'],limit=4,scan_limit=1)
+                state=self.clients['admin'].get('/api/admin/ai').json
+                self.assertTrue(any(a['month']=='2026-11' for a in state['attempts']))
+                self.assertEqual(len(Provider.requests),2)
+                self.assertEqual(state['held_units'],0)
+        self.assertEqual(self.clients['researcher'].get('/api/admin/ai').status_code,403)
 
     def test_only_evidenced_work_body_gets_separate_summary_with_exact_original_locator(self):
         sid=self.source()
