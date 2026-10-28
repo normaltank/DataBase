@@ -8,15 +8,17 @@ function noteSubjectLink(subject){
 }
 function noteSubjectDetail(record){
   if(record.kind!=='research_note')return '';
-  const subjects=record.research_subjects||[];
+  const subjects=record.research_subjects||[];if(!subjects.length)return '';
   return `<section class="detail-section note-subject-detail"><div class="between wrap"><h3>笔记研究对象</h3>${record.can_edit?linkButton('调整研究对象','edit-record',record.id):''}</div>${subjects.length?subjects.map(subject=>`<div class="note-subject-entry"><div class="row wrap">${noteSubjectLink(subject)}<span class="small muted">${noteSubjectLabels[subject.subject_type]}</span>${subject.status==='needs_review'?'<span class="badge pending">研究对象待复核</span>':''}</div>${subject.identity_change?`<p class="notice">此人物身份${subject.identity_change.action==='person_merge'?'已合并':'已拆回'}，笔记正文与原有研究对象来历保留。<br>依据：${esc(subject.identity_change.evidence)} ${linkButton('查看身份说明','person-identity-history',subject.subject_id,'link-button')}</p>`:''}${subject.status==='needs_review'?`<p class="small muted">原对象：${esc(subject.original_subject_name||subject.original_subject_id)}。此关联暂不计入人物已确认笔记。</p>${record.can_edit?`<button class="button tiny" data-action="note-subject-review" data-id="${esc(record.id)}" data-relation="${esc(subject.id)}">复核研究对象</button>`:'<p class="small muted">由笔记作者或当前授权同事确认。</p>'}`:''}</div>`).join(''):'<p class="muted">尚未明确选择研究对象。</p>'}${record.can_edit?linkButton('研究对象调整历史','note-subject-history',record.id):''}</section>`;
 }
 async function noteSubjectProfile(type,id,page=Number(state.params.get('note_page')||1)){
   const path=(type==='person'?'/api/people/':'/api/sources/')+encodeURIComponent(id)+'/research-notes';
   const notes=await api(path+'?'+new URLSearchParams({page,size:12}));
-  return `<section class="detail-section note-subject-profile"><div class="between wrap"><h2>研究笔记</h2><div class="row wrap"><button class="button primary tiny" data-action="new-subject-note" data-type="${type}" data-id="${esc(id)}">写研究笔记</button><button class="button tiny" data-action="existing-subject-note" data-type="${type}" data-id="${esc(id)}">关联已有笔记</button></div></div><p class="small muted">明确以此对象开展研究的笔记 · ${notes.total} 份</p>${notes.items.map(note=>`<article class="note-subject-card">${linkButton(esc(note.title),'detail',note.id,'detail-link')}<p class="small muted">${esc(note.author_name||'负责作者待确认')} · 版本 ${note.version}</p>${note.abstract?`<p>${esc(note.abstract)}</p>`:''}</article>`).join('')||'<p class="muted">暂无可阅读的关联笔记。</p>'}${notes.total>notes.size?`<div class="pagination"><button class="button tiny" data-action="subject-note-page" data-type="${type}" data-subject="${esc(id)}" data-id="${notes.page-1}" ${notes.page<=1?'disabled':''}>上一页</button><span>第 ${notes.page} / ${Math.ceil(notes.total/notes.size)} 页</span><button class="button tiny" data-action="subject-note-page" data-type="${type}" data-subject="${esc(id)}" data-id="${notes.page+1}" ${notes.page*notes.size>=notes.total?'disabled':''}>下一页</button></div>`:''}</section>`;
+  if(!notes.total)return '';
+  return `<section class="detail-section note-subject-profile"><div class="between wrap"><h2>研究笔记</h2><div class="row wrap"><button class="button tiny" data-action="existing-subject-note" data-type="${type}" data-id="${esc(id)}">关联已有笔记</button></div></div><p class="small muted">明确以此对象开展研究的笔记 · ${notes.total} 份</p>${notes.items.map(note=>`<article class="note-subject-card">${linkButton(esc(note.title),'detail',note.id,'detail-link')}<p class="small muted">${esc(note.author_name||'负责作者待确认')} · 版本 ${note.version}</p>${note.abstract?`<p>${esc(note.abstract)}</p>`:''}</article>`).join('')||'<p class="muted">暂无可阅读的关联笔记。</p>'}${notes.total>notes.size?`<div class="pagination"><button class="button tiny" data-action="subject-note-page" data-type="${type}" data-subject="${esc(id)}" data-id="${notes.page-1}" ${notes.page<=1?'disabled':''}>上一页</button><span>第 ${notes.page} / ${Math.ceil(notes.total/notes.size)} 页</span><button class="button tiny" data-action="subject-note-page" data-type="${type}" data-subject="${esc(id)}" data-id="${notes.page+1}" ${notes.page*notes.size>=notes.total?'disabled':''}>下一页</button></div>`:''}</section>`;
 }
 async function prepareNoteSubjectForm(form,record){
+  if(record.kind!=='research_note')return;
   const people=[];let page=1,total=1;
   while(people.length<total){const result=await api('/api/people?page_size=100&page='+page++);people.push(...result.items);total=result.total;if(!result.items.length)break;}
   if(!form.isConnected)return;
@@ -66,7 +68,7 @@ async function submitNoteSubjectReview(form){
 }
 async function existingSubjectNotes(type,id,query=''){
   const result=await api('/api/records?kind=research_note&editable=1&size=100&q='+encodeURIComponent(query));
-  modal('选择可编辑的研究笔记',`<form data-form="subject-note-search" data-type="${type}" data-id="${esc(id)}"><div class="field"><label for="subject-note-query">查找笔记</label><div class="row"><input id="subject-note-query" name="q" value="${esc(query)}" placeholder="笔记题名或正文"><button class="button" type="submit">搜索</button></div></div></form><div class="note-subject-list">${result.items.map(note=>`<article class="note-subject-card"><h3>${esc(note.title)}</h3><button class="button" data-action="link-subject-note" data-id="${esc(note.id)}" data-type="${type}" data-subject-id="${esc(id)}">选择并编辑研究对象</button></article>`).join('')||'<p class="muted">没有可编辑的笔记。可先写一份新笔记。</p>'}${result.total>result.items.length?'<p class="muted">请用搜索缩小结果。</p>':''}</div>`);
+  modal('选择可编辑的研究笔记',`<form data-form="subject-note-search" data-type="${type}" data-id="${esc(id)}"><div class="field"><label for="subject-note-query">查找笔记</label><div class="row"><input id="subject-note-query" name="q" value="${esc(query)}" placeholder="笔记题名或正文"><button class="button" type="submit">搜索</button></div></div></form><div class="note-subject-list">${result.items.map(note=>`<article class="note-subject-card"><h3>${esc(note.title)}</h3><button class="button" data-action="link-subject-note" data-id="${esc(note.id)}" data-type="${type}" data-subject-id="${esc(id)}">选择并编辑研究对象</button></article>`).join('')||'<p class="muted">没有匹配的可编辑笔记。</p>'}${result.total>result.items.length?'<p class="muted">请用搜索缩小结果。</p>':''}</div>`);
 }
 document.addEventListener('input',event=>{if(!event.target.matches('[data-note-subject-search]'))return;const q=event.target.value.trim().toLowerCase();event.target.closest('[data-note-subject-picker]').querySelectorAll('[data-note-subject-choice]').forEach(choice=>choice.hidden=!choice.dataset.noteSubjectChoice.includes(q));});
 document.addEventListener('click',async event=>{
@@ -75,8 +77,7 @@ document.addEventListener('click',async event=>{
     const type=button.dataset.type,id=button.dataset.id;
     if(button.dataset.action==='note-subject-person'){
       event.preventDefault();if(state.page==='people'&&state.params.get('id')===id)await route();else go('people',{id});
-    }else if(button.dataset.action==='new-subject-note')await workflowRecordForm('','research_note','subject:'+type+':'+id,'','',{research_subjects:[{subject_type:type,subject_id:id}]});
-    else if(button.dataset.action==='existing-subject-note')await existingSubjectNotes(type,id);
+    }else if(button.dataset.action==='existing-subject-note')await existingSubjectNotes(type,id);
     else if(button.dataset.action==='link-subject-note'){
       await workflowRecordForm(id);const form=document.querySelector('[data-form=record]');if(!form)return;
       const key=type+':'+button.dataset.subjectId,choice=[...form.querySelectorAll('[name=research_subject_choices]')].find(input=>input.value===key);
