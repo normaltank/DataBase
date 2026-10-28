@@ -23,17 +23,17 @@ class Provider(BaseHTTPRequestHandler):
         self.send_response(200);self.send_header('Content-Length',str(len(raw)));self.end_headers();self.wfile.write(raw)
     def log_message(self,*args): pass
 
-from tests.test_translation import TranslationTests
+from tests import test_translation as translation_tests
 
 
 class AIBudgetTests(unittest.TestCase):
-    setUp = TranslationTests.setUp
-    login = TranslationTests.login
-    call = TranslationTests.call
-    get = TranslationTests.get
-    record = TranslationTests.record
-    detail = TranslationTests.detail
-    provider = TranslationTests.provider
+    setUp = translation_tests.TranslationTests.setUp
+    login = translation_tests.TranslationTests.login
+    call = translation_tests.TranslationTests.call
+    get = translation_tests.TranslationTests.get
+    record = translation_tests.TranslationTests.record
+    detail = translation_tests.TranslationTests.detail
+    provider = translation_tests.TranslationTests.provider
 
     def synthetic(self):
         Provider.requests=[];Provider.mode='ok'
@@ -67,6 +67,35 @@ class AIBudgetTests(unittest.TestCase):
         self.assertEqual(len(Provider.requests),1)
         self.assertEqual(Provider.requests[0]['thinking'],{'type':'disabled'})
 
+    def test_unknown_survives_restart_blocks_new_request_and_other_input(self):
+        self.synthetic();Provider.mode='missing'
+        rid=self.record(title='Unknown usage input')
+        self.assertEqual(self.run_job(rid).json['status'],'failed')
+        held=self.get('/api/admin/ai','admin').json['held_units']
+        self.assertGreater(held,0)
+        from platform_app.web import create_app
+        self.app=create_app(self.data_dir,testing=True)
+        self.clients={name:self.login(name) for name in self.clients}
+        self.assertEqual(self.run_job(rid,'second-request').json['status'],'failed')
+        other=self.record(title='Other input while usage unknown')
+        self.assertEqual(self.run_job(other,'other-input').json['status'],'failed')
+        self.assertEqual(len(Provider.requests),1)
+        self.assertEqual(self.get('/api/admin/ai','admin').json['held_units'],held)
+
+    def test_task_types_share_the_public_gateway_and_persistent_ledger(self):
+        self.synthetic()
+        from platform_app import ai_gateway
+        from platform_app.store import connect
+        with connect(self.data_dir/'platform.sqlite3') as db:
+            for task in ['classification-v1','summary-v1','fulltext-v1']:
+                result,evidence=ai_gateway.request_json(db,scope='synthetic-public',task=task,
+                    messages=[{'role':'system','content':'Synthetic instructions'},{'role':'user','content':'Synthetic public input'}],
+                    validate=lambda value:value,authorized=lambda:True)
+                self.assertEqual(result['title'],'合成译题')
+                self.assertTrue(evidence['attempt_id'])
+        self.assertEqual(len(Provider.requests),3)
+        self.assertEqual(self.get('/api/admin/ai','admin').json['charged_units'],75)
+
     def test_admin_persists_cap_and_members_cannot_change_it(self):
         result = self.call('/api/admin/ai/config', {'cap':'0.125','currency':'USD'}, user='admin')
         self.assertEqual(result.status_code, 200, result.json)
@@ -86,3 +115,4 @@ class AIBudgetTests(unittest.TestCase):
         state = self.get('/api/admin/ai', user='admin')
         self.assertEqual(state.status_code, 200)
         self.assertEqual(state.json['held_units'], 0)
+

@@ -82,6 +82,8 @@ def reserve(db, scope, task, payload, config):
         legacy = db.execute("SELECT value FROM settings WHERE key='ai_legacy_unknown'").fetchone()
         if (pause and pause[0]=='1') or (legacy and int(legacy[0])>0):
             raise ValueError('AI暂停：管理员暂停或旧调用费用待核对。')
+        if db.execute("SELECT 1 FROM ai_attempts WHERE status='unknown'").fetchone():
+            raise ValueError('AI暂停：存在费用未知调用，请管理员核对。')
         rows = db.execute('SELECT * FROM ai_attempts WHERE scope=? AND task=? AND input_hash=? ORDER BY rowid', (scope,task,input_hash)).fetchall()
         if any(r['status'] in {'sent','unknown'} for r in rows):
             raise ValueError('该输入已有费用未知调用；保留占用，禁止重复发送。')
