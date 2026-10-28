@@ -140,6 +140,7 @@ class ReadingFeedTests(unittest.TestCase):
         import sqlite3
         from contextlib import closing
         from platform_app.maintenance import create_backup, restore_backup
+        from platform_app.store import CURRENT_SCHEMA_VERSION
         fixtures = Path(__file__).parent/'fixtures'
         legacy = Path(self.temp.name)/'query-nonempty-v11'
         legacy.mkdir()
@@ -159,7 +160,10 @@ class ReadingFeedTests(unittest.TestCase):
             stage16 = Path(db.execute("SELECT value FROM settings WHERE key='ingestion_migration_backup'").fetchone()[0])
         with closing(sqlite3.connect(upgraded/'platform.sqlite3')) as db:
             stage18=Path(db.execute("SELECT value FROM settings WHERE key='ai_migration_backup'").fetchone()[0])
-        for version, archive in [(16,stage16),(17,backup),(18,stage18),(19,create_backup(upgraded))]:
+            stage19=Path(db.execute("SELECT value FROM settings WHERE key='collaboration_migration_backup'").fetchone()[0])
+        # Keep the actual pre-collaboration v19 artifact distinct from a new
+        # current-version backup as later migrations extend the chain.
+        for version, archive in [(16,stage16),(17,backup),(18,stage18),(19,stage19),(CURRENT_SCHEMA_VERSION,create_backup(upgraded))]:
             stage = restore_backup(archive, Path(self.temp.name)/('restored-stage-'+str(version)))
             with closing(sqlite3.connect(stage/'platform.sqlite3')) as db:
                 self.assertEqual(db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0], str(version))
