@@ -16,6 +16,44 @@ class AutomaticProcessingTests(unittest.TestCase):
     source = ingestion_fixture.IngestionTests.source
     run_worker = ingestion_fixture.IngestionTests.run_worker
 
+    def test_http_failure_categories_keep_unknown_cost_and_require_reconciliation_before_retry(self):
+        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        import threading,ssl
+        class FailureProvider(BaseHTTPRequestHandler):
+            status=401
+            received=0
+            def do_POST(self):
+                type(self).received+=1
+                self.rfile.read(int(self.headers['Content-Length']))
+                self.send_response(self.status);self.send_header('Content-Length','0');self.end_headers()
+            def log_message(self,*args):pass
+        server=ThreadingHTTPServer(('127.0.0.1',0),FailureProvider)
+        threading.Thread(target=server.serve_forever,daemon=True).start()
+        self.addCleanup(server.server_close);self.addCleanup(server.shutdown)
+        sid=self.source();self.call('/api/sources/'+sid+'/ingestion',{'enabled':True},user='admin',method='PUT');self.run_worker()
+        self.call('/api/admin/ai/config',{'cap':'1','currency':'USD'},user='admin')
+        from platform_app.automatic_processing import run_pending
+        env={**ENV,'DEEPSEEK_API_KEY':'synthetic-only','DEEPSEEK_BASE_URL':f'https://127.0.0.1:{server.server_port}'}
+        with patch.dict('os.environ',env),patch.object(ssl.SSLContext,'wrap_socket',lambda context,sock,*a,**k:sock):
+            for index,(status,category) in enumerate([(401,'authentication'),(402,'balance'),(429,'rate_limit'),(500,'service'),(503,'service')]):
+                FailureProvider.status=status
+                stamp=f'2026-10-28T13:{index:02}:00+00:00'
+                with patch('platform_app.store.now',return_value=stamp),patch('platform_app.ai_gateway.now',return_value=stamp):
+                    run_pending(self.app.config['DATA_DIR'],limit=1,scan_limit=1)
+                    state=self.clients['admin'].get('/api/admin/ai').json
+                    attempt=state['attempts'][0]
+                    self.assertEqual(attempt['status'],'unknown')
+                    self.assertEqual(attempt['evidence']['http_status'],status)
+                    self.assertEqual(attempt['evidence']['error_class'],category)
+                    self.assertGreater(state['held_units'],0)
+                    job=next(j for j in state['tasks'] if json.loads(j['evidence_json']).get('attempt_id')==attempt['id'])
+                    path='/api/admin/ai/tasks/'+job['id']+'/retry'
+                    self.assertEqual(self.call(path,{'basis':'合成服务故障已处理并批准重试'},user='admin').status_code,409)
+                    resolved=self.call('/api/admin/ai/attempts/'+attempt['id']+'/resolve',{'charged':'0','basis':'独立合成服务确认该请求未产生任何账单费用'},user='admin')
+                    self.assertEqual(resolved.status_code,200,resolved.json)
+                    self.assertEqual(self.call(path,{'basis':'合成服务故障已处理并批准重试'},user='admin').status_code,200)
+            self.assertEqual(FailureProvider.received,5)
+
     def test_paused_translation_does_not_starve_other_material_or_classification(self):
         sid=self.source()
         self.call('/api/sources/'+sid+'/ingestion',{'enabled':True},user='admin',method='PUT')

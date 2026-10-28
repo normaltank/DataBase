@@ -6,6 +6,7 @@ import re
 import sqlite3
 import uuid
 import urllib.request
+import urllib.error
 from datetime import datetime, timezone, timedelta
 from urllib.parse import urlsplit
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
@@ -300,7 +301,13 @@ def request_json(db, *, scope, task, messages, validate, authorized, max_tokens=
             output=validate(json.loads(content))
             if not isinstance(output,dict) or not output or key in json.dumps(output,ensure_ascii=False):
                 raise ValueError()
+    except urllib.error.HTTPError as failure:
+        status=failure.code
+        category,label={401:('authentication','凭据认证失败'),402:('balance','供应商余额不足'),429:('rate_limit','供应商速率限制'),500:('service','供应商服务故障'),503:('service','供应商服务暂不可用')}.get(status,('request_rejected','供应商拒绝请求'))
+        evidence.update(http_status=status,error_class=category)
+        error=label+'；费用未核实，保留预留并暂停，管理员核实后可受控重试。'
     except Exception:
+        evidence['error_class']='structure' if evidence['response_model'] else 'transport'
         error='AI响应失败、超时、未完整结束或结构无效；费用另按已有用量核对。'
     if not authorized():
         evidence['permission_changed']=True
@@ -309,7 +316,7 @@ def request_json(db, *, scope, task, messages, validate, authorized, max_tokens=
     try:
         settle(db,attempt,evidence,output if not error else {})
     except ValueError as failure:
-        raise AIFailure(str(failure),evidence,'unknown_cost') from None
+        raise AIFailure(error or str(failure),evidence,evidence.get('error_class','unknown_cost')) from None
     if error:
         raise AIFailure(error,evidence)
     return output,evidence
