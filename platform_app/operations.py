@@ -311,6 +311,8 @@ def register(app, ctx):
                 content += prose("人工中文题名", item.get("chinese_title")) + prose("人工中文摘要", item.get("chinese_abstract"))
                 content += prose("机器译文版本、原文输入与出处（非核对结论）", json.dumps(item.get("translations", []), ensure_ascii=False, indent=2) if item.get("translations") else "")
                 content += prose("人工中文修订历史", json.dumps(item.get("translation_history", []), ensure_ascii=False, indent=2) if item.get("translation_history") else "")
+                content += prose('机器概述（非原摘要，未人工核对）', item.get('machine_summary',{}).get('summary','') if item.get('machine_summary') else '')
+                content += prose('机器概述原文与定位、分类及处理版本',json.dumps({k:item[k] for k in ['machine_summary_basis','machine_classification','automatic_tasks'] if item.get(k)},ensure_ascii=False,indent=2) if item.get('automatic_tasks') else '')
                 content += prose("摘要与说明", item["abstract"]) + "<section><h2>正文</h2>" + item["body_html"] + "</section>"
                 if item.get("intake_evidence"):
                     content += prose("辅助录入取得依据（题录，非全文或核对结论）", json.dumps(item["intake_evidence"], ensure_ascii=False, indent=2))

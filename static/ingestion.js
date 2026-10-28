@@ -9,6 +9,16 @@ function automaticAcquisitionHtml(acquired){
   if(!acquired)return '';
   return `<section class="detail-section acquisition-reading"><h3>自动取得与原文快照</h3><p>系统取得，尚未人工核对。中文待处理；原始摘要缺项保持缺项。</p>${acquired.snapshots.map((s,i)=>`<details ${i===acquired.snapshots.length-1?'open':''}><summary>网页说明快照 · ${dateTime(s.retrieved_at)}${s.content_kind==='no_body'?' · 无可辨认正文':''}</summary><p>${s.content_kind==='no_body'?'未辨认网页正文；未取得所指作品全文。':'网页说明，未取得所指作品全文。'}</p><div class="reading-content">${s.page_html}</div><div class="row wrap">${externalLink(s.url,'查看原站')}</div><details class="acquisition-basis"><summary>取得依据</summary><p>${esc(s.reason)}</p><p class="small muted">侧栏原署名：${esc(s.sidebar_credit||'未取得')}；与正文中的作者、发言者或制作角色分别理解。</p><p class="small">SHA256：<span class="snapshot-hash">${esc(s.sha256)}</span> · ${s.bytes.toLocaleString()} 字节 · ${esc(s.adapter)}</p><a class="button tiny" href="${esc(s.download_url)}" download>下载原始页面字节</a></details></details>`).join('')||'<p>尚无成功取得的网页快照；可以先读题录和原文链接，维护者可重跑取得。</p>'}<details><summary>取得尝试记录</summary><pre>${esc(JSON.stringify(acquired.attempts,null,2))}</pre></details></section>`;
 }
+function automaticProcessingHtml(record){
+  const summary=record.machine_summary,classification=record.machine_classification,tasks=record.automatic_tasks||[];
+  if(!tasks.length)return '';
+  const certainty={supported:'有据机器分类',uncertain:'不确定，未用于筛选'};
+  return '<section class="detail-section automatic-processing"><h3>中文整理与内容依据</h3>'
+    +(summary?'<section class="machine-overview"><h3>机器概述 · 非原始摘要</h3><p class="prose">'+esc(summary.summary)+'</p><details><summary>原文版本与引文定位</summary><p>快照 '+esc(record.machine_summary_basis.snapshot_id)+' · '+esc(record.machine_summary_basis.body_basis)+'</p>'+summary.citations.map(c=>'<blockquote>'+esc(c.quote)+'</blockquote><p class="small">正文字符 '+c.start+'—'+c.end+'（终点不含）</p>').join('')+'</details></section>':'')
+    +(classification?'<details><summary>研究对象、主题与类型的机器依据</summary><p>当前研究对象：'+esc(record.subject_countries||'未知')+'；主题：'+esc(record.subject_topics||'待分类')+'。人工登记优先；来源所在地单独理解。</p>'+[...classification.countries,...classification.topics,...(classification.type?[classification.type]:[])].map(c=>'<p><strong>'+esc(c.value)+'</strong> · '+esc(certainty[c.certainty])+'</p><blockquote>'+esc(c.quote)+'</blockquote><p class="small">依据字段：'+esc(c.field)+'</p>').join('')+'</details>':'')
+    +(tasks.some(t=>!t.stale&&['queued','running','paused','failed'].includes(t.status))?'<p class="small muted">部分中文整理待处理；原始资料仍可阅读，维护者可查看处理状态。</p>':'')
+    +'<details><summary>自动处理版本与来历</summary>'+tasks.map(t=>'<p>'+esc({translation:'题名及原摘要翻译',classification:'内容分类',summary:'正文机器概述'}[t.task]||t.task)+' · '+esc({queued:'等待后台',running:'后台处理中',paused:'暂停待恢复',failed:'需维护者处理',succeeded:'已完成'}[t.status]||t.status)+(t.stale?' · 已有更新输入':'')+' · '+esc(t.rule_version)+'</p><p class="small">'+esc(t.reason)+'</p><p class="small">输入 '+esc(t.input_hash)+' · 所据资料版本 '+t.source_version+'</p>').join('')+'</details></section>';
+}
 document.addEventListener('submit',async event=>{
   const form=event.target.closest('[data-form="ingestion-config"]');if(!form)return;
   event.preventDefault();

@@ -125,6 +125,8 @@ def restore_backup(archive_path, target_dir):
             from . import ai_gateway
             if int(version) >= ai_gateway.SCHEMA_VERSION:
                 ai_gateway.validate_backup(db)
+                from .automatic_processing import validate_backup as validate_automatic
+                validate_automatic(db)
             for row in db.execute("SELECT stored_name,sha256 FROM attachments"):
                 name = "uploads/" + row["stored_name"]
                 if name not in manifest["files"] or manifest["files"][name]["sha256"] != row["sha256"]:

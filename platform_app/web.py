@@ -324,6 +324,7 @@ def create_app(data_dir=None, testing=False):
                 chinese = translations.projection(db(), r)
                 hay += ' ' + chinese['display_title'] + ' ' + chinese['display_abstract']
                 hay += ' ' + automatic['subject_countries'] + ' ' + automatic['subject_topics']
+                hay += ' ' + (automatic['machine_summary']['summary'] if automatic['machine_summary'] else '')
                 hay += " " + " ".join(s["text"] for s in attachment_index().segments(r))
                 if not all(word in normalize(hay) for word in q.split()):
                     continue
