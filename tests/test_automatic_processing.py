@@ -182,6 +182,65 @@ class AutomaticProcessingTests(unittest.TestCase):
         self.assertEqual(state['task_counts'],{'paused':4})
         self.assertEqual(state['attempts'],[])
 
+    def test_supplier_deadline_releases_worker_and_after_reconciliation_tasks_continue(self):
+        import threading, ssl, time
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        from platform_app.automatic_processing import run_pending
+        sid = self.source()
+        self.call('/api/sources/' + sid + '/ingestion', {'enabled': True}, user='admin', method='PUT')
+        self.run_worker()
+        self.call('/api/admin/ai/config', {'cap': '1', 'currency': 'USD'}, user='admin')
+        stop = threading.Event()
+
+        class Supplier(BaseHTTPRequestHandler):
+            count = 0
+
+            def log_message(self, *args):
+                pass
+
+            def do_POST(self):
+                prompt = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+                type(self).count += 1
+                self.send_response(200)
+                self.end_headers()
+                try:
+                    if self.count == 1:
+                        while not stop.wait(.03):
+                            self.wfile.write(b' ')
+                            self.wfile.flush()
+                    else:
+                        output = {'countries': [], 'topics': [], 'type': None} if 'Classify' in prompt['messages'][0]['content'] else {'title': '截止后恢复译题', 'abstract': ''}
+                        self.wfile.write(json.dumps({'model': 'deepseek-flash', 'usage': {'prompt_tokens': 23, 'completion_tokens': 7, 'total_tokens': 30}, 'choices': [{'finish_reason': 'stop', 'message': {'content': json.dumps(output)}}]}).encode())
+                except OSError:
+                    pass
+
+        server = ThreadingHTTPServer(('127.0.0.1', 0), Supplier)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        self.addCleanup(stop.set)
+        env = {**ENV, 'DEEPSEEK_API_KEY': 'synthetic-only', 'DEEPSEEK_BASE_URL': f'https://127.0.0.1:{server.server_port}'}
+        with patch.dict('os.environ', env), patch.object(ssl.SSLContext, 'wrap_socket', lambda context, sock, *a, **k: sock):
+            started = time.monotonic()
+            with patch('platform_app.ai_gateway.MAX_SECONDS', .25):
+                first = run_pending(self.app.config['DATA_DIR'], limit=4)
+            self.assertLess(time.monotonic() - started, 2)
+            self.assertEqual(first, {'tasks': 4, 'succeeded': 0, 'paused': 4})
+            state = self.clients['admin'].get('/api/admin/ai').json
+            self.assertEqual(state['attempts'][0]['status'], 'unknown')
+            self.assertGreater(state['held_units'], 0)
+            self.assertEqual(Supplier.count, 1)
+            stop.set()
+            self.call('/api/admin/ai/attempts/' + state['attempts'][0]['id'] + '/resolve', {'charged': '0', 'basis': 'Synthetic supplier confirmed timeout invoice zero'}, user='admin')
+            from datetime import datetime, timezone, timedelta
+            stamp = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+            with patch('platform_app.store.now', return_value=stamp), patch('platform_app.ai_gateway.now', return_value=stamp):
+                second = run_pending(self.app.config['DATA_DIR'], limit=4)
+            self.assertEqual(second['succeeded'], 4)
+            self.assertEqual(Supplier.count, 5)
+            self.assertEqual(self.clients['admin'].get('/api/admin/ai').json['held_units'], 0)
+            self.assertEqual(self.clients['researcher'].get('/api/records?q=截止后恢复译题').json['total'], 2)
+
     def test_admin_can_reopen_exhausted_input_with_audited_bounded_round(self):
         sid=self.source()
         self.call('/api/sources/'+sid+'/ingestion',{'enabled':True},user='admin',method='PUT')

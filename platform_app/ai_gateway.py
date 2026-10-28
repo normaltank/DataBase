@@ -14,10 +14,12 @@ from pathlib import Path
 
 from flask import abort, jsonify
 from .store import connect, now
+from .ai_transport import Deadline
 
 SCHEMA_VERSION = 19
 SCALE = 1000000
 MAX_BYTES = 256 * 1024
+MAX_SECONDS = 25
 MAX_ATTEMPTS = 3
 MAX_CONCURRENT = 2
 BACKOFF_SECONDS = 30
@@ -263,10 +265,11 @@ def request_json(db, *, scope, task, messages, validate, authorized, max_tokens=
         raise AIFailure('发送前权限已变化；未发送且已释放预留。',{**evidence,'usage_state':'not_sent'})
     output,error={},''
     try:
-        with urllib.request.build_opener(NoRedirect()).open(request,timeout=20) as response:
+        with Deadline(MAX_SECONDS) as deadline, urllib.request.build_opener(NoRedirect(), *deadline.handlers()).open(request,timeout=min(20, deadline.remaining())) as response:
             if response.geturl()!=request.full_url:
                 raise ValueError()
             raw=response.read(MAX_BYTES+1)
+            deadline.remaining()
             if len(raw)>MAX_BYTES:
                 raise ValueError()
             data=json.loads(raw)
@@ -303,6 +306,7 @@ def request_json(db, *, scope, task, messages, validate, authorized, max_tokens=
                 raise ValueError()
     except urllib.error.HTTPError as failure:
         status=failure.code
+        failure.close()
         category,label={401:('authentication','凭据认证失败'),402:('balance','供应商余额不足'),429:('rate_limit','供应商速率限制'),500:('service','供应商服务故障'),503:('service','供应商服务暂不可用')}.get(status,('request_rejected','供应商拒绝请求'))
         evidence.update(http_status=status,error_class=category)
         error=label+'；费用未核实，保留预留并暂停，管理员核实后可受控重试。'

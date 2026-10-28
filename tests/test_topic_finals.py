@@ -33,6 +33,128 @@ class TopicFinalTests(unittest.TestCase):
             "request_id": "final-request-one", "topic_version": 1, "meeting_version": 1,
             "submission_id": sid, "version": 1, "status": "pending", "note": "已核对所据原件", **extra}, who)
 
+    def test_reassignment_does_not_inherit_previous_authors_current_final(self):
+        tid, aid, sid = self.ready()
+        final = self.final(tid, aid, sid).json
+        summary = self.summary(tid, [final["id"]]).json
+        rows = self.workflow(tid)["meetings"][0]["assignments"]
+        rows[0]["author_id"] = "researcher"
+        self.assertEqual(self.meeting(tid, rows, version=1).status_code, 201)
+        current = self.workflow(tid, "researcher")
+        a = current["assignments"][0]
+        self.assertEqual(a["status"], "awaiting_submission")
+        self.assertIsNone(a["current_submission_id"])
+        self.assertEqual(a["submissions"][0]["id"], sid)
+        self.assertEqual(a["finals"][0]["id"], final["id"])
+        self.assertEqual(current["summaries"][0]["id"], summary["id"])
+        self.assertEqual(current["summaries"][0]["adoptions"][0]["submission_id"], sid)
+        self.assertEqual(self.final(tid, aid, sid, meeting_version=2, request_id="old-after-reassign").status_code, 409)
+        with self.clients["researcher"].get(a["submissions"][0]["file_url"]) as response:
+            self.assertEqual(response.data, b"independent final original")
+
+    def test_reassigned_author_submits_revises_and_finalizes_own_versions(self):
+        tid, aid, sid = self.ready()
+        rows = self.workflow(tid)["meetings"][0]["assignments"]
+        rows[0]["author_id"] = "researcher"
+        self.meeting(tid, rows, version=1)
+        self.assertEqual(self.returned(tid, aid, sid, meeting_version=2).status_code, 409)
+        self.assertEqual(self.workflow(tid)["assignments"][0]["returns"], [])
+        self.assertEqual(self.draft(tid, aid, version=1, meeting_version=2).status_code, 403)
+        submitted = self.draft(tid, aid, version=1, meeting_version=2, who="researcher")
+        self.assertEqual(submitted.status_code, 201, submitted.json)
+        second = submitted.json["id"]
+        self.assertEqual(self.returned(tid, aid, second, meeting_version=1).status_code, 409)
+        returned = self.returned(tid, aid, second, meeting_version=2)
+        self.assertEqual(returned.status_code, 201, returned.json)
+        self.assertEqual(self.returned(tid, aid, second, meeting_version=2).status_code, 200)
+        self.assertEqual(self.workflow(tid)["assignments"][0]["status"], "returned")
+        self.assertEqual(self.final(tid, aid, second, meeting_version=2, version=2).status_code, 409)
+        third = self.draft(tid, aid, version=2, meeting_version=2, who="researcher").json["id"]
+        result = self.final(tid, aid, third, meeting_version=2, version=3)
+        self.assertEqual(result.status_code, 201, result.json)
+        self.assertEqual(self.final(tid, aid, third, meeting_version=2, version=3).status_code, 200)
+        a = self.workflow(tid)["assignments"][0]
+        self.assertEqual((a["status"], a["current_submission_id"]), ("final", third))
+        self.assertEqual(len(a["submissions"]), 3)
+        self.assertEqual(a["returns"][0]["submission_id"], second)
+
+    def test_same_article_author_survives_meeting_edit_withdrawal_and_restore(self):
+        tid, aid, sid = self.ready()
+        rows = self.workflow(tid)["meetings"][0]["assignments"]
+        rows[0]["title"] = "更正文章题名"
+        self.meeting(tid, rows, version=1, note="补充会议说明")
+        a = self.workflow(tid)["assignments"][0]
+        self.assertEqual((a["status"], a["current_submission_id"]), ("pending", sid))
+        self.assertEqual(self.final(tid, aid, sid).status_code, 409)
+        final = self.final(tid, aid, sid, meeting_version=2)
+        self.assertEqual(final.status_code, 201, final.json)
+        self.meeting(tid, [], version=2)
+        a = self.workflow(tid)["assignments"][0]
+        self.assertFalse(a["active"])
+        self.assertIsNone(a["current_submission_id"])
+        self.assertEqual(self.returned(tid, aid, sid, meeting_version=3, request_id="withdrawn-return").status_code, 404)
+        self.meeting(tid, rows, version=3)
+        self.assertEqual(self.workflow(tid)["assignments"][0]["status"], "final")
+        # Same request replays its saved decision without generating a new one.
+        self.assertEqual(self.final(tid, aid, sid, meeting_version=2).status_code, 200)
+        self.assertEqual(len(self.workflow(tid)["assignments"][0]["finals"]), 1)
+        self.assertEqual(self.returned(tid, aid, sid, meeting_version=4).status_code, 409)
+
+    def test_reassigned_history_current23_export_and_new_directory_restore(self):
+        from platform_app.maintenance import restore_backup
+        from platform_app.web import create_app
+        tid, aid, sid = self.ready()
+        final = self.final(tid, aid, sid).json
+        summary = self.summary(tid, [final["id"]]).json
+        rows = self.workflow(tid)["meetings"][0]["assignments"]
+        rows[0]["author_id"] = "researcher"
+        self.meeting(tid, rows, version=1)
+        before = self.workflow(tid, "researcher")
+        self.assertEqual(before["assignments"][0]["status"], "awaiting_submission")
+        with self.clients["researcher"].get(f"/api/collaboration/topics/{tid}/materials/export") as response:
+            with zipfile.ZipFile(io.BytesIO(response.data)) as pack:
+                manifest = json.loads(pack.read("manifest.json"))
+                exported = manifest["workflow"]
+                self.assertEqual(exported["assignments"][0]["status"], "awaiting_submission")
+                self.assertEqual(exported["summaries"][0]["adoptions"][0]["submission_id"], sid)
+                self.assertIn(b"independent final original", [pack.read(f["path"]) for f in manifest["files"]])
+        with self.clients["colleague"].get("/api/export/content?ids=" + summary["record_id"]) as response:
+            with zipfile.ZipFile(io.BytesIO(response.data)) as pack:
+                work = json.loads(pack.read("content.json"))["records"][0]["collaboration_works"][0]
+                self.assertEqual(work["adoptions"][0]["submission_id"], sid)
+        returned_tid, returned_aid, returned_sid = self.ready()
+        returned = self.returned(returned_tid, returned_aid, returned_sid, file=("old-review.txt", b"previous author review original"))
+        self.assertEqual(returned.status_code, 201)
+        changed = self.workflow(returned_tid)["meetings"][0]["assignments"]
+        changed[0]["author_id"] = "researcher"
+        self.meeting(returned_tid, changed, version=1)
+        returned_history = self.workflow(returned_tid, "researcher")
+        self.assertEqual(returned_history["assignments"][0]["status"], "awaiting_submission")
+        self.assertEqual(returned_history["assignments"][0]["returns"][0]["submission_id"], returned_sid)
+        backup_path = self.data_dir.parent / "reassigned-backup.zip"
+        with self.call("/api/backup", user="admin") as backup:
+            backup_path.write_bytes(backup.data)
+        target = self.data_dir.parent / "reassigned-restored"
+        restore_backup(backup_path, target)
+        app = create_app(target, testing=True)
+        restored = self.login("researcher", app)
+        self.assertEqual(restored.get('/health').json['schema'], 23)
+        self.assertEqual(restored.get(f"/api/collaboration/topics/{tid}/workflow").json, before)
+        self.assertEqual(restored.get(f"/api/collaboration/topics/{returned_tid}/workflow").json, returned_history)
+        with restored.get(returned_history["assignments"][0]["returns"][0]["file_url"]) as response:
+            self.assertEqual(response.data, b"previous author review original")
+        with restored.get(before["summaries"][0]["adoptions"][0]["file_url"]) as response:
+            self.assertEqual(response.data, b"independent final original")
+
+        # A final after a harmless meeting revision also validates on restore.
+        tid2, aid2, sid2 = self.ready()
+        same = self.workflow(tid2)["meetings"][0]["assignments"]
+        self.meeting(tid2, same, version=1, note="仅补字")
+        self.assertEqual(self.final(tid2, aid2, sid2, meeting_version=2).status_code, 201)
+        with self.call("/api/backup", user="admin") as backup:
+            backup_path.write_bytes(backup.data)
+        restore_backup(backup_path, self.data_dir.parent / "edited-meeting-restored")
+
     def test_final_binds_current_version_and_creates_existing_author_controlled_identity(self):
         tid, aid, sid = self.ready()
         for who in ("admin", "colleague"):
