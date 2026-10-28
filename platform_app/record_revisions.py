@@ -356,8 +356,11 @@ class RecordRevisions:
             if row["kind"] not in {"compilation", "research_report"} or row["author_id"] != author_id:
                 abort(400, "请选择同一负责作者的个人编译成果或研究报告。")
             return row["id"]
+        visibility = data.get("visibility", "restricted")
+        if visibility not in ("restricted", "shared"):
+            abort(400, "请选择新成果的可见范围。")
         values, linked, associated, cited = self._values({"kind": "compilation", "title": title,
-            "author_id": author_id, "visibility": data.get("visibility", "restricted")})
+            "author_id": author_id, "visibility": visibility})
         rid = "LOCAL-" + uuid.uuid4().hex[:12].upper()
         values.update(id=rid, owner_id=self.actor["id"], created_at=now(), updated_at=now())
         self.db.execute(f"INSERT INTO records ({','.join(values)}) VALUES ({','.join('?' for _ in values)})", list(values.values()))

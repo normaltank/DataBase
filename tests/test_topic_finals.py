@@ -127,6 +127,7 @@ class TopicFinalTests(unittest.TestCase):
 
     def test_current_state_cross_topic_idempotency_and_actor_are_rechecked(self):
         tid, aid, sid = self.ready()
+        self.assertEqual(self.final(tid, aid, sid, visibility=None).status_code, 400)
         self.assertEqual(self.final(tid, aid, sid, meeting_version=0).status_code, 409)
         self.assertEqual(self.final(tid, aid, sid, status="returned").status_code, 409)
         self.assertEqual(self.final(tid, aid, sid, version=0).status_code, 409)
