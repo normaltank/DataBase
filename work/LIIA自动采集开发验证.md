@@ -33,3 +33,17 @@ RSS 当前20条只证明所见响应，不证明栏目完整覆盖；未遍历73
 合入集成 `ff02a2edc53c15568138b6c47487e1e132f4a79d` 后，`87c652d` 执行 `python -m unittest tests.test_ingestion tests.test_reading_feed tests.test_people.PeopleTests.test_v5_upgrade_backs_up_preserves_old_work_and_repeated_start_does_not_create_people tests.test_bylines.BylineTests.test_intermediate_v6_v7_v8_backups_upgrade_preserving_old_authors_without_matching -v`：24项、43.270秒全部通过。日志 `C:/Users/27451/AppData/Local/Temp/ingestion-managed-sync-ff02-20261028.log` 仅原环境可查。此为本次接续新结果；此前341项完整检查的2项失败及后续修复验证仍保留其历史身份，不改记为完整套件全绿。
 
 同期 `node --check` 检查 `static/ingestion.js`、`app.js`、`sources.js`、`ux.js`，四份起停 PowerShell 脚本通过解析，`git diff --check ef40db9 HEAD` 通过。已复看原浏览器桌面管理与窄屏阅读截图、原材料对照报告；未增加外站请求。核对原起停演练目录已无进程状态文件，未见本任务原树／接续树后台残留。最终交接须再同步 #61 实际已集成的最新提交，相关结果以 Issue #62 交接为准。
+## #61 集成后的最终复验（2026-10-28）
+
+指挥确认 #61 已由独立 merger 集成后，合入实际集成 `28594fdefdc36146b48e1268b583dc938d4f4ee7`，得到 `069d7afc29b6587653dd9087b79a4d987dbb17ac`；无冲突，保留 #61 成品报告／资料夹行为、阅读正文顺序、译文兼容及本任务的管理卡片／阅读快照注入。结构仍为17，未取后续18迁移。
+
+按指挥具体阅读反馈，先扩充已有浏览器接缝，在旧实现得到预期失败（缺少简洁“未取得所指作品全文”提示与默认折叠的取得依据）；`9840300` 将侧栏角色、内容摘要值／字节／适配器、详细取得说明和原字节下载收拢到“取得依据”，网页说明、简洁无全文提示与原站链接保持直接可读，取得尝试继续折叠。red 日志 `C:/Users/27451/AppData/Local/Temp/ingestion-managed-reader-red-20261028.log` 仅原环境可查。
+
+在上述合并提交上实际执行：
+
+- `python scripts/check_ingestion_browser.py -v`：1项、7.893秒通过；覆盖管理员启用→503→重跑→成功，新增普通研究员从新文章打开条目，1366／390 视口分别取得题名首屏、快照及展开依据截图。默认依据关闭、原始下载在展开后可见、脚本未执行、页面错误0、无横溢。共11张图及 `evidence.json` 在 `C:/Users/27451/AppData/Local/Temp/ingestion-browser-kaxap0t7`；日志 `ingestion-managed-reader-green-20261028.log` 位于同级 Temp，仅原环境可查。接手者已实际复看桌面／手机首屏及手机快照／依据。
+- `python -m unittest tests.test_ingestion tests.test_reading_feed tests.test_discovery tests.test_people.PeopleTests.test_v5_upgrade_backs_up_preserves_old_work_and_repeated_start_does_not_create_people tests.test_bylines.BylineTests.test_intermediate_v6_v7_v8_backups_upgrade_preserving_old_authors_without_matching -v`：33项、55.247秒全部通过；日志 `C:/Users/27451/AppData/Local/Temp/ingestion-managed-final-sync-20261028.log` 仅原环境可查。
+- 同步后的13份相关 JS 均通过 `node --check`；四份 PowerShell 起停脚本解析、`git diff --check ef40db9 HEAD` 通过。文档新增仓库路径有效；原有离线导出历史本机产物缺失仍有明确标注，没有补造证据。当前相关 Python 后台残留0、8903监听0。
+- 当前适配器离线重读独立保存原件，RSS20／窗口6、三份HTML字节摘要值、侧栏署名及清洗字符2669／820／111一致，均不提供实质正文。新报告 `C:/Users/27451/AppData/Local/Temp/ingestion-managed-material-check-20261028.json` 仅原环境可查；没有外站新请求、真实库或 AI 调用。
+
+本节为施工自测，不代替 merger 独立验收或 Standards／Spec 审查。未宣称完整套件已在当前提交全部重跑、原站全覆盖、真实作品全文、人工核对、研究结论或正式部署；既有341项与2项失败的历史状态不改写。最终交付 SHA 和同步 SHA 以 Issue #62 的交接评论绑定。
