@@ -829,6 +829,8 @@ def create_app(data_dir=None, testing=False):
     from . import ingestion
     ingestion.register(app, SimpleNamespace(db=db, user=user, body=body, records=records, admin=admin))
     ris.register(app, SimpleNamespace(db=db, user=user, body=body, records=records))
+    from . import ai_gateway
+    ai_gateway.register(app, SimpleNamespace(db=db, user=user, body=body, admin=admin))
     translations.register(app, SimpleNamespace(db=db, user=user, body=body, records=records))
     bulk.register(app, SimpleNamespace(db=db, user=user, body=body, visible=visible, get_collection=get_collection, export_csv=export_csv))
     identity.register(app, db=db, body=body, records=records, validate_source=source_values)
