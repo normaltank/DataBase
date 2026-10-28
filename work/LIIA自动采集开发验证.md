@@ -25,3 +25,11 @@
 独立预期的 RSS20条、30天窗口6条得到一致结果。三份 HTML 原字节摘要值一致；1622侧栏 Dana Duda 与正文 Dana Dūda、Konstantinas Andrijauskas、Björn Cappelin 的名单分别保留；1621侧栏 Sara Elizabete Vinberga 与节目／制作角色分别保留；1620侧栏 Una Aleksandra Berzina-Cerenkova 与一条参与短句保持原状。三者清洗说明分别2669、820、111字符，均没有被长度升级为作品全文。政策简报原件、录音和电视逐字稿未取得，点号描述未变成摘要，没有自动生成观点、确认作者身份或补对象国。
 
 RSS 当前20条只证明所见响应，不证明栏目完整覆盖；未遍历73页目录、未取得其余近期页或 Adobe／媒体原作品。网页原件与摘要值证明当时所取材料可复核，不证明来源观点真实、真人研究员复核、译文／身份正确率或跨人研究成果。正式服务主机、长期运行和备份责任仍须按部署安排落实。
+
+## 恢复接续与同步复验（2026-10-28）
+
+原施工树因工具路由故障改由受管工作树 `C:/Users/27451/.codex/worktrees/autonomous-ingestion-managed/DataBase`、分支 `codex/autonomous-ingestion-managed-20261028` 接续；原树保留只读。指挥逐字节核对后复制的25份 WIP 已保全为 `55b3af7`，没有重建实现或丢弃源码。接手者先核对 HEAD 与16项 tracked／9项 untracked，再读固定规格、Issue 全部评论和本记录。
+
+合入集成 `ff02a2edc53c15568138b6c47487e1e132f4a79d` 后，`87c652d` 执行 `python -m unittest tests.test_ingestion tests.test_reading_feed tests.test_people.PeopleTests.test_v5_upgrade_backs_up_preserves_old_work_and_repeated_start_does_not_create_people tests.test_bylines.BylineTests.test_intermediate_v6_v7_v8_backups_upgrade_preserving_old_authors_without_matching -v`：24项、43.270秒全部通过。日志 `C:/Users/27451/AppData/Local/Temp/ingestion-managed-sync-ff02-20261028.log` 仅原环境可查。此为本次接续新结果；此前341项完整检查的2项失败及后续修复验证仍保留其历史身份，不改记为完整套件全绿。
+
+同期 `node --check` 检查 `static/ingestion.js`、`app.js`、`sources.js`、`ux.js`，四份起停 PowerShell 脚本通过解析，`git diff --check ef40db9 HEAD` 通过。已复看原浏览器桌面管理与窄屏阅读截图、原材料对照报告；未增加外站请求。核对原起停演练目录已无进程状态文件，未见本任务原树／接续树后台残留。最终交接须再同步 #61 实际已集成的最新提交，相关结果以 Issue #62 交接为准。
