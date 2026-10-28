@@ -113,7 +113,8 @@ def reserve(db, scope, task, payload, config):
             raise AIBlocked('backoff','该输入正在有界退避，请稍后处理。')
         if db.execute("SELECT COUNT(*) FROM ai_attempts WHERE status IN ('sent','unknown')").fetchone()[0] >= MAX_CONCURRENT:
             raise AIBlocked('capacity','AI全局并发或未知费用占用已满。')
-        monthly = db.execute('SELECT * FROM ai_attempts WHERE month=?', (month,)).fetchall()
+        monthly = list(db.execute('SELECT * FROM ai_attempts WHERE month=?', (month,)).fetchall())
+        monthly += [dict(json.loads(r[0]),status='settled',reserved_units=0) for r in db.execute("SELECT details_json FROM ai_events WHERE action='legacy_resolve'") if json.loads(r[0]).get('month')==month]
         if any(r['currency'] != currency for r in monthly):
             raise AIBlocked('currency','本月账本币种已冻结，不能通过切换币种绕过额度。')
         used = sum(r['reserved_units'] if r['status'] in {'sent','unknown'} else r['charged_units'] for r in monthly)
@@ -338,13 +339,14 @@ def summary(db):
         local_policy(db,config)
     except ValueError:
         reasons.append('本地凭据、模型价格版本或匹配币种未配置有效')
+    ledger=rows+[dict(json.loads(r[0]),status='settled',reserved_units=0) for r in db.execute("SELECT details_json FROM ai_events WHERE action='legacy_resolve'")]
     months=[]
-    for month,currency in sorted({(r['month'],r['currency']) for r in rows},reverse=True):
-        group=[r for r in rows if (r['month'],r['currency'])==(month,currency)]
+    for month,currency in sorted({(r['month'],r['currency']) for r in ledger},reverse=True):
+        group=[r for r in ledger if (r['month'],r['currency'])==(month,currency)]
         months.append({'month':month,'currency':currency,'held_units':sum(r['reserved_units'] for r in group if r['status'] in {'sent','unknown'}),
                        'charged_units':sum(r['charged_units'] for r in group)})
     cap=int(Decimal(policy.get('cap','0'))*SCALE)
-    current=[r for r in rows if r['month']==now()[:7]]
+    current=[r for r in ledger if r['month']==now()[:7]]
     held=sum(r['reserved_units'] for r in current if r['status'] in {'sent','unknown'})
     charged=sum(r['charged_units'] for r in current)
     if cap and held+charged>=cap: reasons.append('本月额度已用完或全部预留')
@@ -425,7 +427,13 @@ def register(app, ctx):
             db.execute('BEGIN IMMEDIATE')
             old=db.execute("SELECT value FROM settings WHERE key='ai_legacy_unknown'").fetchone()
             if not old or int(old[0])==0: abort(409)
-            audit(db,ctx.user()['id'],'legacy_resolve',basis.strip(),{'legacy_count':int(old[0])})
+            policy=db.execute("SELECT value FROM settings WHERE key='ai_policy'").fetchone()
+            if not policy: abort(409,'请先设置当前月额度与币种；核实旧费用将保守计入当前月。')
+            try:
+                charged=amount_units(data.get('charged',''))
+            except ValueError as failure:
+                abort(400,str(failure))
+            audit(db,ctx.user()['id'],'legacy_resolve',basis.strip(),{'legacy_count':int(old[0]),'charged_units':charged,'month':now()[:7],'currency':json.loads(policy[0])['currency']})
             db.execute("UPDATE settings SET value='0' WHERE key='ai_legacy_unknown'")
         return jsonify(summary(db))
 
@@ -445,6 +453,7 @@ def validate_backup(db):
             details=json.loads(event['details_json'])
             if not isinstance(details,dict) or datetime.fromisoformat(event['created_at']).utcoffset()!=timedelta(0): raise ValueError()
             if event['attempt_id'] and not db.execute('SELECT 1 FROM ai_attempts WHERE id=?',(event['attempt_id'],)).fetchone(): raise ValueError()
+            if event['action']=='legacy_resolve' and (not re.fullmatch(r'\d{4}-(?:0[1-9]|1[0-2])',details.get('month','')) or not re.fullmatch('[A-Z]{3}',details.get('currency','')) or type(details.get('charged_units')) is not int or not 0<=details['charged_units']<=10**15 or type(details.get('legacy_count')) is not int or details['legacy_count']<=0): raise ValueError()
             if event['action']=='resolve' and (type(details.get('charged_units')) is not int or details['charged_units']<0): raise ValueError()
         for row in db.execute('SELECT * FROM ai_attempts'):
             price,config=json.loads(row['price_json']),json.loads(row['config_json'])
