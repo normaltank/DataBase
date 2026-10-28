@@ -4,6 +4,14 @@ from tests.test_translation import TranslationTests
 
 
 class AIBudgetTests(TranslationTests):
+    def test_admin_persists_cap_and_members_cannot_change_it(self):
+        result = self.call('/api/admin/ai/config', {'cap':'0.125','currency':'USD'}, user='admin')
+        self.assertEqual(result.status_code, 200, result.json)
+        self.assertEqual(result.json['cap_units'], 125000)
+        self.assertEqual(self.get('/api/admin/ai', 'admin').json['currency'], 'USD')
+        self.assertEqual(self.call('/api/admin/ai/config', {'cap':'5','currency':'USD'}).status_code, 403)
+        self.assertEqual(self.clients['admin'].post('/api/admin/ai/config', json={'cap':'5','currency':'USD'}).status_code, 403)
+
     def test_missing_month_cap_blocks_even_explicit_translation(self):
         rid = self.record(title='Public original')
         jid = self.call(f'/api/records/{rid}/translations', {'version':1,'request_id':'budget-gate'}).json['id']

@@ -40,10 +40,12 @@ def migrate(data_dir):
         db.close()
 
 
-def local_policy(config):
+def local_policy(db, config):
     try:
-        cap = Decimal(os.environ.get('AI_MONTHLY_CAP', ''))
-        currency = os.environ.get('AI_CURRENCY', '')
+        policy_row = db.execute("SELECT value FROM settings WHERE key='ai_policy'").fetchone()
+        policy = json.loads(policy_row[0]) if policy_row else {}
+        cap = Decimal(policy.get('cap', ''))
+        currency = policy.get('currency', '')
         price = config['pricing']
         if not cap.is_finite() or cap <= 0 or cap > Decimal('1000000000'):
             raise ValueError()
@@ -59,7 +61,7 @@ def cost(tokens, price):
 
 
 def reserve(db, scope, task, payload, config):
-    cap, currency, price = local_policy(config)
+    cap, currency, price = local_policy(db, config)
     serialized = json.dumps(payload, ensure_ascii=True).encode()
     input_hash = hashlib.sha256(serialized).hexdigest()
     # Each UTF-8 byte can conservatively represent one token; include provider chat framing.
@@ -131,7 +133,9 @@ def settle(db, attempt, evidence, result):
 def summary(db):
     rows = [dict(r) for r in db.execute('SELECT * FROM ai_attempts ORDER BY rowid DESC')]
     paused = db.execute("SELECT value FROM settings WHERE key='ai_paused'").fetchone()
-    return dict(month=now()[:7],timezone='UTC',unit='microcurrency',paused=bool(paused and paused[0]=='1'),
+    policy_row = db.execute("SELECT value FROM settings WHERE key='ai_policy'").fetchone()
+    policy = json.loads(policy_row[0]) if policy_row else {}
+    return dict(cap_units=int(Decimal(policy.get('cap','0'))*SCALE),currency=policy.get('currency',''),month=now()[:7],timezone='UTC',unit='microcurrency',paused=bool(paused and paused[0]=='1'),
         held_units=sum(r['reserved_units'] for r in rows if r['status'] in {'sent','unknown'}),
         charged_units=sum(r['charged_units'] for r in rows if r['month']==now()[:7]),
         attempts=[{k:r[k] for k in ['id','scope','task','month','currency','status','reserved_units','charged_units','created_at']} for r in rows[:100]])
@@ -142,6 +146,25 @@ def register(app, ctx):
     def state():
         ctx.admin()
         return jsonify(summary(ctx.db()))
+
+    @app.post('/api/admin/ai/config')
+    def configure():
+        ctx.admin()
+        data = ctx.body()
+        try:
+            cap = Decimal(str(data.get('cap', '')))
+            currency = data.get('currency', '')
+            if not cap.is_finite() or cap <= 0 or cap > Decimal('1000000000') or cap*SCALE != (cap*SCALE).to_integral_value() or not re.fullmatch('[A-Z]{3}',currency):
+                raise ValueError()
+        except (ValueError,TypeError,InvalidOperation):
+            abort(400, '请输入正月额度（最多六位小数）及三字母币种。')
+        db = ctx.db()
+        with db:
+            db.execute('BEGIN IMMEDIATE')
+            if db.execute('SELECT 1 FROM ai_attempts WHERE month=? AND currency<>?', (now()[:7],currency)).fetchone():
+                abort(409, '本月已有账本，不能更换币种。')
+            db.execute("INSERT OR REPLACE INTO settings VALUES('ai_policy',?)", (json.dumps({'cap':str(cap),'currency':currency}),))
+        return jsonify(summary(db))
 
     @app.post('/api/admin/ai/pause')
     def pause():
