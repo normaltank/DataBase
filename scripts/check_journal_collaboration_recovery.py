@@ -44,8 +44,16 @@ rid=call(a,'/api/records',{'kind':'compilation','title':'迁移前独立成果',
 call(a,'/api/records/'+rid,{'version':1,'body_html':'<p>原有第二版正文</p>'},method='PUT')
 call(admin,'/api/collaboration/qualifications/researcher',{'version':0,'enabled':True},method='PUT')
 tid=call(a,'/api/collaboration/topics',{'theme':'既存主题与候选','participant_ids':['colleague']})['id']
-call(a,f'/api/collaboration/topics/{tid}/candidates',{'version':0,'topic_version':1,'request_id':'legacy-topic-candidate','note':'保留主题原件'},b'legacy topic candidate')
-payload={'schema':a.get('/health').json['schema'],'record':a.get('/api/records/'+rid).json,'history':a.get('/api/history/record/'+rid).json,'topic_id':tid}
+candidate=call(a,f'/api/collaboration/topics/{tid}/candidates',{'version':0,'topic_version':1,'request_id':'legacy-topic-candidate','note':'保留主题原件'},b'legacy topic candidate')['id']
+meeting=call(a,f'/api/collaboration/topics/{tid}/meetings',{'version':0,'topic_version':1,'request_id':'legacy-topic-meeting','note':'旧版会议材料','assignments':[{'title':'待编译文章','candidate_id':candidate,'author_id':'researcher'}]},b'legacy meeting')['id']
+workflow=a.get(f'/api/collaboration/topics/{tid}/workflow').json
+aid=workflow['assignments'][0]['id']
+first=call(a,f'/api/collaboration/topics/{tid}/assignments/{aid}/submissions',{'version':0,'topic_version':1,'meeting_version':1,'request_id':'legacy-first-manuscript','note':'原稿'},b'legacy first manuscript')['id']
+returned=call(a,f'/api/collaboration/topics/{tid}/assignments/{aid}/returns',{'topic_version':1,'meeting_version':1,'submission_id':first,'request_id':'legacy-review-return','note':'补充出处'},b'legacy review annotation')['id']
+second=call(a,f'/api/collaboration/topics/{tid}/assignments/{aid}/submissions',{'version':1,'topic_version':1,'meeting_version':1,'request_id':'legacy-second-manuscript','note':'修订稿'},b'legacy second manuscript')['id']
+changed=call(a,f'/api/collaboration/topics/{tid}/meetings',{'version':1,'topic_version':1,'request_id':'legacy-later-meeting','note':'后续会议撤下旧分工，旧文件保留','assignments':[]},b'legacy later meeting')['id']
+topic_files=[{'url':f'/api/collaboration/topics/{tid}/'+route,'raw':raw} for route,raw in [(f'meetings/{meeting}/file','legacy meeting'),(f'meetings/{changed}/file','legacy later meeting'),(f'submissions/{first}/file','legacy first manuscript'),(f'submissions/{second}/file','legacy second manuscript'),(f'returns/{returned}/file','legacy review annotation')]]
+payload={'schema':a.get('/health').json['schema'],'record':a.get('/api/records/'+rid).json,'history':a.get('/api/history/record/'+rid).json,'topic_id':tid,'topic_files':topic_files}
 Path(sys.argv[2]).write_text(json.dumps(payload,ensure_ascii=False),encoding='utf-8')
 '''
 
@@ -120,9 +128,11 @@ def main():
         assert item['sha256']==digest;hashes.append(digest)
     for item in restored.get('/api/collaboration/topics/'+before['topic_id']+'/candidates').json['items']:
         with restored.get(item['file_url']) as response:assert response.data==b'legacy topic candidate'
+    for item in before['topic_files']:
+        with restored.get(item['url']) as response:assert response.data==item['raw'].encode()
     assert stored_record(restored.get('/api/records/'+rid).json)==stored_record(before['record'])
     with restored.get('/api/attachments/'+before['record']['attachments'][0]['id']) as response:assert response.data==b'legacy journal attachment'
-    result={'baseline':baseline,'schema_before':21,'schema_after':22,'preupgrade_backup_restored':True,'migration_failure_rolled_back_and_retry_ok':True,'old_record_history_and_attachment_bytes':True,'topic_original_retained':True,'journal_original_sha256':hashes,'product_and_four_events_restored':True,'target_was_new_directory':True}
+    result={'baseline':baseline,'schema_before':21,'schema_after':22,'preupgrade_backup_restored':True,'migration_failure_rolled_back_and_retry_ok':True,'old_record_history_and_attachment_bytes':True,'topic_original_retained':True,'historical_meeting_manuscript_return_files_restored':len(before['topic_files']),'journal_original_sha256':hashes,'product_and_four_events_restored':True,'target_was_new_directory':True}
     (evidence/'results.json').write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
     print(json.dumps({'evidence':str(evidence),**result},ensure_ascii=False))
 
