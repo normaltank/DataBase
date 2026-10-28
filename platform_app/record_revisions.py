@@ -338,6 +338,36 @@ class RecordRevisions:
                 after_create(rid)
         return rid
 
+    def work_identity(self, data, author_id, title):
+        """Attach a work handoff atomically without changing an existing record.
+
+        The business caller owns BEGIN IMMEDIATE and its original-file cleanup.
+        New records use the ordinary value/author policy with the actual actor;
+        in particular a lead uploading for a researcher remains pending.
+        """
+        if not self.db.in_transaction:
+            raise RuntimeError("Work identity requires its caller's transaction.")
+        rid = data.get("record_id")
+        if rid is not None and not isinstance(rid, str):
+            abort(400, "已有成果编号格式不正确。")
+        if rid:
+            row = self.get(rid)
+            check_version({"version": data.get("record_version")}, row)
+            if row["kind"] not in {"compilation", "research_report"} or row["author_id"] != author_id:
+                abort(400, "请选择同一负责作者的个人编译成果或研究报告。")
+            return row["id"]
+        visibility = data.get("visibility", "restricted")
+        if visibility not in ("restricted", "shared"):
+            abort(400, "请选择新成果的可见范围。")
+        values, linked, associated, cited = self._values({"kind": "compilation", "title": title,
+            "author_id": author_id, "visibility": visibility})
+        rid = "LOCAL-" + uuid.uuid4().hex[:12].upper()
+        values.update(id=rid, owner_id=self.actor["id"], created_at=now(), updated_at=now())
+        self.db.execute(f"INSERT INTO records ({','.join(values)}) VALUES ({','.join('?' for _ in values)})", list(values.values()))
+        self._relations(rid, linked, associated, cited)
+        self._history(rid, "编译工作成果留档，作者确认沿原规则")
+        return rid
+
     def ingest_public(self, entry_id, lease_token, snapshot, page_error=''):
         """Commit trusted queued evidence, identity, snapshot and work state together.
 

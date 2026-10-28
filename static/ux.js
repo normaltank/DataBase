@@ -91,6 +91,7 @@ async function uxReadRecord(record,target=null) {
     +(target?'':identities)
     +(record.kind==='research_note'?authorPanel(record):authorControlledKinds.has(record.kind)&&!record.author_confirmed?authorPanel(record):authorControlledKinds.has(record.kind)?'<p class="ux-author">负责作者：'+esc(record.author_name||recordAuthorLabel(record))+' · 已由本人确认</p>':'<p class="ux-author">当前有权读取的有效成员共同编辑</p>')
     +(research?bodySection+abstractSection:abstractSection+bodySection)
+    +(typeof topicRecordWorks==='function'?topicRecordWorks(record):'')
     +(typeof automaticProcessingHtml==='function'?automaticProcessingHtml(record):'')
     +(typeof automaticAcquisitionHtml==='function'?automaticAcquisitionHtml(record.automatic_acquisition):'')
     +(!research&&(record.translations?.length||record.chinese_title||record.chinese_abstract)?'<details class="reading-translation-history"><summary>译文来历与处理版本</summary>'+translationPanel(record)+'</details>':'')

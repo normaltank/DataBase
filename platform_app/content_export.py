@@ -18,7 +18,7 @@ from .record_revisions import RECORD_FIELDS
 
 def record_projection(db, item, visible):
     fields = {*RECORD_FIELDS, "id", "version", "created_at", "updated_at", "status", "author_name",
-              "owner_name", "last_modifier", "related_source_ids", "attachments", "evidence_citations",
+              "owner_name", "last_modifier", "related_source_ids", "attachments", "evidence_citations", "collaboration_works",
               "evidence_snapshot", "evidence_version", "linked_records", "cited_by", "excerpts", "previous_ids", "research_subjects", "intake_evidence", "ris_evidence", "discovery_evidence", "last_verified", "review_history", "translations", "translation_history", "adopted_translation_id",
               "display_title", "display_abstract", "translation_origin", "reading_translation_id", "has_chinese", "abstract_is_chinese",
               "automatic_tasks", "machine_summary", "machine_summary_basis", "machine_classification", "subject_countries", "subject_topics", "classified_kind"}

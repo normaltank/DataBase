@@ -8,6 +8,7 @@ from pathlib import Path
 from contextlib import closing
 from platform_app.maintenance import restore_backup
 from platform_app.web import create_app
+from platform_app.store import CURRENT_SCHEMA_VERSION
 import unittest
 
 from tests.test_collaboration import CollaborationTests
@@ -28,7 +29,7 @@ class JournalCollaborationTests(unittest.TestCase):
         return self.call(f"/api/collaboration/journals/{wid}/submissions", {"version": version, "request_id": key, "note": "本机整体稿件", "material_kind": kind}, user, file=("整体稿.txt", raw))
 
     def test_journal_schema_is_advertised_at_public_health_boundary(self):
-        self.assertEqual(self.clients['researcher'].get('/health').json['schema'],22)
+        self.assertEqual(self.clients['researcher'].get('/health').json['schema'], CURRENT_SCHEMA_VERSION)
 
     def test_journal_work_preserves_independent_original_versions_without_topic(self):
         wid = self.work()

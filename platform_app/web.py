@@ -412,6 +412,10 @@ def create_app(data_dir=None, testing=False):
             obj["research_subjects"] = note_subjects.read(db(), rid, visible)
         obj["translations"] = translations.items(db(), row)
         obj["translation_history"] = translations.human_history(db(), row["id"])
+        from .topic_finals import record_works
+        works = record_works(db(), user(), rid)
+        if works:
+            obj["collaboration_works"] = works
         return jsonify(obj)
 
     @app.get("/api/records/<rid>/copy-text")
@@ -854,6 +858,8 @@ def create_app(data_dir=None, testing=False):
     collaboration.register(app, SimpleNamespace(db=db, user=user, body=body, admin=admin, data_dir=data_dir))
     from . import topic_review
     topic_review.register(app, SimpleNamespace(db=db, user=user, body=body, data_dir=data_dir))
+    from . import topic_finals
+    topic_finals.register(app, SimpleNamespace(db=db, user=user, body=body, data_dir=data_dir))
     from . import journal_collaboration
     journal_collaboration.register(app, SimpleNamespace(db=db, user=user, body=body, records=records, data_dir=data_dir))
     return app

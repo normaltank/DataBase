@@ -111,7 +111,7 @@ def restore_backup(archive_path, target_dir):
             if db.execute("PRAGMA integrity_check").fetchone()[0] != "ok" or db.execute("PRAGMA foreign_key_check").fetchall():
                 raise ValueError("数据库完整性检查失败。")
             version = db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0]
-            if version not in {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22"}:
+            if version not in {str(v) for v in range(1, 24)}:
                 raise ValueError("数据库版本不匹配。")
             from . import evidence
             if int(version) >= evidence.SCHEMA_VERSION:
@@ -146,6 +146,13 @@ def restore_backup(archive_path, target_dir):
                 if int(version) >= topic_review.SCHEMA_VERSION:
                     referenced_ids.update(topic_review.referenced_files(db))
                     topic_review.validate_backup(db)
+                from . import topic_finals
+                if int(version) >= topic_finals.SCHEMA_VERSION:
+                    summary_files = set(topic_finals.referenced_files(db))
+                    if referenced_ids & summary_files:
+                        raise ValueError('整期汇总必须拥有独立提交原件。')
+                    referenced_ids.update(summary_files)
+                    topic_finals.validate_backup(db)
                 from . import journal_collaboration
                 if int(version) >= journal_collaboration.SCHEMA_VERSION:
                     journal_collaboration.validate_backup(db)

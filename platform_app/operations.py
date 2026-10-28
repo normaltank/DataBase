@@ -248,6 +248,8 @@ def register(app, ctx):
                     if original and ctx.visible(original):
                         attachments[aid] = {**dict(a), "path": "attachments/" + a["stored_name"]}
         avatars = content_export.prepare_people(db(), people)
+        from . import topic_finals
+        final_files = topic_finals.prepare_export(db(), records)
         from . import journal_collaboration
         journal_works = journal_collaboration.export_projection(db(),ctx.records(),set(records))
         payload = {"format": "research-content-v1", "exported_at": now(), "selected_ids": [r["id"] for r in selected],
@@ -308,6 +310,11 @@ def register(app, ctx):
                 index += '<li><a href="' + paths[rid] + '">' + html.escape(item["title"]) + "</a></li>"
                 content = '<p><a href="../index.html">返回目录</a></p>' + prose("出版题录", reading.citation(item)) + prose("身份与出处", f"编号：{rid}\n署名：{item['authors']}\n日期：{item['published_on']}\n版本：{item['version']}\n覆盖范围：{item['coverage']}\n原目录出处：{item['original_catalogue']}\n原文链接：{item['url']}")
                 content += reviews.html(item)
+                for work in item.get("collaboration_works", []):
+                    content += prose("编译工作与采用依据", json.dumps(work, ensure_ascii=False, indent=2))
+                    content += '<p><a href="../' + html.escape(work["path"]) + '">已留档原件：' + html.escape(work["name"]) + '</a></p>'
+                    for adopted in work.get("adoptions", []):
+                        content += '<p><a href="../' + html.escape(adopted["path"]) + '">采用定稿 v' + str(adopted["version"]) + '：' + html.escape(adopted["name"]) + '</a></p>'
                 content += prose("当前阅读题名（" + {'human':'人工中文','machine':'机器中文，未人工校订','original':'原始信息'}.get(item.get('translation_origin'), '原始信息') + "）", item.get('display_title'))
                 content += prose("当前阅读摘要", item.get('display_abstract'))
                 content += prose("人工中文题名", item.get("chinese_title")) + prose("人工中文摘要", item.get("chinese_abstract"))
@@ -397,7 +404,7 @@ def register(app, ctx):
             for collection in collections:
                 index += "<section><h2>" + html.escape(collection["name"]) + "</h2>" + prose("研究问题", collection["research_question"]) + collection["comparison_html"] + prose("阶段判断", collection["stage_judgment"]) + "</section>"
             archive.writestr("index.html", page("研究资料内容导出", index + scope_html))
-            for group, folder, label in [(attachments, "uploads", "附件"), (avatars, "avatars", "头像")]:
+            for group, folder, label in [(attachments, "uploads", "附件"), (avatars, "avatars", "头像"), (final_files, "handoffs", "编译定稿")]:
                 for entry in group.values():
                     try:
                         data = (ctx.data_dir / folder / entry["stored_name"]).read_bytes()

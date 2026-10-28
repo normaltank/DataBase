@@ -5,7 +5,7 @@ from pathlib import Path
 
 from werkzeug.security import generate_password_hash
 
-CURRENT_SCHEMA_VERSION = 22
+CURRENT_SCHEMA_VERSION = 23
 
 
 def now():
@@ -126,6 +126,8 @@ def initialize(data_dir):
     migrate_topic_review(data_dir)
     from .journal_collaboration import migrate as migrate_journal_collaboration
     migrate_journal_collaboration(data_dir)
+    from .topic_finals import migrate as migrate_topic_finals
+    migrate_topic_finals(data_dir)
 
 
 def decoded(row):
