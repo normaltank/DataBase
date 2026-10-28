@@ -89,8 +89,12 @@ def original_path(data_dir, row):
     path = Path(data_dir) / "handoffs" / row["stored_name"]
     if not path.is_file():
         abort(404, "原件暂不可用，请联系管理员核查备份。")
-    content = path.read_bytes()
-    if len(content) != row["bytes"] or hashlib.sha256(content).hexdigest() != row["sha256"]:
+    digest, count = hashlib.sha256(), 0
+    with path.open('rb') as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+            digest.update(chunk)
+            count += len(chunk)
+    if count != row["bytes"] or digest.hexdigest() != row["sha256"]:
         abort(409, "原件校验未通过，请联系管理员核查备份。")
     return path
 
