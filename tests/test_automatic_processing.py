@@ -126,7 +126,9 @@ class AutomaticProcessingTests(unittest.TestCase):
                     self.assertGreater(state['held_units'],0)
                     if index==0:
                         from platform_app.maintenance import restore_backup
-                        backup=Path(self.temp.name)/'unknown-backup.zip';backup.write_bytes(self.call('/api/backup',user='admin').data)
+                        backup=Path(self.temp.name)/'unknown-backup.zip'
+                        with self.call('/api/backup',user='admin') as response:
+                            backup.write_bytes(response.data)
                         recovered=restore_backup(backup,Path(self.temp.name)/'unknown-restored')
                         run_pending(recovered,limit=10)
                         self.assertEqual(FailureProvider.received,1)
@@ -294,7 +296,9 @@ class AutomaticProcessingTests(unittest.TestCase):
             self.assertIn('机器概述',archive.read(exported['path']).decode())
         from platform_app.maintenance import restore_backup
         from platform_app.web import create_app
-        backup=Path(self.temp.name)/'complete.zip';backup.write_bytes(self.call('/api/backup',user='admin').data)
+        backup=Path(self.temp.name)/'complete.zip'
+        with self.call('/api/backup',user='admin') as response:
+            backup.write_bytes(response.data)
         restored=restore_backup(backup,Path(self.temp.name)/'new-directory')
         recovered=create_app(restored,testing=True).test_client();csrf=recovered.get('/api/session').json['csrf']
         recovered.post('/api/login',json={'username':'researcher','password':'LocalDemo2026!'},headers={'X-CSRF-Token':csrf})
