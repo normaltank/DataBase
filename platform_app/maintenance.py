@@ -141,7 +141,7 @@ def restore_backup(archive_path, target_dir):
                 validate_automatic(db)
             from . import collaboration, handoff_files
             if int(version) >= collaboration.SCHEMA_VERSION:
-                handoff_files.validate_backup(db, manifest)
+                handoff_files.validate_backup(db, manifest, {r[0] for r in db.execute("SELECT file_id FROM topic_candidates")})
                 collaboration.validate_backup(db)
             for row in db.execute("SELECT stored_name,sha256 FROM attachments"):
                 name = "uploads/" + row["stored_name"]

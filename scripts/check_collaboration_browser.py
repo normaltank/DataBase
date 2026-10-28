@@ -95,11 +95,14 @@ def main():
                 page.get_by_label("简短说明", exact=False).fill("本机模板直接上传，无需重填题录。")
                 page.get_by_role("button", name="提交为版本 1", exact=True).click()
                 expect(page.get_by_role("link", name="下载原件 v1", exact=True)).to_be_visible()
+                expect(page.get_by_label("选题报告文件", exact=False)).to_be_hidden()
+                page.get_by_role("button", name="提交我的选题报告", exact=True).click()
                 # A second real page updates the same report. The first keeps its selected file on conflict.
                 peer = context.new_page()
                 peer.goto(topic_url)
                 page.get_by_label("选题报告文件", exact=False).set_input_files({"name": "修改稿.docx", "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "buffer": second})
                 page.get_by_label("简短说明", exact=False).fill("冲突仍保留的说明")
+                peer.get_by_role("button", name="提交我的选题报告", exact=True).click()
                 peer.get_by_label("选题报告文件", exact=False).set_input_files({"name": "另一页提交.docx", "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "buffer": second})
                 peer.get_by_role("button", name="提交为版本 2", exact=True).click()
                 expect(peer.get_by_role("link", name="下载原件 v2", exact=True)).to_be_visible()
@@ -110,7 +113,15 @@ def main():
                 page.get_by_role("button", name="已核对，保留输入继续", exact=True).click()
                 page.get_by_role("button", name="提交为版本 3", exact=True).click()
                 expect(page.get_by_role("link", name="下载原件 v3", exact=True)).to_be_visible()
+                expect(page.get_by_label("选题报告文件", exact=False)).to_be_hidden()
                 peer.close()
+                page.evaluate("scrollTo(0,0)")
+                page.screenshot(path=str(evidence / f"topic-{width}-{int(zoom*100)}-default.png"), full_page=zoom == 1)
+                latest_summary = page.locator(".collaboration-author h3").first
+                expect(latest_summary).to_be_in_viewport()
+                latest_bounds = latest_summary.bounding_box()
+                first_view = latest_bounds["y"] < page.evaluate("innerHeight")
+                assert latest_bounds["y"] < page.locator("[data-collaboration-upload]").bounding_box()["y"]
                 page.get_by_text("查看此前 2 个原件版本", exact=True).click()
                 with page.expect_download() as download:
                     page.get_by_role("link", name="下载原件 v1", exact=True).click()
@@ -118,8 +129,9 @@ def main():
                 layout = no_overflow(page)
                 if zoom == 2:
                     assert layout["width"] < 800 and layout["dpr"] >= 2, layout
-                page.screenshot(path=str(evidence / f"topic-{width}-{int(zoom*100)}.png"), full_page=True)
+                page.screenshot(path=str(evidence / f"topic-{width}-{int(zoom*100)}.png"), full_page=zoom == 1)
                 # Keyboard reaches the actual file control and enters the note field.
+                page.get_by_role("button", name="提交我的选题报告", exact=True).click()
                 page.get_by_label("选题报告文件", exact=False).focus()
                 page.keyboard.press("Tab")
                 expect(page.get_by_label("简短说明", exact=False)).to_be_focused()
@@ -134,7 +146,7 @@ def main():
                 no_overflow(page)
                 assert page.get_by_role("button", name="维护本期信息", exact=True).count() == 0
                 page.get_by_role("button", name="退出登录", exact=True).click()
-                results.append({"width": width, "zoom": zoom, "layout": layout, "versions": 3, "old_original_sha256": hashlib.sha256(first).hexdigest(), "peer_read": True, "conflict_preserved_file": True})
+                results.append({"width": width, "zoom": zoom, "layout": layout, "versions": 3, "latest_submission_before_form": True, "latest_submission_in_first_view": first_view, "submitted_form_collapsed": True, "old_original_sha256": hashlib.sha256(first).hexdigest(), "peer_read": True, "conflict_preserved_file": True})
             assert not errors, errors
             context.close()
     finally:

@@ -95,8 +95,13 @@ def original_path(data_dir, row):
     return path
 
 
-def validate_backup(db, manifest):
-    for row in db.execute("SELECT * FROM handoff_files"):
+def validate_backup(db, manifest, referenced_ids):
+    rows = db.execute("SELECT * FROM handoff_files").fetchall()
+    if {r["id"] for r in rows} != set(referenced_ids):
+        raise ValueError("交接原件缺少有效业务归属。")
+    if {"handoffs/" + r["stored_name"] for r in rows} != {name for name in manifest["files"] if name.startswith("handoffs/")}:
+        raise ValueError("交接原件清单与登记不一致。")
+    for row in rows:
         item = manifest["files"].get("handoffs/" + row["stored_name"])
         if (not re.fullmatch(STORED_NAME, row["stored_name"]) or row["stored_name"].split(".")[0] != row["id"]
                 or not item or item["sha256"] != row["sha256"] or item["bytes"] != row["bytes"] or row["bytes"] <= 0):

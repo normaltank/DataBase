@@ -138,6 +138,7 @@ def main():
         {'mutation': "UPDATE topic_candidates SET file_id='nonexistent' WHERE version=2"},
         {'mutation': "DELETE FROM qualification_events"},
         {'mutation': "UPDATE topic_participants SET active=0 WHERE member_id='researcher'"},
+        {'mutation': "DELETE FROM topic_candidates WHERE version=2"},
     ]
     for index, case in enumerate(cases):
         corrupt, target = evidence / f'corrupt-{index}.zip', evidence / f'rejected-{index}'
