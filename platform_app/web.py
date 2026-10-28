@@ -176,6 +176,8 @@ def create_app(data_dir=None, testing=False):
                "publication_title", "volume", "issue", "pages", "issn", "published_on", "language", "abstract", "keywords", "countries", "status",
                 "visibility", "owner_id", "version", "updated_at", "upstream_status", "aliases", "coverage", "author_id", "author_confirmed"]}
         obj.update(translations.projection(db(), r))
+        from .automatic_processing import projection as automatic_projection
+        obj.update(automatic_projection(db(),r))
         obj['created_at'] = r['created_at']
         if 'record_search' in g:
             source = g.record_search.sources.get(r['source_id'])
@@ -286,7 +288,9 @@ def create_app(data_dir=None, testing=False):
                     continue
                 if source_section == "outputs" and r["kind"] not in workflow.PERSONAL_KINDS:
                     continue
-            if args.get('kind') and r['kind'] not in reading_feed.choices(args['kind']):
+            from .automatic_processing import projection as automatic_projection
+            automatic = automatic_projection(db(),r)
+            if args.get('kind') and automatic['classified_kind'] not in reading_feed.choices(args['kind']):
                 continue
             if args.get("evidence_of") and r["evidence_record_id"] != args["evidence_of"]:
                 continue
@@ -294,10 +298,10 @@ def create_app(data_dir=None, testing=False):
                 continue
             if args.get('language') and not set(reading_feed.choices(args['language'])).intersection(re.split(r'[;,|\s]+', r['language']) if r['language'] else ['__unknown__']):
                 continue
-            subject_countries = {country.casefold() for country in reading_feed.terms(r['countries'])} or {'__unknown__'}
+            subject_countries = {country.casefold() for country in reading_feed.terms(automatic['subject_countries'])} or {'__unknown__'}
             if countries and not countries.intersection(subject_countries):
                 continue
-            if args.get('topic') and not any((not r['keywords'].strip()) if t == '__unknown__' else t.casefold() in r['keywords'].casefold() for t in reading_feed.choices(args['topic'])):
+            if args.get('topic') and not any((not automatic['subject_topics'].strip()) if t == '__unknown__' else t.casefold() in automatic['subject_topics'].casefold() for t in reading_feed.choices(args['topic'])):
                 continue
             if args.get('availability') and not set(reading_feed.choices(args['availability'])).intersection(reading_feed.available(r, translations.projection(db(), r))):
                 continue
@@ -319,6 +323,8 @@ def create_app(data_dir=None, testing=False):
                 hay += ' '+searchable_text(r)
                 chinese = translations.projection(db(), r)
                 hay += ' ' + chinese['display_title'] + ' ' + chinese['display_abstract']
+                hay += ' ' + automatic['subject_countries'] + ' ' + automatic['subject_topics']
+                hay += ' ' + (automatic['machine_summary']['summary'] if automatic['machine_summary'] else '')
                 hay += " " + " ".join(s["text"] for s in attachment_index().segments(r))
                 if not all(word in normalize(hay) for word in q.split()):
                     continue
@@ -829,6 +835,8 @@ def create_app(data_dir=None, testing=False):
     from . import ingestion
     ingestion.register(app, SimpleNamespace(db=db, user=user, body=body, records=records, admin=admin))
     ris.register(app, SimpleNamespace(db=db, user=user, body=body, records=records))
+    from . import ai_gateway
+    ai_gateway.register(app, SimpleNamespace(db=db, user=user, body=body, admin=admin))
     translations.register(app, SimpleNamespace(db=db, user=user, body=body, records=records))
     bulk.register(app, SimpleNamespace(db=db, user=user, body=body, visible=visible, get_collection=get_collection, export_csv=export_csv))
     identity.register(app, db=db, body=body, records=records, validate_source=source_values)

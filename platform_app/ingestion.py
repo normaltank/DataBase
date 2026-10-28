@@ -458,7 +458,7 @@ def register(app, ctx):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='固定公开来源持久采集后台（不依赖网页会话，不调用 AI）')
+    parser = argparse.ArgumentParser(description='固定公开来源持久采集与公开材料中文处理后台')
     parser.add_argument('--data-dir',type=Path,required=True)
     parser.add_argument('--once',action='store_true')
     parser.add_argument('--poll-seconds',type=int,default=30)
@@ -475,6 +475,8 @@ def main():
         finally:
             db.close()
         result = run_pending(args.data_dir,limit=5)
+        from .automatic_processing import run_pending as process_pending
+        result['chinese_processing'] = process_pending(args.data_dir,limit=5)
         if result['runs']:
             logging.info('public_ingestion %s',json.dumps(result))
         if args.once:

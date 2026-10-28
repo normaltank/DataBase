@@ -14,6 +14,13 @@ ABC = 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'
 
 
 class VerifyExportTests(unittest.TestCase):
+    def test_ai_overview_locator_must_match_saved_body_even_with_rebuilt_manifest(self):
+        for quote,start,expected in [('Actual body.',0,0),('Invented body',0,1),('Actual body.',1,1)]:
+            content={'records':[{'id':'synthetic','machine_summary':{'summary':'机器概述','citations':[{'quote':quote,'start':start,'end':start+len(quote)}]},'machine_summary_basis':{'body':'Actual body.','snapshot_id':'snap-1','snapshot_sha256':'a'*64,'body_basis':'synthetic acquired original','abstract':''}}]}
+            raw=json.dumps(content).encode()
+            manifest={'format':'research-content-manifest-v1','files':[{'path':'content.json','bytes':len(raw),'sha256':hashlib.sha256(raw).hexdigest()}]}
+            self.run_zip([('content.json',raw)],manifest,expected)
+
     def run_zip(self, entries, manifest, expected=0, digest=None):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / 'sample.zip'

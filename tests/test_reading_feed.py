@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 from platform_app.web import create_app
+from tests.synthetic_ai import PRICE,ENV
 
 
 class ReadingFeedTests(unittest.TestCase):
@@ -156,7 +157,9 @@ class ReadingFeedTests(unittest.TestCase):
         # Real migration artifacts prove the nonempty v16 -> v17 -> v18 chain.
         with closing(sqlite3.connect(upgraded/'platform.sqlite3')) as db:
             stage16 = Path(db.execute("SELECT value FROM settings WHERE key='ingestion_migration_backup'").fetchone()[0])
-        for version, archive in [(16, stage16), (17, backup), (18, create_backup(upgraded))]:
+        with closing(sqlite3.connect(upgraded/'platform.sqlite3')) as db:
+            stage18=Path(db.execute("SELECT value FROM settings WHERE key='ai_migration_backup'").fetchone()[0])
+        for version, archive in [(16,stage16),(17,backup),(18,stage18),(19,create_backup(upgraded))]:
             stage = restore_backup(archive, Path(self.temp.name)/('restored-stage-'+str(version)))
             with closing(sqlite3.connect(stage/'platform.sqlite3')) as db:
                 self.assertEqual(db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0], str(version))
@@ -309,12 +312,16 @@ class ReadingFeedTests(unittest.TestCase):
 
     @patch.dict('os.environ', {'DEEPSEEK_API_KEY': 'synthetic-only', 'DEEPSEEK_BASE_URL': 'https://api.deepseek.com'})
     def test_matching_machine_projection_is_searchable_but_never_overrides_human_or_stale_input(self):
+        self.login('admin')
+        self.call('/api/admin/ai/config',{'cap':'1','currency':'USD'})
+        self.login('researcher')
+        environment=patch.dict('os.environ',ENV);environment.start();self.addCleanup(environment.stop)
         record = self.record(title='Original input', abstract='Source abstract')
         job = self.call('/api/records/'+record['id']+'/translations', {'version': 1, 'request_id': 'synthetic'}, status=201)
         provider = MagicMock()
         provider.__enter__.return_value = provider
         provider.geturl.return_value = 'https://api.deepseek.com/chat/completions'
-        provider.read.return_value = json.dumps({'choices': [{'finish_reason':'stop', 'message': {'content': json.dumps({'title': '机器能源译题', 'abstract': '中文处理摘要'})}}]}).encode()
+        provider.read.return_value = json.dumps({'model':'deepseek-flash','usage':{'prompt_tokens':23,'completion_tokens':7,'total_tokens':30},'choices': [{'finish_reason':'stop', 'message': {'content': json.dumps({'title': '机器能源译题', 'abstract': '中文处理摘要'})}}]}).encode()
         with patch('urllib.request.OpenerDirector.open', return_value=provider):
             self.call('/api/translations/'+job['id']+'/run')
         result = self.client.get('/api/records?q=中文处理').json

@@ -46,10 +46,12 @@ def facets(rows, db):
     counts = {key: Counter() for key in ['country', 'kind', 'language', 'topic', 'source', 'source_country', 'source_group', 'availability']}
     catalog = source_catalog.catalog(db)
     for row in rows:
+        from .automatic_processing import projection as automatic_projection
+        automatic = automatic_projection(db,row)
         source_ids = {s for s in [row['source_id'], row['serial_id'], *workflow.source_ids(db, row['id'])] if s}
-        fields = {'country': terms(row['countries']) or ['__unknown__'], 'kind': [row['kind']],
+        fields = {'country': terms(automatic['subject_countries']) or ['__unknown__'], 'kind': [automatic['classified_kind']],
                   'language': re.split(r'[;,|\s]+', row['language']) if row['language'] else ['__unknown__'],
-                  'topic': terms(row['keywords']) or ['__unknown__'], 'source': source_ids or ['__unknown__'],
+                  'topic': terms(automatic['subject_topics']) or ['__unknown__'], 'source': source_ids or ['__unknown__'],
                   'availability': available(row, translations.projection(db, row)),
                   'source_group': {catalog[s]['group'] for s in source_ids if s in catalog},
                   'source_country': {c for s in source_ids if s in catalog for c in catalog[s].get('filter_countries', []) or ['__pending__']}}

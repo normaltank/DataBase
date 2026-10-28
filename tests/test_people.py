@@ -15,10 +15,18 @@ from platform_app.maintenance import restore_backup
 from platform_app.store import CURRENT_SCHEMA_VERSION
 
 
+def legacy_automatic_fields(item):
+    """Old member records have no public-acquisition jobs or machine results."""
+    return {"automatic_tasks": [], "machine_classification": None,
+            "machine_summary": None, "machine_summary_basis": None,
+            "subject_countries": item["countries"], "subject_topics": item["keywords"],
+            "classified_kind": item["kind"]}
+
+
 def legacy_record_response(before, records):
     """Fixed public response additions to the frozen v5 record fixture."""
     def reading_fields(item):
-        return {"chinese_title": "", "chinese_abstract": "", "display_title": item["title"],
+        return {**legacy_automatic_fields(item), "chinese_title": "", "chinese_abstract": "", "display_title": item["title"],
                 "display_abstract": item["abstract"], "translation_origin": "original",
                 "reading_translation_id": "", "has_chinese": False, "abstract_is_chinese": False,
                 "original_abstract_missing": not bool(item["abstract"]),
@@ -256,7 +264,7 @@ class PeopleTests(unittest.TestCase):
         expected_source = {**expected["source"], "filter_countries": [], "last_verified": None, "review_history": []}
         self.assertEqual(self.clients["researcher"].get("/api/sources/" + expected["source"]["id"]).json, expected_source)
         expected_collection = {**expected["collection"], "scope_log_json": "[]", "scope_log": [], "excluded_items": [], "items": [
-            {**item, "chinese_title": "", "chinese_abstract": "", "display_title": item["title"],
+            {**item, **legacy_automatic_fields(item), "chinese_title": "", "chinese_abstract": "", "display_title": item["title"],
              "display_abstract": item["abstract"], "translation_origin": "original", "reading_translation_id": "",
              "has_chinese": False, "abstract_is_chinese": False, "original_abstract_missing": not bool(item["abstract"]),
              "created_at": expected["records"][item["id"]]["created_at"],

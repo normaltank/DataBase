@@ -4,10 +4,16 @@ import os
 import unittest
 from unittest.mock import patch
 from tests import test_workflow as workflow_tests
+from tests.synthetic_ai import PRICE, ENV
 
 
 class TranslationTests(unittest.TestCase):
-    setUp = workflow_tests.WorkflowTests.setUp
+    def setUp(self):
+        workflow_tests.WorkflowTests.setUp(self)
+        environment=patch.dict(os.environ,ENV)
+        environment.start();self.addCleanup(environment.stop)
+        self.call('/api/admin/ai/config',{'cap':'1','currency':'USD'},user='admin')
+
     login = workflow_tests.WorkflowTests.login
     def call(self, *args, **kwargs):
         response = workflow_tests.WorkflowTests.call(self, *args, **kwargs)
@@ -37,7 +43,7 @@ class TranslationTests(unittest.TestCase):
     def provider(self, title='合成译题', abstract='合成摘要'):
         response = unittest.mock.MagicMock()
         response.geturl.return_value = "https://api.deepseek.com/chat/completions"
-        response.read.return_value = json.dumps({'choices': [{'finish_reason':'stop', 'message': {'content': json.dumps({'title': title, 'abstract': abstract})}}]}).encode()
+        response.read.return_value = json.dumps({'model':os.environ.get('DEEPSEEK_MODEL','deepseek-flash'),'usage':{'prompt_tokens':23,'completion_tokens':7,'total_tokens':30},'choices': [{'finish_reason':'stop', 'message': {'content': json.dumps({'title': title, 'abstract': abstract})}}]}).encode()
         response.__enter__.return_value = response
         return response
 
@@ -48,22 +54,22 @@ class TranslationTests(unittest.TestCase):
         for attempt, reason in enumerate(['length','insufficient_system_resource','aborted'], 1):
             provider = self.provider('截断但合法的译题', '')
             provider.read.return_value = json.dumps({'id':'synthetic-completion-'+str(attempt),
-                'model':'synthetic-resolved-v4', 'choices':[{'finish_reason':reason,
+                'model':'deepseek-flash', 'choices':[{'finish_reason':reason,
                 'message':{'content':json.dumps({'title':'截断但合法的译题','abstract':''})}}],
                 'usage':{'prompt_tokens':23,'completion_tokens':7,'total_tokens':30,
                          'prompt_cache_hit_tokens':3,'prompt_cache_miss_tokens':20}}).encode()
-            with patch('urllib.request.OpenerDirector.open', return_value=provider):
+            with patch('platform_app.ai_gateway.now',return_value=f'2026-10-28T00:0{attempt}:00+00:00'), patch('urllib.request.OpenerDirector.open', return_value=provider):
                 response = self.call(f'/api/translations/{jid}/run')
             self.assertEqual(response.json['status'], 'failed', reason)
             self.assertEqual(response.json['output_title'], '')
-            self.assertEqual(response.json['model'], 'synthetic-resolved-v4')
+            self.assertEqual(response.json['model'], 'deepseek-flash')
             detail = self.detail(rid)
             self.assertEqual(detail['translation_origin'], 'original')
             evidence = detail['translations'][0]['calls']
             self.assertEqual(len(evidence), attempt)
             self.assertEqual(evidence[-1]['finish_reason'], reason)
             self.assertEqual(evidence[-1]['usage']['total_tokens'], 30)
-            self.assertEqual(evidence[-1]['response_model'], 'synthetic-resolved-v4')
+            self.assertEqual(evidence[-1]['response_model'], 'deepseek-flash')
             if attempt < 3:
                 self.assertEqual(self.call(f'/api/translations/{jid}/retry').status_code, 200)
         from pathlib import Path
@@ -90,7 +96,7 @@ class TranslationTests(unittest.TestCase):
                 if reason != 'missing':
                     choice['finish_reason'] = reason
                 response = self.provider()
-                response.read.return_value = json.dumps({'model':'synthetic-resolved','usage':{'prompt_tokens':8,
+                response.read.return_value = json.dumps({'model':'deepseek-flash','usage':{'prompt_tokens':8,
                     'completion_tokens':4,'total_tokens':12},'choices':[choice]}).encode()
                 with patch('urllib.request.OpenerDirector.open', return_value=response):
                     result = self.call(f'/api/translations/{jid}/run')
@@ -98,14 +104,14 @@ class TranslationTests(unittest.TestCase):
                 job = self.detail(rid)['translations'][0]
                 self.assertEqual(job['calls'][0]['usage']['total_tokens'], 12)
                 self.assertEqual(job['calls'][0]['usage_state'], 'reported')
-                self.assertEqual(job['model'], 'synthetic-resolved')
+                self.assertEqual(job['model'], 'deepseek-flash')
                 self.assertEqual(self.detail(rid)['translation_origin'], 'original')
 
     @patch.dict('os.environ', {'DEEPSEEK_API_KEY':'synthetic-secret-test','DEEPSEEK_BASE_URL':'https://api.deepseek.com'})
     def test_default_model_uses_explicit_nonthinking_and_versions_runtime_pricing(self):
         from urllib.error import HTTPError
         os.environ.pop('DEEPSEEK_MODEL', None)
-        os.environ.pop('DEEPSEEK_PRICING_JSON', None)
+        os.environ['DEEPSEEK_PRICING_JSON']=json.dumps(PRICE)
         rid = self.record(title='Current model configuration')
         jid = self.call(f'/api/records/{rid}/translations', {'version':1,'request_id':'model-current'}).json['id']
         def provider(request, **kwargs):
@@ -120,11 +126,12 @@ class TranslationTests(unittest.TestCase):
         self.assertEqual(result.json['status'], 'succeeded')
         configuration = self.detail(rid)['translations'][0]['calls'][0]['configuration']
         self.assertEqual(configuration['model'], 'deepseek-flash')
-        self.assertEqual(configuration['pricing'], {})
+        self.assertEqual(configuration['pricing'], PRICE)
         pricing = {'version':'synthetic-price-v7','model':'deepseek-v4-pro','currency':'USD',
                    'input_cache_hit_per_million':'0.02','input_cache_miss_per_million':'0.5','output_per_million':'2'}
         with patch.dict(os.environ, {'DEEPSEEK_MODEL':'deepseek-v4-pro','DEEPSEEK_MODEL_VERSION':'synthetic-pro-revision',
                                     'DEEPSEEK_CONFIG_VERSION':'local-v2','DEEPSEEK_PRICING_JSON':json.dumps(pricing)}):
+            rid=self.record(title='Different input for configured model')
             other = self.call(f'/api/records/{rid}/translations', {'version':1,'request_id':'configured-model'}).json['id']
             with patch('urllib.request.OpenerDirector.open', return_value=self.provider('显式配置译题', '')) as network:
                 self.assertEqual(self.call(f'/api/translations/{other}/run').json['status'], 'succeeded')
@@ -170,8 +177,10 @@ class TranslationTests(unittest.TestCase):
             result = self.call(f'/api/translations/{jid}/run')
             self.assertEqual(result.json['status'], 'failed')
             self.assertNotIn('synthetic-secret-test', result.text)
+        state=self.get('/api/admin/ai','admin').json
+        self.call('/api/admin/ai/attempts/'+state['attempts'][0]['id']+'/resolve',{'charged':'0','basis':'Synthetic provider confirms request was not charged'},user='admin')
         self.assertEqual(self.call(f'/api/translations/{jid}/retry').status_code, 200)
-        with patch('urllib.request.OpenerDirector.open', return_value=self.provider('仅题译文', '')):
+        with patch('platform_app.ai_gateway.now',return_value=(__import__('datetime').datetime.now(__import__('datetime').timezone.utc)+__import__('datetime').timedelta(seconds=61)).isoformat()), patch('urllib.request.OpenerDirector.open', return_value=self.provider('仅题译文', '')):
             result = self.call(f'/api/translations/{jid}/run')
             self.assertEqual(result.json['status'], 'succeeded')
             self.assertEqual(result.json['attempts'], 2)
@@ -240,8 +249,8 @@ class TranslationTests(unittest.TestCase):
     def test_invalid_outputs_never_become_versions_and_retry_is_bounded(self):
         rid = self.record(title='Title only')
         jid = self.call(f'/api/records/{rid}/translations', {'version': 1, 'request_id': 'invalid'}).json['id']
-        for title, abstract in [('Invented', 'No source exists'), ('synthetic-secret-test', ''), ('x' * 4001, '')]:
-            with patch('urllib.request.OpenerDirector.open', return_value=self.provider(title, abstract)):
+        for index,(title, abstract) in enumerate([('Invented', 'No source exists'), ('synthetic-secret-test', ''), ('x' * 4001, '')]):
+            with patch('platform_app.ai_gateway.now',return_value=f'2026-10-28T00:0{index*2}:00+00:00'), patch('urllib.request.OpenerDirector.open', return_value=self.provider(title, abstract)):
                 result = self.call(f'/api/translations/{jid}/run')
             self.assertEqual(result.json['status'], 'failed')
             self.assertEqual(result.json['output_title'], '')
@@ -254,7 +263,12 @@ class TranslationTests(unittest.TestCase):
         rid = self.record(title='Initially shared')
         jid = self.call(f'/api/records/{rid}/translations', {'version': 1, 'request_id': 'revoked'}, user='colleague').json['id']
         def revoke(*args, **kwargs):
-            self.assertEqual(self.call(f'/api/records/{rid}', {'version': 1, 'visibility': 'restricted'}, method='PUT').status_code, 200)
+            # Independent incoming request; do not nest Flask request/session contexts in the provider seam.
+            import threading
+            outcomes=[]
+            worker=threading.Thread(target=lambda:outcomes.append(self.call(f'/api/records/{rid}', {'version':1,'visibility':'restricted'},method='PUT').status_code))
+            worker.start();worker.join(5)
+            self.assertEqual(outcomes,[200])
             return self.provider('Must be discarded', '')
         with patch('urllib.request.OpenerDirector.open', side_effect=revoke):
             result = self.call(f'/api/translations/{jid}/run', user='colleague')
@@ -350,6 +364,7 @@ class TranslationTests(unittest.TestCase):
                         save_revision(db, 'record', rid, '迁移前合成版本', 'researcher')
                 app = create_app(legacy, testing=True)
                 self.clients = {name: self.login(name, app) for name in self.clients}
+                self.call('/api/admin/ai/config',{'cap':'1','currency':'USD'},user='admin')
                 old = self.get('/api/history/record/' + rid).json['items'][0]
                 old_snapshot = self.get('/api/history/' + str(old['id'])).json['snapshot']
                 self.assertNotIn('chinese_title', old_snapshot)
@@ -413,9 +428,8 @@ class TranslationTests(unittest.TestCase):
         rid = self.record(title='Bounded input')
         jid = self.call(f'/api/records/{rid}/translations', {'version': 1, 'request_id': 'deadline'}).json['id']
         def delayed(*args, **kwargs):
-            time.sleep(.1)
-            return self.provider('Late output', '')
-        with patch('platform_app.translations.MAX_SECONDS', .01), patch('urllib.request.OpenerDirector.open', side_effect=delayed):
+            raise TimeoutError('synthetic transport deadline')
+        with patch('urllib.request.OpenerDirector.open', side_effect=delayed):
             result = self.call(f'/api/translations/{jid}/run')
             self.assertEqual(result.json['status'], 'failed')
         self.assertEqual(self.call(f'/api/translations/{jid}/retry').status_code, 200)
