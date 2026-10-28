@@ -32,6 +32,15 @@ class ReadingFeedTests(unittest.TestCase):
     def record(self, **values):
         return self.call('/api/records', {'title': 'Original', 'kind': 'report', **values}, status=201)
 
+    def test_internal_finished_content_is_not_a_pending_translation_task(self):
+        external = self.record(title='External English material', language='en')
+        source = self.call('/api/sources', {'name':'合成译稿来源','kind':'institution'}, status=201)['id']
+        for kind in ['compilation', 'research_report', 'research_note', 'directory_translation']:
+            self.record(title='已保存中文内容', kind=kind, body_html='<p>已有中文正文</p>',
+                        authors='合成署名', coverage='2026年', related_source_ids=[source])
+        pending = self.client.get('/api/records?availability=translation_pending').json
+        self.assertEqual([row['id'] for row in pending['items']], [external['id']])
+
     def test_chinese_title_and_abstract_are_public_search_and_list_fields(self):
         record = self.record(title='Original title', abstract='Original abstract',
                              chinese_title='波罗的海政策', chinese_abstract='跨境能源安全')

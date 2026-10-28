@@ -47,16 +47,12 @@
 .topic-card{display:flex;flex-direction:column;gap:14px;padding:24px;min-width:0}
 .topic-card h2{font-size:19px;line-height:1.6;overflow-wrap:anywhere}
 .topic-card .title-button{color:var(--primary);line-height:inherit}
-.topic-question p,.topic-description{font-size:16px;line-height:1.75;overflow-wrap:anywhere}
-.topic-question>span{display:block;margin-bottom:5px}
 .topic-owner{font-size:14px;color:var(--text-muted);border-top:1px solid var(--border);padding-top:12px;overflow-wrap:anywhere}
 .workspace-topic .detail-title{font-size:28px;line-height:1.5}
 .workspace-topic .detail-section{margin:28px 0}
 .workspace-topic .detail-section>h3{font-size:20px;margin-bottom:14px}
 .workspace-topic .detail-section>h4{font-size:17px;margin:20px 0 10px}
 .workspace-topic .prose{font-size:16px;color:var(--text);line-height:1.8}
-.workspace-topic .topic-tools{padding:8px 12px}
-.topic-tools .detail-actions{margin:12px 0 2px}
 .workspace-topic [data-form=topic-search] input{padding:9px 11px;border:1px solid var(--control-border);border-radius:6px;background:var(--surface);color:var(--text);font-size:16px}
 .workspace-system .system-grid{grid-template-columns:minmax(0,1fr);align-items:start;gap:24px}
 .workspace-system .system-card{padding:24px;min-width:0}
@@ -90,3 +86,4 @@
 }
 
 .scope-log-entry{min-width:0;border:1px solid var(--border);border-radius:6px;padding:14px;margin:12px 0;overflow-wrap:anywhere}.scope-log-entry legend{font-weight:600}.scope-log-entry .field{min-width:0}.scope-log-entry input,.scope-log-entry textarea,.scope-log-entry select{width:100%;min-width:0;box-sizing:border-box}.scope-log-entry .comparison-fields{margin:0}
+.topic-description{font-size:16px;line-height:1.75;overflow-wrap:anywhere}
