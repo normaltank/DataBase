@@ -1,1 +1,22 @@
-.ingestion-card{grid-column:1/-1;min-width:0}.ingestion-source{border-top:1px solid var(--line,#dbe3ed);margin-top:24px;padding-top:16px}.ingestion-controls{display:flex;align-items:end;gap:16px;flex-wrap:wrap}.ingestion-controls label{display:grid;gap:6px}.ingestion-controls label:first-child{display:flex;align-items:center;align-self:center}.ingestion-controls input[type=number]{width:120px}.ingestion-controls select{max-width:100%}.ingestion-run{padding:14px 0;border-top:1px solid #dbe3ed}.ingestion-run summary{cursor:pointer}.ingestion-entry{padding:12px;margin:12px 0;background:#f5f8fc;border-radius:8px}.ingestion-card pre,.acquisition-reading pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:.9em}.ingestion-card p,.acquisition-reading p,.snapshot-hash{overflow-wrap:anywhere}.acquisition-reading details{margin:14px 0}.acquisition-reading .reading-content{margin:16px 0}.ingestion-card h3{overflow-wrap:anywhere}@media(max-width:600px){.ingestion-controls{align-items:stretch;flex-direction:column}.ingestion-controls label,.ingestion-controls input[type=number]{width:100%}.ingestion-controls label:first-child{align-self:flex-start}}
+.ingestion-card{grid-column:1/-1;min-width:0}
+.ingestion-source{border-top:1px solid var(--border);margin-top:24px;padding-top:18px}
+.ingestion-controls{display:flex;align-items:end;gap:16px;flex-wrap:wrap;margin-top:12px}
+.ingestion-controls label{display:grid;gap:6px;font-size:14px;font-weight:500;color:var(--text-muted)}
+.ingestion-controls label:first-child{display:flex;align-items:center;align-self:center;gap:8px;min-height:42px;color:var(--text)}
+.ingestion-controls input[type=checkbox]{width:18px;height:18px;accent-color:var(--primary)}
+.ingestion-controls input[type=number],.ingestion-controls select{min-height:42px;padding:8px 11px}
+.ingestion-controls input[type=number]{width:120px}
+.ingestion-controls select{max-width:100%}
+.ingestion-run{padding:14px;margin:10px 0;border:1px solid var(--border);border-radius:8px;background:var(--surface)}
+.ingestion-run summary{cursor:pointer}
+.ingestion-entry{padding:12px 14px;margin:12px 0;background:var(--surface-muted);border:1px solid var(--border);border-radius:8px}
+.ingestion-card pre,.acquisition-reading pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:14px;background:var(--surface-muted);padding:10px 12px;border-radius:6px}
+.ingestion-card p,.acquisition-reading p,.snapshot-hash{overflow-wrap:anywhere}
+.acquisition-reading details{margin:14px 0}
+.acquisition-reading .reading-content{margin:16px 0}
+.ingestion-card h3{overflow-wrap:anywhere}
+@media(max-width:600px){
+  .ingestion-controls{align-items:stretch;flex-direction:column}
+  .ingestion-controls label,.ingestion-controls input[type=number]{width:100%}
+  .ingestion-controls label:first-child{align-self:flex-start}
+}
