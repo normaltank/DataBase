@@ -68,7 +68,7 @@ function readingLibraryHTML(data){
     +(state.page==='library'?'<nav class="reading-tabs" aria-label="资料范围"><button type="button" data-action="reading-feed" data-feed="new" aria-current="'+(isNew?'page':'false')+'">新文章</button><button type="button" data-action="reading-feed" data-feed="all" aria-current="'+(!isNew?'page':'false')+'">全部资料</button></nav>':'')
     +(state.page==='compilations'?'<p class="small">旧笔记、说明和摘录可在'+linkButton('全部资料与旧研究积累','work-old-content')+'继续查阅。</p>':'')
     +(batch?'<div class="reading-batch"><div><strong>新增 '+data.total+' 条</strong><span>'+ (batch.reason==='return_visit'?'未确认浏览':p.get('batch_scope')==='all'?'全部未确认':'近30天收录')+' · 共 '+batch.pending_total+' 条待浏览</span></div><div class="row wrap"><button type="button" class="button tiny" data-action="reading-scope">'+(p.get('batch_scope')==='all'?'只看近期新增':'查看全部新增')+'</button><button type="button" class="button tiny" data-action="reading-finish">结束本次浏览</button></div></div>':'')
-    +'<form data-reading-filters><div class="reading-quick"><label class="reading-keyword"><span>资料关键词</span><input name="q" value="'+esc(p.get('q'))+'" placeholder="中文题名、摘要、作者或原文"></label>'+readingFacet(data,'country','研究对象国')+'<label class="reading-time-label"><span class="sr-only">时间类型</span><select name="date_field" aria-label="时间类型">'+selectOptions({published:'发表时间',collected:'首次收录',updated:'最近修订'},dateField,'选择时间')+'</select></label><button type="button" class="button tiny" data-action="reading-days" data-days="30">近30天</button><button type="submit" class="button primary">查找</button></div>'
+    +'<form data-reading-filters><div class="reading-quick"><label class="reading-keyword"><span>资料关键词</span><input name="q" value="'+esc(p.get('q'))+'" placeholder="中文题名、摘要、作者或原文（按 / 聚焦）"></label>'+readingFacet(data,'country','研究对象国')+'<label class="reading-time-label"><span class="sr-only">时间类型</span><select name="date_field" aria-label="时间类型">'+selectOptions({published:'发表时间',collected:'首次收录',updated:'最近修订'},dateField,'选择时间')+'</select></label><button type="button" class="button tiny" data-action="reading-days" data-days="30">近30天</button><button type="submit" class="button primary">查找</button></div>'
     +'<details class="reading-more"><summary>时间与更多筛选'+(chips.length?' · 已选 '+chips.length+' 项':'')+'</summary><div class="reading-date-range"><label>起始日期<input type="date" name="from" value="'+esc(p.get('from'))+'"></label><label>截止日期<input type="date" name="to" value="'+esc(p.get('to'))+'"></label><label><input type="checkbox" name="date_unknown" value="1" '+(p.get('date_unknown')==='1'?'checked':'')+'>只看日期未知</label><button type="button" class="button tiny" data-action="reading-days" data-days="7">近7天</button><button type="button" class="button tiny" data-action="reading-days" data-days="90">近90天</button></div>'
     +'<p class="small muted">发表年份或年月按可能日期范围相交；研究对象按文章内容登记，与来源国别分开。</p><div class="reading-facets">'+(p.has('source')&&p.get('source_filter')!=='1'?'<p class="small">固定来源：'+esc(p.get('source').split('|').map(id=>sourceById(id)?.name||id).join('、'))+'</p>':readingFacet(data,'source','来源'))+readingFacet(data,'source_country','来源国别')+readingFacet(data,'source_group','来源类型',{institution:'机构',journal:'期刊',publication:'其他出版物'})+readingFacet(data,'kind','文章类型',kinds)+readingFacet(data,'topic','主题')+readingFacet(data,'language','原文语言',languages)+readingFacet(data,'availability','内容可用性',readingAvailability)+'</div><div class="row wrap"><button type="submit" class="button">应用筛选</button><button type="button" class="button light" data-action="reading-reset">重置筛选</button></div></details><div class="form-error" role="alert"></div></form>'
     +(chips.length?'<div class="reading-current small">当前：'+esc(savedSearchSummary(Object.fromEntries(chips)))+' '+linkButton('重置筛选','reading-reset','','ux-read-link')+'</div>':'')
@@ -91,6 +91,7 @@ function readingChooseLanguage(article,record,original){
   article.querySelector('[data-reading-title]').textContent=original?(record.original_title||record.title):(record.display_title||record.title);
   article.querySelectorAll('[data-reading-abstract]').forEach(el=>el.hidden=el.dataset.readingAbstract!==(original?'original':'chinese'));
   article.querySelectorAll('[data-action="reading-language"]').forEach(el=>el.setAttribute('aria-pressed',String(el.dataset.language===(original?'original':'chinese'))));
+  uxUpdateReadingStats(article);
 }
 
 document.addEventListener('submit',event=>{
@@ -184,7 +185,7 @@ async function libraryWorkspacePage() {
 function libraryCloseReader(restore=true) {
   if(state.detail?.type==='record'&&state.detail.data.id===libraryWorkspace.readerId)state.detail=null;
   libraryWorkspace.readerEpoch++;libraryWorkspace.readerId=null;libraryWorkspace.readerRecord=null;
-  const panel=document.querySelector('.library-reader');if(panel){panel.hidden=true;panel.replaceChildren();panel.closest('.library-workspace').classList.remove('library-reading');}
+  const panel=document.querySelector('.library-reader');if(panel){panel._readingProgressCleanup?.();panel.hidden=true;panel.replaceChildren();panel.closest('.library-workspace').classList.remove('library-reading');}
   document.querySelector('.library-workspace .record-list')?.removeAttribute('inert');
   document.querySelectorAll('.library-current').forEach(row=>row.classList.remove('library-current'));
   document.body.classList.remove('library-narrow-reading');
@@ -258,7 +259,7 @@ async function libraryOpenReader(id,origin=null,section='') {
     const record=await api('/api/records/'+encodeURIComponent(id));
     if(epoch!==libraryWorkspace.readerEpoch||account!==state.me?.id||hash!==location.hash||!panel.isConnected)return;
     const index=libraryWorkspace.items.findIndex(record=>record.id===id);
-    panel.innerHTML='<header class="library-reader-head"><button class="button tiny" type="button" data-action="library-reader-close">返回列表</button><div class="row"><button class="button tiny" type="button" data-action="library-reader-prev" title="上一条 (Alt+↑)" '+(index<=0?'disabled':'')+'>上一条</button><button class="button tiny" type="button" data-action="library-reader-next" title="下一条 (Alt+↓)" '+(index<0||index>=libraryWorkspace.items.length-1?'disabled':'')+'>下一条</button></div><p>本页第 '+(index+1)+' / '+libraryWorkspace.items.length+' 条</p></header><div class="drawer-body library-reader-body"></div>';
+    panel.innerHTML='<header class="library-reader-head"><button class="button tiny" type="button" data-action="library-reader-close">返回列表</button><div class="row"><button class="button tiny" type="button" data-action="library-reader-prev" title="上一条 (k / Alt+↑)" '+(index<=0?'disabled':'')+'>上一条</button><button class="button tiny" type="button" data-action="library-reader-next" title="下一条 (j / Alt+↓)" '+(index<0||index>=libraryWorkspace.items.length-1?'disabled':'')+'>下一条</button></div><p>本页第 '+(index+1)+' / '+libraryWorkspace.items.length+' 条</p></header><div class="drawer-body library-reader-body"></div>';
     const body=panel.querySelector('.library-reader-body');await uxReadRecord(record,body);
     if(epoch!==libraryWorkspace.readerEpoch||account!==state.me?.id||!panel.isConnected){body.replaceChildren();return;}
     panel.scrollTop=0;body.scrollTop=0;
@@ -283,12 +284,12 @@ document.addEventListener('click',event=>{
   }
 },true);
 document.addEventListener('keydown',event=>{
-  const panel=document.querySelector('.library-reader:not([hidden])');if(event.defaultPrevented||!panel||document.querySelector('#modal-root .overlay'))return;
-  if(event.key==='Escape'){event.preventDefault();libraryCloseReader();}
-  else if(event.altKey&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&!event.isComposing&&(event.key==='ArrowUp'||event.key==='ArrowDown')){
-    if(event.target.closest('input,textarea,select')||event.target.isContentEditable)return;
+  const panel=document.querySelector('.library-reader:not([hidden])');if(event.defaultPrevented||event.isComposing||event.keyCode===229||!panel||!['library','compilations','favorites','review'].includes(state.page)||document.querySelector('#modal-root .overlay'))return;
+  if(event.key==='Escape'&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&!event.shiftKey&&!keyboardEditing(event)){event.preventDefault();libraryCloseReader();}
+  else if(!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&((event.altKey&&(event.key==='ArrowUp'||event.key==='ArrowDown'))||(!event.altKey&&(event.key==='j'||event.key==='k')))){
+    if(keyboardEditing(event))return;
     event.preventDefault();
-    const index=libraryWorkspace.items.findIndex(record=>record.id===libraryWorkspace.readerId),next=libraryWorkspace.items[index+(event.key==='ArrowUp'?-1:1)];
+    const index=libraryWorkspace.items.findIndex(record=>record.id===libraryWorkspace.readerId),next=libraryWorkspace.items[index+(['ArrowUp','k'].includes(event.key)?-1:1)];
     if(next)libraryOpenReader(next.id).catch(error=>toast(error.message));
   }
   else if(event.key==='Tab'&&panel.getAttribute('aria-modal')==='true'){
