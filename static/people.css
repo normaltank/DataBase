@@ -2,7 +2,8 @@
 .people-page .search-input{min-width:160px;flex:1}
 .people-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
 .people-grid>.empty{grid-column:1/-1}
-.person-card{display:flex;align-items:flex-start;gap:18px;padding:24px}
+.person-card{display:flex;align-items:flex-start;gap:18px;padding:24px;transition:border-color .15s,box-shadow .15s}
+.person-card:hover{border-color:var(--control-border);box-shadow:var(--shadow-hover)}
 .person-card>div{min-width:0}
 .person-card h2{font-size:21px;margin:0 0 8px}
 .person-card .person-summary{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;line-height:1.8}
@@ -20,11 +21,11 @@
 .person-works-group>.byline-works{margin-top:0}
 .person-works-group>.byline-works>h2{display:none}
 .person-works-group>h2{font-size:21px;margin:0 0 16px}
-.person-page>section{padding:26px;margin:24px 0;border:1px solid var(--border);border-radius:8px;background:var(--surface);min-width:0}
+.person-page>section{padding:26px;margin:24px 0;border:1px solid var(--border);border-radius:8px;background:var(--surface);box-shadow:var(--shadow-card);min-width:0}
 .person-page>.person-works-group>.byline-works{padding:0;margin:0}
 .person-page>section>h2,.person-page>section>.between>h2{font-size:21px;margin:0 0 18px;line-height:1.65}
 .person-page>section .rich-prose{font-size:17px;line-height:1.9}
-.person-page .back-link{display:inline-block;margin-bottom:24px;color:var(--primary)}
+.person-page .back-link{display:inline-block;margin-bottom:20px;color:var(--primary);font-weight:500}
 .person-heading{display:grid;grid-template-columns:160px minmax(0,1fr);gap:30px;align-items:start;margin-bottom:30px}
 .person-heading h1{font-size:28px;line-height:1.6;margin:0 0 10px;overflow-wrap:anywhere}
 .person-heading .eyebrow{color:var(--primary);font-weight:600;letter-spacing:.06em;margin:0}
@@ -34,7 +35,8 @@
 .person-section h3{font-size:18px}
 .person-sources{margin:0 0 22px}
 .person-sources h3{margin-bottom:10px}
-.person-maintenance{margin-top:16px;background:var(--surface);max-width:100%}
+.person-maintenance{margin-top:16px;background:var(--surface);width:fit-content;min-width:min(280px,100%);max-width:100%}
+.person-maintenance[open]{width:100%}
 .person-maintenance .detail-actions{margin:12px 0 0}
 .person-work-empty{border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:6px}
 .person-work-empty p{margin:8px 0;line-height:1.6}
