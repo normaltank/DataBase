@@ -129,28 +129,43 @@ class AIDeadlineTests(unittest.TestCase):
     def test_expired_dns_lookup_cannot_send_late_or_spawn_unbounded_resolvers(self):
         self.synthetic()
         import socket
+        import ssl
+        # This case measures blocked DNS, not platform certificate-store loading.
+        # Keep the short transport deadline, with HTTPS setup ready beforehand.
+        context = ssl._create_default_https_context()
         release = threading.Event()
+        lookups = threading.Condition()
         real_lookup = socket.getaddrinfo
         entered = []
+        resolvers = []
 
         def delayed(*args, **kwargs):
-            entered.append(args)
-            release.wait(5)
+            with lookups:
+                entered.append(args)
+                resolvers.append(threading.current_thread())
+                lookups.notify_all()
+            release.wait()
             return real_lookup(*args, **kwargs)
 
-        self.addCleanup(release.set)
-        with patch('socket.getaddrinfo', side_effect=delayed), patch('platform_app.ai_gateway.MAX_SECONDS', .1):
-            for index in range(3):
-                result = self.run_job(self.record(title='DNS synthetic ' + str(index)), 'dns-' + str(index))
-                self.assertEqual(result.json['status'], 'failed')
-                state = self.get('/api/admin/ai', 'admin').json
-                self.assertEqual(state['attempts'][0]['status'], 'unknown')
-                self.call('/api/admin/ai/attempts/' + state['attempts'][0]['id'] + '/resolve', {'charged': '0', 'basis': 'Synthetic DNS fixture confirms no supplier request'}, user='admin')
-            self.assertEqual(len(entered), 2)
-        release.set()
-        for thread in threading.enumerate():
-            if thread.name == 'ai-dns':
+        try:
+            with patch('ssl._create_default_https_context', return_value=context), patch('socket.getaddrinfo', side_effect=delayed), patch('platform_app.ai_gateway.MAX_SECONDS', .1):
+                for index in range(3):
+                    result = self.run_job(self.record(title='DNS synthetic ' + str(index)), 'dns-' + str(index))
+                    self.assertEqual(result.json['status'], 'failed')
+                    if index < 2:
+                        with lookups:
+                            self.assertTrue(lookups.wait_for(lambda: len(entered) == index + 1, timeout=2), 'Request must reach the blocked DNS fixture')
+                    state = self.get('/api/admin/ai', 'admin').json
+                    self.assertEqual(state['attempts'][0]['status'], 'unknown')
+                    self.call('/api/admin/ai/attempts/' + state['attempts'][0]['id'] + '/resolve', {'charged': '0', 'basis': 'Synthetic DNS fixture confirms no supplier request'}, user='admin')
+                self.assertEqual(len(entered), 2)
+                self.assertEqual(budget.Provider.requests, [])
+        finally:
+            release.set()
+            for thread in resolvers:
                 thread.join(2)
+        for thread in resolvers:
+            self.assertFalse(thread.is_alive(), 'Released resolver must return its slot')
         self.assertEqual(budget.Provider.requests, [])
         self.assertEqual(self.run_job(self.record(title='DNS recovered'), 'dns-recovered').json['status'], 'succeeded')
 
