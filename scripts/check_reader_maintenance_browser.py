@@ -72,6 +72,7 @@ def check_source(page, base, suffix, evidence):
     website='https://example.org/'+suffix+'/'+'long-path-'*35
     page.get_by_label('来源名称 *', exact=True).fill(name)
     page.get_by_role('dialog').get_by_label('来源类型', exact=True).select_option('think_tank')
+    page.get_by_text('补充国家与推荐理由（可选）',exact=True).click()
     page.get_by_label('推荐说明（可选）', exact=True).fill('推荐公开栏目，缺项留空。')
     # Validation and a real HTTP save failure preserve the same editor.
     page.get_by_role('button', name='保存候选来源', exact=True).click()
@@ -100,6 +101,7 @@ def check_source(page, base, suffix, evidence):
     metrics=page.evaluate('({css_width:innerWidth,css_height:innerHeight,dpr:devicePixelRatio,document_scroll_width:document.documentElement.scrollWidth,document_client_width:document.documentElement.clientWidth,body_scroll_width:document.body.scrollWidth})')
     # Chromium full-page capture at browser zoom can clip the physical right half.
     # At 200% retain an unmodified viewport screenshot instead.
+    expect(page.locator('#toast')).not_to_have_class('show')
     page.screenshot(path=str(evidence/('source-'+suffix+'.png')), full_page=not suffix.endswith('-2'), scale='css')
     if suffix.endswith('-2'):
         page.screenshot(path=str(evidence/'zoom-viewport.png'), full_page=False, scale='css')
@@ -122,7 +124,14 @@ def check_source(page, base, suffix, evidence):
     expect(page.get_by_role('alert')).to_contain_text('已登记')
     expect(page.get_by_label('来源名称 *', exact=True)).to_have_value(name)
     expect(page.get_by_role('dialog').get_by_role('link', name=name, exact=True)).to_have_attribute('href', '#sources?id='+sid)
-    page.get_by_role('button', name='关闭并保留草稿', exact=True).click()
+    page.get_by_role('button', name='保留草稿并查看已有来源', exact=True).click()
+    expect(page.get_by_role('heading',name=name,exact=True)).to_be_visible()
+    nav(page,'档案')
+    page.get_by_role('button',name='提供采集来源',exact=True).click()
+    page.get_by_role('button',name='恢复草稿',exact=True).click()
+    expect(page.get_by_label('来源名称 *',exact=True)).to_have_value(name)
+    expect(page.get_by_label('官方网站',exact=True)).to_have_value('https://example.org/different-'+suffix)
+    page.get_by_role('button',name='关闭并保留草稿',exact=True).click()
     # A separate journal contribution does not manufacture an institution or ISSN.
     page.get_by_role('button', name='提供采集来源', exact=True).click()
     page.get_by_role('button', name='舍弃这份草稿', exact=True).click()
@@ -130,6 +139,7 @@ def check_source(page, base, suffix, evidence):
     page.get_by_label('来源名称 *', exact=True).fill(journal)
     page.get_by_role('dialog').get_by_label('来源类型', exact=True).select_option('journal')
     page.get_by_label('资料目录网址', exact=True).fill('https://example.org/issues/'+suffix)
+    page.get_by_text('补充国家与推荐理由（可选）',exact=True).click()
     page.get_by_label('国家线索（可选）', exact=True).fill('线索待确认')
     page.get_by_role('button', name='保存候选来源', exact=True).click()
     expect(page.get_by_role('heading', name=journal, exact=True)).to_be_visible()
@@ -139,7 +149,7 @@ def check_source(page, base, suffix, evidence):
     return sid, jid, metrics
 
 
-def check_interfaces(page, base):
+def check_interfaces(page, base, download_dir=None):
     denied=[]
     page.on('request', lambda req: denied.append(req.url) if any(part in req.url for part in ('/api/admin/', '/api/ingestion', '/api/members', '/api/collaboration/qualifications')) else None)
     for route in ('system', 'review', 'maintenance-sources', 'maintenance-ingestion', 'maintenance-members', 'sources?group=maintenance'):
@@ -154,7 +164,9 @@ def check_interfaces(page, base):
     page.keyboard.press('Escape')
     with page.expect_download() as download:
         page.get_by_role('button', name='导出可见内容', exact=True).click()
-    assert Path(download.value.path()).stat().st_size > 0
+    assert download.value.failure() is None
+    downloaded=Path(download.value.path()) if download_dir is None else download_dir/download.value.suggested_filename
+    assert downloaded.stat().st_size > 0
     no_overflow(page)
 
 

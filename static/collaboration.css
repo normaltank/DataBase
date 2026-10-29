@@ -7,3 +7,5 @@
 
 /* Keep journal actions usable beside long filenames and at browser zoom. */
 .journal-file-content{flex:1;min-width:0}.journal-file-actions{flex:0 0 180px;min-width:180px}.journal-file-actions>.button{width:100%;box-sizing:border-box;white-space:normal}@media(max-width:600px){.journal-file-actions{flex:0 0 auto;width:100%;min-width:0}}
+
+.work-row-main{flex:1;min-width:0}.work-row-context{margin-top:6px}.work-list-row .title-button{white-space:normal;text-align:left;overflow-wrap:anywhere}.work-row-context>summary{color:var(--primary)}
