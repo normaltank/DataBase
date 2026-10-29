@@ -1,0 +1,39 @@
+# Windows 便携演示构建与恢复
+
+本说明对应 [#78 规格 1.0](https://github.com/normaltank/DataBase/issues/78)。普通试用入口是包根目录“使用说明.html”；本文件用于复现构建、验收和恢复。产品规则仍以 [PRODUCT](../PRODUCT.md) 为准。仅含从零合成样例，不使用真实库或 ThinkTank。
+
+## 构建
+
+建设机需 Python 3.12、Git，以及首次下载官方构件所需的网络；接收方不用这些工具。先提交已审查源码，准备实际项目介绍 PDF，再执行：
+
+```powershell
+python scripts/build_portable.py --intro-pdf 'C:\明确路径\知汇项目介绍.pdf' --output 'C:\明确路径\dist'
+python scripts/verify_portable.py 'C:\明确路径\dist\Zhihui-preview-提交前缀.zip'
+python scripts/check_portable_preview.py --package 'C:\明确路径\dist\Zhihui-preview-提交前缀.zip'
+```
+
+`--prepare-only --allow-dirty` 只准备源码和运行库用于施工预验收，不生成可分享 ZIP。最终包要求真实介绍 PDF 存在；`--allow-dirty` 会明确记录未发布源码，不用于最终交付。已存在的同名 ZIP 不覆盖。构建逐项复制版本控制白名单，不读取任何现有 data、备份、凭据或浏览器目录。构建缓存只保存 hash 锁定的公开官方构件。
+
+[构建器](../scripts/build_portable.py)使用 [固定构件锁](../portable/runtime-lock.json)：官方 CPython 3.12.10 embeddable x64、四项应用依赖及六项传递依赖，保留整份 wheel 中的 DLL、dist-info 与许可。Python 摘要依据 python.org 的 sigstore 摘要，wheel 摘要依据对应固定版本 PyPI JSON；构建不执行 pip。锁同时记录解压后文件清单，核验器逐字节核查官方构件，只有 `python312._pth` 被显式替换。摘要证明所据构件的一致性，不替代安全更新或研究真实性判断。CPython 3.12.10 已有后续安全修订，本轮沿用已测试版本，升级需另行重建及验证。
+
+`._pth` 仅包含包内标准库、包内 site-packages 与应用根目录，不启用 site；附件子进程沿用内嵌 sys.executable。启动器在导入应用前重建环境，只保留命名的 Windows 必需变量，另设置包内 TEMP/TMP 与 Windows System32 PATH。不会继承 Python 路径、研究库路径、AI 凭据、代理或证书定制。`diagnose` CLI 只报告环境变量名及包内模块来源，不打印凭据值。
+
+## 生命周期和恢复
+
+专用入口调用 `create_app(本包data绝对路径)`，不导入开发 app.py，不起采集、中文处理或 AI worker。空库在包内临时目录经既有 HTTP/test-client API 生成成功后才原子移入 data；已有数据库绝不重置。样例 PDF、TXT 和头像均为明确合成，所有外链使用 example.invalid。seed 清单保存在新库的 demo-seed.json，记录合成对象及可下载原件摘要。
+
+实例生命周期按包目录加文件锁，控制端点需要随机令牌和本包路径身份；停止使用正常 WSGI shutdown，不按 PID 或端口杀进程。操作序列锁和服务生命周期锁由 Windows 在进程退出后释放。过期控制状态不会成为杀进程依据。端口由服务器实际原子绑定，优先复用上次成功端口，冲突时使用可用动态端口；始终避开8848。各包目录拥有独立且稳定的会话 Cookie 名；浏览器草稿仍依赖实际端口。
+
+完整备份在管理员界面下载。恢复到新解压且尚未启动的副本，在命令提示符运行：
+
+```bat
+runtime\python.exe -I -B -m platform_app.maintenance --restore "C:\备份路径\演示备份.zip" --target "C:\新解压路径\data"
+```
+
+目标 data 必须是尚不存在的新目录。成功后双击新副本 start.bat；恢复的数据库存在，因此不会重新播种。先停止原副本再移动或复制其 data；正式资料迁移须另按实际授权处理，便携演示不自动迁移真实库。直接转发构建器生成的原始 ZIP，避免把试用后的账号、附件、日志、会话和备份带给别人。
+
+## 验证边界
+
+[发行验收脚本](../scripts/check_portable_preview.py)在全新中文空格目录、受限 PATH 和显式假外部配置哨兵下，运行真实内嵌解释器与 HTTP，核查角色、来源、版本采用、下载、PDF/DOCX 索引、头像、导出、完整备份恢复、两份实例会话隔离及重启保留。真实浏览器检查另用 `--browser`，需要建设机的 Playwright；它不随包作为运行依赖。核验器拒绝越界、重复、符号链接及白名单外文件，并比对完整 manifest 和固定合成 PDF 摘要。
+
+本轮实际执行结果、同步 SHA、独立审查和最终 ZIP 摘要由 Issue 的本次交接记录维护，施工预验收不等于最终分享版。受限 PATH 和包内模块来源能验证本宿主上不依赖开发 Python，不能冒充干净虚拟机或所有 Windows 10/11 系统覆盖。软件测试不证明研究观点、实际资料覆盖或真人跨人接续质量。

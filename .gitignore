@@ -54,3 +54,8 @@ work/research-workflow-validation/*
 .planning/*/*
 !.planning/*/*.md
 !.planning/*/*.py
+
+# Portable distribution build products
+dist/
+portable/samples/*.png
+.planning/portable78/
