@@ -83,7 +83,7 @@ async function uxReadRecord(record,target=null) {
   const research=isResearchContent(record.kind),access=uxAccess(record),references=record.linked_records||[],hasEvidence=!!record.evidence_record_id||!!record.evidence_citations?.length;
   const meta=[record.authors,record.published_on,languageLabel(record.language)].filter(Boolean),sources=recordSourceLabels(record).filter(label=>!label.startsWith('关联来源：'));
   const maintenance=(record.can_edit?linkButton('编辑内容','edit-record',record.id)+linkButton('修改历史','history','record:'+record.id):'')+linkButton('加入资料夹','add-to-collection',record.id)+linkButton(record.favorite?'取消收藏':'收藏资料','favorite',record.id)
-    +(state.me.role==='admin'?linkButton('标记已核对','verify','record:'+record.id):'');
+    +(state.me.role==='admin'&&isMaintenancePage()?linkButton('标记已核对','verify','record:'+record.id):'');
   const content='<article class="ux-reading-article"><div class="row wrap ux-reading-labels">'+typeBadge(record.kind)+badge(record.status)+'<span class="badge neutral">'+(record.visibility==='shared'?'中心共享':'限授权成员')+'</span><span class="ux-version">版本 '+record.version+'</span></div>'
     +'<h2 class="detail-title" data-reading-title>'+esc(record.display_title||record.title)+'</h2>'+(record.original_title&&record.original_title!==record.title?'<p class="original-title">'+esc(record.original_title)+'</p>':'')
     +'<div class="ux-bibliography">'+(meta.length?'<p>'+meta.map(esc).join(' · ')+'</p>':'')+(sources.length?'<p>'+sources.map(esc).join(' · ')+'</p>':'')+(record.coverage?'<p>'+esc(record.coverage)+'</p>':'')+((record.related_source_ids||[]).length?'<p>关联来源：'+record.related_source_ids.map(sourceName).join(' / ')+'</p>':'')+'</div>'
