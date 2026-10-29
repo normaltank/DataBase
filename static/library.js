@@ -62,7 +62,8 @@ function readingLibraryHTML(data){
 
   const chips=[...p].filter(([key,value])=>savedSearchKeys.has(key)&&!['sort','feed'].includes(key)&&value);
   const dateField=p.get('date_field')||'published';
-  const tools=linkButton('批量整理','reading-organize')+(state.schema>=4?linkButton('整理重复','duplicates','record'):'')+linkButton('导出完整内容','export-content','','button tiny').replace('data-id=""','data-query="'+esc(p)+'"')+'<a class="button tiny" href="/api/export?'+esc(p)+'">导出清单</a>';
+  const mergeTool=state.schema>=4?(isMaintenancePage()?(state.me.role==='admin'?linkButton('整理重复','duplicates','record'):''):linkButton('整理个人成果重复','duplicates','personal')):'';
+  const tools=linkButton('批量整理','reading-organize')+mergeTool+linkButton('导出完整内容','export-content','','button tiny').replace('data-id=""','data-query="'+esc(p)+'"')+'<a class="button tiny" href="/api/export?'+esc(p)+'">导出清单</a>';
   return '<div class="ux-library reading-library"><div class="page-heading between"><h1>'+esc(title)+'</h1>'+(state.page==='compilations'?linkButton('导入成品','import-output','','button primary tiny'):linkButton('补充资料','new-record','','button tiny'))+'</div>'
     +(state.page==='library'?'<nav class="reading-tabs" aria-label="资料范围"><button type="button" data-action="reading-feed" data-feed="new" aria-current="'+(isNew?'page':'false')+'">新文章</button><button type="button" data-action="reading-feed" data-feed="all" aria-current="'+(!isNew?'page':'false')+'">全部资料</button></nav>':'')
     +(state.page==='compilations'?'<p class="small">旧笔记、说明和摘录可在'+linkButton('全部资料与旧研究积累','work-old-content')+'继续查阅。</p>':'')
@@ -77,7 +78,7 @@ function readingLibraryHTML(data){
 function readingArchiveTabs(){return '<nav class="reading-tabs" aria-label="档案类型">'+[['sources','机构与刊物'],['people','作者']].map(([id,label])=>'<button type="button" data-action="nav" data-id="'+id+'" aria-current="'+(state.page===id?'page':'false')+'">'+label+'</button>').join('')+'</nav>';}
 async function readingPersonalPage(){
   const saved=await api('/api/saved-searches?size=1');
-  return '<div class="page-heading"><h1>我的</h1><p>'+esc(state.me.name)+' · 个人收藏、资料夹和关注条件</p></div><div class="reading-personal-links">'+[['favorites','收藏资料'],['collections','资料夹'],['drafts','未提交草稿']].map(([id,label])=>'<button class="panel reading-personal-link" data-action="nav" data-id="'+id+'">'+label+icon('arrow')+'</button>').join('')+'<button class="panel reading-personal-link" data-action="saved-manage">关注条件 · '+saved.total+' 项'+icon('arrow')+'</button></div>';
+  return '<div class="page-heading"><h1>我的</h1><p>'+esc(state.me.name)+' · 个人收藏、资料夹和关注条件</p></div><div class="reading-personal-links">'+[['favorites','收藏资料'],['collections','资料夹'],['drafts','未提交草稿']].map(([id,label])=>'<button class="panel reading-personal-link" data-action="nav" data-id="'+id+'">'+label+icon('arrow')+'</button>').join('')+'<button class="panel reading-personal-link" data-action="saved-manage">关注条件 · '+saved.total+' 项'+icon('arrow')+'</button></div><section class="system-card section-gap"><h2>个人账号与导出</h2><div class="row wrap">'+linkButton('修改我的密码','own-password')+linkButton('导出可见内容','export-content')+linkButton('提供采集来源','new-source')+'</div><p class="small muted">仅导出当前账号可读取的内容。</p></section>';
 }
 function readingAbstract(record){
   if(isResearchContent(record.kind))return record.abstract?'<section class="detail-section"><h3>摘要与说明</h3><p class="prose">'+esc(record.abstract)+'</p></section>':'';

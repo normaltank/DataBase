@@ -571,7 +571,10 @@ def create_app(data_dir=None, testing=False):
     def source_detail(sid):
         sid = get_source(sid)["id"]
         obj = source_catalog.catalog(db())[sid]
-        if discovery.supported(obj):
+        supported = discovery.supported(obj)
+        configured = db().execute("SELECT enabled FROM ingestion_sources WHERE source_id=?", (sid,)).fetchone()
+        obj["automatic_collection"] = {"supported": supported, "enabled": supported and bool(configured and configured["enabled"])}
+        if supported:
             obj['discovery_supported'] = True
         obj.update(reviews.summary(db(), "source", sid))
         obj["previous_ids"] = [x for x in identity.origins(db(), "sources", sid) if x != sid]
@@ -625,8 +628,10 @@ def create_app(data_dir=None, testing=False):
     def new_source():
         db().execute("BEGIN IMMEDIATE")
         values = source_values(body())
-        if db().execute("SELECT 1 FROM sources WHERE lower(name)=lower(?) OR (website<>'' AND website=?)", (values["name"], values["website"])).fetchone():
-            abort(409, "相同名称或官网已登记，请先检查来源目录。")
+        duplicate = db().execute("SELECT id FROM sources WHERE lower(name)=lower(?) OR (website<>'' AND website=?) ORDER BY id LIMIT 1", (values["name"], values["website"])).fetchone()
+        if duplicate:
+            current = get_source(duplicate["id"])
+            return jsonify(error="相同名称或官网已登记，请先查看已有来源。", existing_source={"id": current["id"], "name": current["name"]}), 409
         sid = "SRC-LOCAL-" + uuid.uuid4().hex[:10].upper()
         values.update(id=sid, created_at=now(), updated_at=now())
         with db():

@@ -2,14 +2,15 @@
 
 function workReturnButton(label,fallback){
   const target=state.params.get('return');
-  return target&&/^#(collaboration|compilations)(\?|$)/.test(target)?'<button class="button" data-action="work-return" data-target="'+esc(target)+'">'+esc(target.startsWith('#compilations')?'← 返回中心成果':label)+'</button>':linkButton(label,fallback);
+  return target&&/^#(collaboration|compilations|maintenance-work)(\?|$)/.test(target)?'<button class="button" data-action="work-return" data-target="'+esc(target)+'">'+esc(target.startsWith('#compilations')?'← 返回中心成果':label)+'</button>':linkButton(label,fallback);
 }
 function workMaterialTools(business,id){
   return '<details class="work-material-tools"><summary>下载本期材料包</summary><p>选择实际需要的范围。仅含当前有权查阅的工作原件，保留原名、版本、决定、采用关系与 SHA-256 清单。关联成果正文、附件及原文分别读取，不在本包中。</p><div class="row wrap">'+[['products','成果原件'],['process','过程材料'],['all','全部已提交材料']].map(([scope,label])=>'<a class="button" href="/api/collaboration/materials/'+business+'/'+esc(id)+'?scope='+scope+'" download>'+label+'</a>').join('')+'</div><p class="small muted">可使用项目提供的独立核验工具比对文件与采用关系；所选范围及不含项目见包内说明。</p></details>';
 }
 function workQuery(products){
   const p=new URLSearchParams(state.params);p.delete('return');p.set('view',products?'products':'works');
-  if(!p.has('scope'))p.set('scope',products?'all':'participating');
+  if(isMaintenancePage())p.set('scope','maintenance');
+  else if(!p.has('scope'))p.set('scope',products?'all':'participating');
   if(p.get('business')==='all')p.delete('business');
   else if(!p.has('business')&&!products)p.set('business','topic');
   return p;
@@ -25,8 +26,8 @@ function workProductRow(p,w){
 async function collaborationWorkspacePage(products=false){
   const query=workQuery(products),d=await api('/api/collaboration/works?'+query),p=state.params,scope=query.get('scope'),business=p.get('business')||(products?'all':'topic');
   const heading=products?'中心成果':business==='journal'?'期刊编译':'编译协作';
-  const actions=products?linkButton('独立成果与跨期译稿','work-legacy')+linkButton('导入成品','import-output','','button primary'):((business!=='journal'&&d.can_create?linkButton('开启一期主题','collaboration-new','','button primary'):'')+(business!=='topic'?linkButton('新建期刊工作','journal-new','','button primary'):'')+(state.me.role==='admin'?linkButton('负责人资格','collaboration-qualifications'):''));
-  const scopeLabels=[['participating','我参与的'],['leading','我负责的'],['all','全部可读'],...(state.me.role==='admin'?[['maintenance','维护查阅']]:[])];
+  const actions=products?linkButton('独立成果与跨期译稿','work-legacy')+linkButton('导入成品','import-output','','button primary'):((business!=='journal'&&d.can_create?linkButton('开启一期主题','collaboration-new','','button primary'):'')+(business!=='topic'?linkButton('新建期刊工作','journal-new','','button primary'):''));
+  const scopeLabels=isMaintenancePage()?[['maintenance','维护查阅']]:[['participating','我参与的'],['leading','我负责的'],['all','全部可读']];
   const rows=d.items.map(w=>{
     return '<article class="work-list-row" data-work-id="'+esc(w.id)+'"><div class="between wrap"><div><span class="badge neutral">'+(w.business==='topic'?'主题编译':'期刊编译')+'</span><h2><button class="title-button" data-action="work-open" data-id="'+esc(w.id)+'" data-business="'+w.business+'">'+esc(w.title)+'</button></h2><p class="small muted">'+(w.business==='topic'?'负责人：'+esc(w.lead_name)+' · ':'')+esc(w.participant_names.join('、'))+' · 最近修订 '+dateTime(w.updated_at)+'</p>'+(w.countries.length?'<p class="small">国家分工：'+w.countries.map(esc).join('、')+'</p>':'')+'</div></div>'+(products?w.products.map(product=>workProductRow(product,w)).join(''):'<p>'+ (w.products.length?'已有 '+w.products.length+' 项当前成果':'尚无定稿或当前成品')+'</p>')+'</article>';
   }).join('');
@@ -34,7 +35,7 @@ async function collaborationWorkspacePage(products=false){
 }
 document.addEventListener('click',event=>{
   const b=event.target.closest('[data-action]');if(!b?.dataset.action.startsWith('work-'))return;
-  if(b.dataset.action==='work-open')go('collaboration',{business:b.dataset.business,id:b.dataset.id,return:location.hash});
+  if(b.dataset.action==='work-open')go(isMaintenancePage()?'maintenance-work':'collaboration',{business:b.dataset.business,id:b.dataset.id,return:location.hash});
   else if(b.dataset.action==='work-return'){const [page,query='']=b.dataset.target.slice(1).split('?');go(page,new URLSearchParams(query));}
   else if(b.dataset.action==='work-filter')go(state.page,parameters({[b.dataset.key]:b.dataset.id}));
   else if(b.dataset.action==='work-retry')route();

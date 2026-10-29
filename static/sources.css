@@ -36,4 +36,7 @@
 .source-content-section>.between{gap:14px}
 .source-profile .source-content-list .title-button{font-size:17px;line-height:1.8;text-align:left}
 .source-profile .pagination{flex-wrap:wrap}
+.maintenance-source-filters{display:grid;grid-template-columns:minmax(0,1fr) minmax(160px,220px) auto;align-items:end;gap:16px}
+.maintenance-source-filters .field{margin:0;min-width:0}
+@media(max-width:760px){.maintenance-source-filters{grid-template-columns:1fr}.maintenance-source-filters .button{justify-self:start}}
 @media(max-width:560px){.source-page>.source-profile-group,.source-page>.note-subject-profile{padding:20px 16px}.source-profile-heading{padding:10px 0}.source-profile .source-content-section>.between{display:flex;flex-direction:column;align-items:flex-start}}

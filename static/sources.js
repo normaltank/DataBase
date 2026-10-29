@@ -22,16 +22,42 @@ function sourceAppliedFilters(p){
   return active.length?`<div class="source-applied" aria-label="已应用的来源筛选"><span>已用条件</span>${active.map(([key,label,value])=>`<button type="button" class="ux-filter-chip" data-action="source-clear-filter" data-id="${key}" aria-label="移除筛选：${esc(label+'：'+value)}">${esc(label+'：'+value)} <span aria-hidden="true">×</span></button>`).join('')}</div>`:'';
 }
 async function sourcesPage(){
+  if(state.page==='maintenance-sources')return maintenanceSourcesPage();
   if(state.params.get('id'))return sourcePage(state.params.get('id'));
   const p=state.params,maintenance=p.get('group')==='maintenance',query=new URLSearchParams(p);
   if(!maintenance)query.set('directory','1');
   const d=await api('/api/sources?'+query),g=p.get('group')||'';
   const groups=[['','全部'],['institution','机构'],['journal','期刊'],['publication','其他出版物']];
-  return `<section class="sources-page"><div class="page-heading between wrap"><div><h1>${maintenance?'资料发现网站':'来源目录'}</h1>${maintenance?'<p>登记用于发现资料的门户与检索网站，当前不自动采集。机构与期刊官网保存在原档案，无需重复登记。</p>':''}</div><div class="row wrap">${!maintenance&&state.schema>=4?linkButton('整理重复','duplicates','source'):''}${linkButton(icon('plus')+' '+(maintenance?'新增资料发现网站':'提交来源'),maintenance?'new-portal':'new-source','','button primary')}</div></div>${maintenance?linkButton('返回数据与维护','nav','system'): `<div class="tabs" aria-label="来源类型">${groups.map(([key,name])=>`<button class="tab ${g===key?'active':''}" data-action="source-group" data-id="${key}" aria-pressed="${g===key}">${name}</button>`).join('')}</div>`}<form data-form="source-search" class="source-search"><div class="toolbar"><div class="search-input">${icon('search')}<input type="search" name="q" value="${esc(p.get('q'))}" placeholder="名称、介绍或别名" aria-label="来源关键词"></div><button class="button primary" type="submit">搜索</button></div><details class="source-filter-options"><summary>筛选条件</summary><div class="source-filters">${!maintenance&&['','institution'].includes(g)?`<label>机构类型<select name="institution_type" aria-label="机构类型">${selectOptions(institutionTypes,p.get('institution_type'),'全部机构类型')}</select></label>`:''}${!maintenance&&['','journal'].includes(g)?`<label>期刊主办国别<select name="country" aria-label="期刊主办国别">${selectOptions({...Object.fromEntries(d.countries.map(c=>[c,c])),__pending__:'待确认'},p.get('country'),'全部国别')}</select></label><label>国际定位<select name="international" aria-label="国际定位">${selectOptions(internationalLabels,p.get('international'),'全部国际定位')}</select></label>`:''}<label>收录范围<select name="scope" aria-label="收录范围">${selectOptions({active:'当前收录范围'},p.get('scope'),'全部范围')}</select></label><button class="button primary" type="submit">应用筛选</button>${linkButton('清除筛选','source-group',g)}</div></details></form>${sourceAppliedFilters(p)}${!maintenance?'<details class="directory-help"><summary>分类与国别说明</summary><p>机构类型与隶属关系分别登记。年鉴、工作论文系列和旧出版物登记在“其他出版物”；资料发现网站在“数据与维护”。</p><p>期刊国别按主办关系及机构国家登记生成，出版方国家另记。依据不足或冲突时为待确认；国际定位独立记录，无依据时为未知。中心核对状态另计。</p></details>':''}<div class="results-head"><span>找到 <strong>${d.total}</strong> 条${maintenance?'资料发现网站':'来源'}</span></div><div class="source-grid">${d.items.map(sourceCard).join('')||empty('没有匹配的来源','调整筛选条件，或补充有依据的来源信息。','source')}</div></section>`;
+  return `<section class="sources-page"><div class="page-heading between wrap"><div><h1>${maintenance?'资料发现网站':'来源目录'}</h1>${maintenance?'<p>登记用于发现资料的门户与检索网站，当前不自动采集。机构与期刊官网保存在原档案，无需重复登记。</p>':''}</div><div class="row wrap">${linkButton(icon('plus')+' '+'提供采集来源',maintenance?'new-portal':'new-source','','button primary')}</div></div>${maintenance?linkButton('返回数据与维护','nav','system'): `<div class="tabs" aria-label="来源类型">${groups.map(([key,name])=>`<button class="tab ${g===key?'active':''}" data-action="source-group" data-id="${key}" aria-pressed="${g===key}">${name}</button>`).join('')}</div>`}<form data-form="source-search" class="source-search"><div class="toolbar"><div class="search-input">${icon('search')}<input type="search" name="q" value="${esc(p.get('q'))}" placeholder="名称、介绍或别名" aria-label="来源关键词"></div><button class="button primary" type="submit">搜索</button></div><details class="source-filter-options"><summary>筛选条件</summary><div class="source-filters">${!maintenance&&['','institution'].includes(g)?`<label>机构类型<select name="institution_type" aria-label="机构类型">${selectOptions(institutionTypes,p.get('institution_type'),'全部机构类型')}</select></label>`:''}${!maintenance&&['','journal'].includes(g)?`<label>期刊主办国别<select name="country" aria-label="期刊主办国别">${selectOptions({...Object.fromEntries(d.countries.map(c=>[c,c])),__pending__:'待确认'},p.get('country'),'全部国别')}</select></label><label>国际定位<select name="international" aria-label="国际定位">${selectOptions(internationalLabels,p.get('international'),'全部国际定位')}</select></label>`:''}<label>收录范围<select name="scope" aria-label="收录范围">${selectOptions({active:'当前收录范围'},p.get('scope'),'全部范围')}</select></label><button class="button primary" type="submit">应用筛选</button>${linkButton('清除筛选','source-group',g)}</div></details></form>${sourceAppliedFilters(p)}${!maintenance?'<details class="directory-help"><summary>分类与国别说明</summary><p>机构类型与隶属关系分别登记。年鉴、工作论文系列和旧出版物登记在“其他出版物”；资料发现网站在“数据与维护”。</p><p>期刊国别按主办关系及机构国家登记生成，出版方国家另记。依据不足或冲突时为待确认；国际定位独立记录，无依据时为未知。中心核对状态另计。</p></details>':''}<div class="results-head"><span>找到 <strong>${d.total}</strong> 条${maintenance?'资料发现网站':'来源'}</span></div><div class="source-grid">${d.items.map(sourceCard).join('')||empty('没有匹配的来源','调整筛选条件，或补充有依据的来源信息。','source')}</div></section>`;
 }
 async function systemPage(){
-  const base=(await baseSystemPage())+(typeof ingestionSystemCard==='function'?await ingestionSystemCard():'')+(typeof aiBudgetCard==='function'?await aiBudgetCard():''),d=await api('/api/sources?group=maintenance');
-  return `<section class="workspace-system"><div class="page-heading"><h1>数据与维护</h1></div><div class="system-grid">${state.schema>=5&&typeof operationsSystemCards==='function'?operationsSystemCards():''}<section class="system-card workspace-portals" aria-labelledby="portals-heading"><div class="between wrap"><h2 id="portals-heading">资料发现网站</h2>${linkButton('管理入口（'+d.total+'）','source-group','maintenance','button')}</div><p>门户与检索网站登记在此，用于发现资料；当前不自动采集。机构与期刊官网保存在原档案，无需重复登记。后续采集可关联官网的文章列表、刊期或订阅地址。</p>${d.items.length?`<ul class="portal-list">${d.items.map(s=>`<li>${linkButton(esc(s.name),'source-detail',s.id,'title-button')}</li>`).join('')}</ul>`:'<p class="muted">暂无资料发现网站。</p>'}</section>${base}</div></section>`;
+  if(state.me.role!=='admin')throw new Error('此入口供资料管理员使用。');
+  const page=state.page,title=maintenanceNavs.find(n=>n[0]===page)?.[2]||'维护总览';
+  let content='';
+  if(page==='maintenance-ingestion')content=await ingestionSystemCard();
+  else if(page==='maintenance-ai')content=await aiBudgetCard();
+  else if(page==='maintenance-members')content='<section class="system-card"><h2>账号与业务资格</h2><p>业务负责人资格单独登记，不随系统管理员角色授予。</p><div class="row wrap">'+linkButton('管理本机成员','manage-members')+linkButton('负责人资格','collaboration-qualifications')+'</div></section>';
+  else if(page==='maintenance-backup')content='<section class="system-card"><h2>完整数据备份</h2><p>包含所有账号的个人与受限资料、附件及修订历史，请由资料管理员妥善保管。</p>'+linkButton('下载完整备份','backup','','button primary')+'</section>';
+  else content='<div class="reading-personal-links">'+maintenanceNavs.filter(n=>n[0]!=='system').map(n=>linkButton(esc(n[2]),'nav',n[0],'panel reading-personal-link')).join('')+'</div>'+await baseSystemPage();
+  return '<section class="workspace-system"><div class="page-heading"><h1>'+esc(title)+'</h1><p>维护界面 · 资料管理员</p></div>'+content+'</section>';
+}
+async function maintenanceSourcesPage(){
+  if(state.me.role!=='admin')throw new Error('此入口供资料管理员使用。');
+  if(state.params.get('id'))return sourcePage(state.params.get('id'));
+  const query=new URLSearchParams(state.params),status=query.has('status')?query.get('status'):'pending';
+  if(status&&status!=='all')query.set('status',status);else query.delete('status');
+  const data=await api('/api/sources?'+query);
+  return '<section class="sources-page"><div class="page-heading between wrap"><div><h1>来源维护</h1><p>先核对来源信息；持续采集仅支持已接入的来源，并须另行启用。</p></div><div class="row wrap">'+linkButton('提供采集来源','new-source')+linkButton('整理重复来源','duplicates','source')+'</div></div><form data-form="source-search" class="source-search"><div class="maintenance-source-filters"><div class="field"><label for="maintenance-source-q">来源关键词</label><input id="maintenance-source-q" name="q" value="'+esc(query.get('q'))+'"></div><div class="field"><label for="maintenance-source-status">核对状态</label><select id="maintenance-source-status" name="status"><option value="pending" '+(status==='pending'?'selected':'')+'>待核对来源</option><option value="all" '+(status==='all'?'selected':'')+'>全部来源</option><option value="verified" '+(status==='verified'?'selected':'')+'>已核对来源</option></select></div><button class="button primary" type="submit">查找来源</button></div></form><p>'+data.total+' 条来源 · '+(status==='pending'?'待核对':status==='verified'?'已核对':'全部')+'</p><div class="source-grid">'+(data.items.map(sourceCard).join('')||empty('暂无匹配来源','尝试全部来源或调整关键词。','source'))+'</div></section>';
+}
+function sourceContributionForm(kind='',draftKey=''){
+  const s={kind:kind||'institution',scope_status:'candidate'};
+  state.editing={type:'source',id:'',original:s,draftSpecific:{}};
+  modal('提供采集来源','<form data-form="source" data-source-contribution><p class="notice">保存为候选、待核对来源，成员可共同补充档案。管理员另行决定采集范围；目前仅接入 LIIA Opinions，其他来源尚未接入持续采集。</p><div class="form-grid">'+inputField('name','来源名称 *','','',true)+selectField('kind','来源类型',{institution:'机构',think_tank:'智库',journal:'期刊',serial:'其他出版物',portal:'资料发现网站'},s.kind)+inputField('website','官方网站','','https://…',true,'url')+inputField('catalogue_url','资料目录网址','','https://…',true,'url')+inputField('country','国家线索（可选）','','保留原始线索，不推定期刊主办国别',true)+textField('notes','推荐说明（可选）','','例如关注栏目、推荐理由或待核查线索')+'</div><p class="form-help">名称与类型必填；官网或目录网址可提供其一。其他信息可稍后共同补充。</p><div class="form-error" role="alert"></div><div data-source-duplicate></div><div class="form-actions"><button type="button" class="button" data-action="close">关闭并保留草稿</button><button type="submit" class="button primary">保存候选来源</button></div></form>');
+  return enableEditorDraft(document.querySelector('[data-source-contribution]'),state.editing,'',draftKey);
+}
+function sourceCollectionStatus(s){
+  const collection=s.automatic_collection||{};
+  return '<section class="notice section-gap"><h3>持续采集</h3><p>'+(collection.supported?'当前适配 LIIA Opinions · '+(collection.enabled?'管理员已启用':'尚未启用'):'尚未接入持续采集')+'</p><p class="small">来源核对与采集启用分别记录。登记或核对来源不会自动启用采集。</p>'+(state.me.role==='admin'&&isMaintenancePage()?linkButton('查看自动采集设置','nav','maintenance-ingestion'):'')+'</section>';
 }
 function relationDetails(s){
   const outgoing=(s.relationships||[]).map(r=>({label:relationLabels[r.type],id:r.target_id,evidence:r.evidence,checked_on:r.checked_on,owner:s.id}));
@@ -39,15 +65,16 @@ function relationDetails(s){
   return `<section class="detail-section"><h3>机构关系</h3>${[...outgoing,...incoming].map(r=>`<div class="relation-detail"><strong>${esc(r.label)}</strong><div>${sourceName(r.id)}</div>${evidenceHtml(r.evidence)}<div class="between small muted"><span>依据核查日期：${esc(r.checked_on||'未登记')}</span>${linkButton('编辑关系起点','edit-source',r.owner,'link-button')}</div></div>`).join('')||'<p class="small muted">尚无已登记的机构关系，可在编辑来源时补充依据。</p>'}</section>`;
 }
 function sourceHref(id){
-  const params=state.page==='sources'?parameters({id}):new URLSearchParams({id});
-  return '#sources?'+esc(params.toString());
+  const page=state.page==='maintenance-sources'?'maintenance-sources':'sources';
+  const params=['sources','maintenance-sources'].includes(state.page)?parameters({id}):new URLSearchParams({id});
+  return '#'+page+'?'+esc(params.toString());
 }
 async function openSource(id,preview=false){
   const known=state.sources.find(source=>source.id===id);
-  if(!preview&&known?.kind!=='portal'){
+  if(!preview&&(known?.kind!=='portal'||state.page==='maintenance-sources')){
     const work=state.detail?.type==='record'?state.detail.data.id:state.bylineSourceReturn?.id===id?state.bylineSourceReturn.record:state.params.get('work');
     if(closeModal(false)===false)return;
-    return go('sources',state.page==='sources'?parameters({id,work:work||'',note_page:'',content_published:'',content_associated:'',content_translations:'',content_outputs:''}):{id,...(work?{work}:{})});
+    return go(state.page==='maintenance-sources'?'maintenance-sources':'sources',['sources','maintenance-sources'].includes(state.page)?parameters({id,work:work||'',note_page:'',content_published:'',content_associated:'',content_translations:'',content_outputs:''}):{id,...(work?{work}:{})});
   }
   const hash=location.hash,account=state.me?.id,loadId=state.loadId;
   const s=await api('/api/sources/'+encodeURIComponent(id));
@@ -60,7 +87,7 @@ async function sourcePage(id){
   let s;
   try{s=await api('/api/sources/'+encodeURIComponent(id));}
   catch(error){if(error.status!==404)throw error;return '<section class="source-page"><a class="back-link" href="#sources?'+esc(parameters({id:''}))+'">← 返回来源目录</a><h1>无法打开来源档案</h1><p class="notice">该编号不存在或当前不可访问，请核实链接。</p></section>';}
-  if(s.kind==='portal')return '<h1>'+esc(s.name)+'</h1><p>资料发现网站在数据与维护区管理。</p>'+linkButton('打开维护预览','source-preview',s.id)+linkButton('返回资料发现网站','source-group','maintenance');
+  if(s.kind==='portal'&&state.page!=='maintenance-sources')return '<h1>'+esc(s.name)+'</h1><p>资料发现网站在数据与维护区管理。</p>'+linkButton('打开维护预览','source-preview',s.id)+linkButton('返回资料发现网站','source-group','maintenance');
   const html=await sourceProfile(s,false,id);
   state.sourceProfile={requested:id,data:s};
   if(!document.querySelector('#modal-root .overlay'))state.detail={type:'source',data:s};return html;
@@ -91,7 +118,7 @@ async function sourceProfile(s,preview=false,requested=s.id){
   if(content)items.push({id:'source-content',label:'来源内容'});
   if(notes)items.push({id:'source-notes',label:'研究笔记'});
   items.push({id:'source-evidence',label:'依据与核查'});
-  return `<article class="source-profile ${preview?'source-preview':'source-page'}" data-section-scope>${preview?(s.kind==='portal'?'':`<a class="back-link" href="${sourceHref(s.id)}">打开完整档案 ${icon('arrow')}</a>`):`<a class="back-link" data-action="source-directory-back" href="#sources?${esc(parameters({id:'',work:'',note_page:'',content_published:'',content_associated:'',content_translations:'',content_outputs:''}))}">← 返回来源目录</a>`}${requested!==s.id?`<p class="notice">旧编号 ${esc(requested)} 已合并至当前档案 ${esc(s.id)}。${linkButton('查看合并前内容','view-archived',requested,'link-button').replace('data-id=','data-type="source" data-id=')}</p>`:''}${state.params.get('work')?linkButton('返回资料','byline-back',state.params.get('work')):state.bylineSourceReturn?.id===s.id?linkButton('返回资料','byline-back',state.bylineSourceReturn.record):''}<header class="source-profile-heading"><div class="row wrap"><span class="badge blue">${sourceLabel(s)}</span>${badge(s.status)}<span class="small muted">版本 ${s.version}</span></div><${preview?'h2':'h1'} class="detail-title">${esc(s.name)}</${preview?'h2':'h1'}>${s.original_name?.trim()&&s.original_name.trim()!==s.name.trim()?`<p class="original-title">${esc(s.original_name)}</p>`:''}<div class="detail-actions source-main-actions">${safeUrl(s.website)?externalLink(s.website,'官方网站'):''}${safeUrl(s.catalogue_url)?externalLink(s.catalogue_url,'资料目录'):''}${linkButton(icon('edit')+' 编辑来源','edit-source',s.id,'button primary tiny')}${s.discovery_supported?'<button type="button" class="button tiny" data-discovery-start="'+esc(s.id)+'">发现近期资料</button>':''}</div><details class="source-maintenance"><summary>历史与维护</summary><div class="detail-actions">${linkButton(icon('clock')+' 修改历史','history','source:'+s.id)}${linkButton('整理重复来源','duplicates','source')}${state.me.role==='admin'?linkButton('标记已核对','verify','source:'+s.id,'button tiny'):''}</div></details></header>${sectionNavigation(items,'来源章节')}<section class="source-profile-group source-introduction"><h3 id="source-introduction">来源介绍</h3>${s.introduction_html?`<div class="rich-prose">${readRich(s.introduction_html)}</div>`:'<p class="muted">介绍待补充，可由中心成员共同维护。</p>'}${s.aliases?`<p class="prose"><strong>其他名称：</strong>${esc(s.aliases)}</p>`:''}</section><section class="source-profile-group"><h3 id="source-information">来源信息</h3><dl class="detail-grid">${fields}${common}</dl></section>${relations?`<section class="source-profile-group source-profile-relations"><h3 id="source-relations">关系与作品</h3>${relations}</section>`:''}${content?`<section class="source-profile-group"><h3 id="source-content">来源内容</h3>${content}</section>`:''}${notes.replace('<h2>','<h3 id="source-notes">').replace('</h2>','</h3>')}<section class="source-profile-group source-profile-evidence"><h3 id="source-evidence">依据与核查</h3>${evidence}${reviewPanel(s)}<details class="section-gap"><summary>原始分类、备注与上游核查信息</summary><dl>${detailPair('原始分类',esc(s.classification))}${detailPair('旧国别登记',esc(s.country))}</dl><p class="prose">${esc(s.notes||'无原始备注')}</p><p class="prose">${esc(s.upstream_status||'无上游核查状态')}</p><p class="small muted">中文工作译名未经审定；上游核验不等于中心已核对。</p></details>${typeof archivedLinks==='function'?archivedLinks('source',s):''}</section></article>`;
+  return `<article class="source-profile ${preview?'source-preview':'source-page'}" data-section-scope>${preview?(s.kind==='portal'?'':`<a class="back-link" href="${sourceHref(s.id)}">打开完整档案 ${icon('arrow')}</a>`):`<a class="back-link" data-action="source-directory-back" href="#${state.page==='maintenance-sources'?'maintenance-sources':'sources'}?${esc(parameters({id:'',work:'',note_page:'',content_published:'',content_associated:'',content_translations:'',content_outputs:''}))}">← 返回来源目录</a>`}${requested!==s.id?`<p class="notice">旧编号 ${esc(requested)} 已合并至当前档案 ${esc(s.id)}。${linkButton('查看合并前内容','view-archived',requested,'link-button').replace('data-id=','data-type="source" data-id=')}</p>`:''}${state.params.get('work')?linkButton('返回资料','byline-back',state.params.get('work')):state.bylineSourceReturn?.id===s.id?linkButton('返回资料','byline-back',state.bylineSourceReturn.record):''}<header class="source-profile-heading"><div class="row wrap"><span class="badge blue">${sourceLabel(s)}</span>${badge(s.status)}<span class="small muted">版本 ${s.version}</span></div><${preview?'h2':'h1'} class="detail-title">${esc(s.name)}</${preview?'h2':'h1'}>${s.original_name?.trim()&&s.original_name.trim()!==s.name.trim()?`<p class="original-title">${esc(s.original_name)}</p>`:''}<div class="detail-actions source-main-actions">${safeUrl(s.website)?externalLink(s.website,'官方网站'):''}${safeUrl(s.catalogue_url)?externalLink(s.catalogue_url,'资料目录'):''}${linkButton(icon('edit')+' 编辑来源','edit-source',s.id,'button primary tiny')}${s.discovery_supported?'<button type="button" class="button tiny" data-discovery-start="'+esc(s.id)+'">发现近期资料</button>':''}</div><details class="source-maintenance"><summary>历史与维护</summary><div class="detail-actions">${linkButton(icon('clock')+' 修改历史','history','source:'+s.id)}${state.me.role==='admin'&&isMaintenancePage()?linkButton('整理重复来源','duplicates','source'):''}${state.me.role==='admin'&&isMaintenancePage()?linkButton('标记已核对','verify','source:'+s.id,'button tiny'):''}</div></details></header>${sectionNavigation(items,'来源章节')}<section class="source-profile-group source-introduction"><h3 id="source-introduction">来源介绍</h3>${s.introduction_html?`<div class="rich-prose">${readRich(s.introduction_html)}</div>`:'<p class="muted">介绍待补充，可由中心成员共同维护。</p>'}${s.aliases?`<p class="prose"><strong>其他名称：</strong>${esc(s.aliases)}</p>`:''}</section><section class="source-profile-group"><h3 id="source-information">来源信息</h3><dl class="detail-grid">${fields}${common}</dl></section>${relations?`<section class="source-profile-group source-profile-relations"><h3 id="source-relations">关系与作品</h3>${relations}</section>`:''}${content?`<section class="source-profile-group"><h3 id="source-content">来源内容</h3>${content}</section>`:''}${notes.replace('<h2>','<h3 id="source-notes">').replace('</h2>','</h3>')}<section class="source-profile-group source-profile-evidence"><h3 id="source-evidence">依据与核查</h3>${evidence}${reviewPanel(s)}${sourceCollectionStatus(s)}<details class="section-gap"><summary>原始分类、备注与上游核查信息</summary><dl>${detailPair('原始分类',esc(s.classification))}${detailPair('旧国别登记',esc(s.country))}</dl><p class="prose">${esc(s.notes||'无原始备注')}</p><p class="prose">${esc(s.upstream_status||'无上游核查状态')}</p><p class="small muted">中文工作译名未经审定；上游核验不等于中心已核对。</p></details>${typeof archivedLinks==='function'?archivedLinks('source',s):''}</section></article>`;
 }
 let relationRowCounter=0;
 function relationEditor(r={}){
@@ -106,6 +133,7 @@ function sourceSpecific(s){
   return '<p class="form-help wide">资料发现网站用于登记门户与检索网站，当前不自动采集。机构与期刊官网保存在原档案，无需重复登记；后续采集可关联官网的文章列表、刊期或订阅地址。</p>';
 }
 async function sourceForm(id='',forcedKind='',draftKey=''){
+  if(!id)return sourceContributionForm(forcedKind,draftKey);
   const s=id?await api('/api/sources/'+encodeURIComponent(id)):{kind:forcedKind||(state.params.get('group')==='maintenance'?'portal':'institution'),scope_status:'candidate',institution_types:[],relationships:[]};
   state.editing={type:'source',id,version:s.version,original:s,draftSpecific:{...s},preview:!!document.querySelector('.source-preview')};
   const options={institution:'机构',journal:'期刊',serial:'其他出版物',portal:'资料发现网站',...(s.kind==='think_tank'?{think_tank:'机构（原智库登记）'}:{}),...(s.kind==='registry_publication'?{registry_publication:'其他出版物（旧登记）'}:{})};
@@ -113,15 +141,33 @@ async function sourceForm(id='',forcedKind='',draftKey=''){
   enhanceSourceForm(document.querySelector('[data-form=source]'),draftKey);
 }
 async function submitSourceForm(form,data,values){
+  const account=state.me?.id,hash=location.hash,loadId=state.loadId;
+  const current=()=>account===state.me?.id&&hash===location.hash&&loadId===state.loadId&&form.isConnected;
   if(form._conflictPending)throw new Error('请先对照最新版本，再继续保存。');
   if(form._draftOffer)throw new Error('请先恢复或舍弃已有草稿。');
   const edit=form._editing||state.editing,institution=['institution','think_tank'].includes(values.kind);
-  values.institution_types=institution?data.getAll('institution_types'):[];
+  const contribution=form.hasAttribute('data-source-contribution');
+  if(contribution){
+    if(!values.website.trim()&&!values.catalogue_url.trim())throw new Error('请提供官方网站或资料目录网址。');
+    values.scope_status='candidate';
+  }
+  values.institution_types=contribution?(values.kind==='think_tank'?['think_tank']:[]):institution?data.getAll('institution_types'):[];
   values.relationships=institution?[...form.querySelectorAll('[data-relation-row]')].map(row=>Object.fromEntries([...row.querySelectorAll('[data-rel]')].map(el=>[el.dataset.rel,el.value]))):[];
   if(!institution&&values.kind!=='portal'){values.host_id=data.getAll('host_id').join(' | ');values.publisher_id=data.getAll('publisher_id').join(' | ');}
   values.version=edit.version;
-  const r=await api('/api/sources'+(edit.id?'/'+encodeURIComponent(edit.id):''),{method:edit.id?'PUT':'POST',body:values});
-  await clearEditorDraft(form);await loadLookups();closeModal();if(edit.preview){await uxRefreshBackground();await openSource(r.id,true);}else await openSource(r.id);toast('来源及关系已保存，等待核对');
+  let r;
+  try{r=await api('/api/sources'+(edit.id?'/'+encodeURIComponent(edit.id):''),{method:edit.id?'PUT':'POST',body:values});}
+  catch(error){
+    const target=form.querySelector('[data-source-duplicate]'),existing=error.details?.existing_source;
+    if(target){target.innerHTML=existing?'<p class="notice">已有来源：<a href="'+sourceHref(existing.id)+'" data-source-existing>'+esc(existing.name)+'</a>。当前输入保留，可关闭并保存草稿后查阅。</p>':'';}
+    throw error;
+  }
+  if(!current())return;
+  await clearEditorDraft(form);if(!current())return;
+  await loadLookups();if(!current())return;
+  closeModal();
+  if(edit.preview){if(!await uxRefreshBackground())return;await openSource(r.id,true);}else await openSource(r.id);
+  toast('来源及关系已保存，等待核对');
 }
 document.addEventListener('click',event=>{
   const b=event.target.closest('[data-action]');if(!b)return;
@@ -129,10 +175,10 @@ document.addEventListener('click',event=>{
   if(b.dataset.action==='source-content-page'){
     const section=b.closest('[data-source-content]');
     if(b.closest('.source-preview'))sourceContentSection(state.detail.data,b.dataset.key,section.dataset.label,Number(b.dataset.id)).then(html=>{if(section.isConnected)section.outerHTML=html;}).catch(e=>toast(e.message));
-    else go('sources',parameters({['content_'+b.dataset.key]:b.dataset.id}));
+    else go(state.page,parameters({['content_'+b.dataset.key]:b.dataset.id}));
   }
-  if(b.dataset.action==='source-group')go('sources',b.dataset.id?{group:b.dataset.id}:{});
-  if(b.dataset.action==='source-clear-filter')go('sources',parameters({[b.dataset.id]:''}));
+  if(b.dataset.action==='source-group')go(state.page==='maintenance-sources'?'maintenance-sources':'sources',b.dataset.id?{group:b.dataset.id}:{});
+  if(b.dataset.action==='source-clear-filter')go(state.page,parameters({[b.dataset.id]:''}));
   if(b.dataset.action==='new-portal')sourceForm('','portal').catch(e=>toast(e.message));
   if(b.dataset.action==='source-add-relation')document.querySelector('#relation-editors').insertAdjacentHTML('beforeend',relationEditor());
   if(b.dataset.action==='source-remove-relation')b.closest('[data-relation-row]').remove();
@@ -154,7 +200,7 @@ document.addEventListener('change',event=>{
       toast('关联已改变，原依据已留在历史；请补充新依据。');
     }
   }
-  if(event.target.id==='f-kind'&&event.target.closest('[data-form="source"]')){
+  if(event.target.id==='f-kind'&&sourceFormElement&&!sourceFormElement.hasAttribute('data-source-contribution')){
     const draft=state.editing.draftSpecific,data=new FormData(sourceFormElement);
     for(const key of ['location','country','country_evidence','issn','host_country_status','host_evidence','international_status','international_evidence']){
       if(sourceFormElement.elements.namedItem(key))draft[key]=data.get(key);
@@ -183,6 +229,6 @@ function sourceAfterRender(){
 
 function restoreSourceDetail(){
   state.sourcePreviewId=null;
-  if(state.page==='sources'&&state.params.get('id')===state.sourceProfile?.requested)state.detail={type:'source',data:state.sourceProfile.data};
-  else if(state.page==='sources'&&!state.params.has('id'))state.detail=null;
+  if(['sources','maintenance-sources'].includes(state.page)&&state.params.get('id')===state.sourceProfile?.requested)state.detail={type:'source',data:state.sourceProfile.data};
+  else if(['sources','maintenance-sources'].includes(state.page)&&!state.params.has('id'))state.detail=null;
 }
