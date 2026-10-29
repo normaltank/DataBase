@@ -141,6 +141,8 @@ async function sourceForm(id='',forcedKind='',draftKey=''){
   enhanceSourceForm(document.querySelector('[data-form=source]'),draftKey);
 }
 async function submitSourceForm(form,data,values){
+  const account=state.me?.id,hash=location.hash,loadId=state.loadId;
+  const current=()=>account===state.me?.id&&hash===location.hash&&loadId===state.loadId&&form.isConnected;
   if(form._conflictPending)throw new Error('请先对照最新版本，再继续保存。');
   if(form._draftOffer)throw new Error('请先恢复或舍弃已有草稿。');
   const edit=form._editing||state.editing,institution=['institution','think_tank'].includes(values.kind);
@@ -160,7 +162,12 @@ async function submitSourceForm(form,data,values){
     if(target){target.innerHTML=existing?'<p class="notice">已有来源：<a href="'+sourceHref(existing.id)+'" data-source-existing>'+esc(existing.name)+'</a>。当前输入保留，可关闭并保存草稿后查阅。</p>':'';}
     throw error;
   }
-  await clearEditorDraft(form);await loadLookups();closeModal();if(edit.preview){await uxRefreshBackground();await openSource(r.id,true);}else await openSource(r.id);toast('来源及关系已保存，等待核对');
+  if(!current())return;
+  await clearEditorDraft(form);if(!current())return;
+  await loadLookups();if(!current())return;
+  closeModal();
+  if(edit.preview){if(!await uxRefreshBackground())return;await openSource(r.id,true);}else await openSource(r.id);
+  toast('来源及关系已保存，等待核对');
 }
 document.addEventListener('click',event=>{
   const b=event.target.closest('[data-action]');if(!b)return;

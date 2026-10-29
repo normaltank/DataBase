@@ -261,7 +261,9 @@ class PeopleTests(unittest.TestCase):
                 self.assertEqual(self.download("/api/attachments/" + attachment["id"]), b"Synthetic legacy attachment.\n")
         # The legacy institution has no registered country. Its new query-only
         # projection is empty; every pre-existing source field must stay exact.
-        expected_source = {**expected["source"], "filter_countries": [], "last_verified": None, "review_history": []}
+        # This frozen synthetic institution has no supported collector or enabled job.
+        expected_source = {**expected["source"], "filter_countries": [], "last_verified": None, "review_history": [],
+                           "automatic_collection": {"supported": False, "enabled": False}}
         self.assertEqual(self.clients["researcher"].get("/api/sources/" + expected["source"]["id"]).json, expected_source)
         expected_collection = {**expected["collection"], "scope_log_json": "[]", "scope_log": [], "excluded_items": [], "items": [
             {**item, **legacy_automatic_fields(item), "chinese_title": "", "chinese_abstract": "", "display_title": item["title"],

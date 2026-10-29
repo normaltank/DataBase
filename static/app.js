@@ -35,7 +35,7 @@ function selectOptions(options,value,blank='全部'){if(value&&!Object.hasOwn(op
 function brand(){return `<div class="brand"><div class="brand-mark">${icon('book')}</div><div class="brand-text"><div class="brand-name">知汇</div><div class="brand-sub">研究资料共建平台</div></div></div>`;}
 function showLogin(){document.body.classList.remove('navigation-open');navigationFocus=false;if(typeof libraryResetAccount==='function')libraryResetAccount();closeModal();document.querySelector('#app').innerHTML=`<div class="login-shell"><div class="login-box"><section class="login-story">${brand()}<h1>研究资料管理</h1><p>拉脱维亚试点</p></section><section class="login-form"><h2>登录知汇</h2><form data-form="login"><div class="field"><label for="username">账号</label><input id="username" name="username" required autocomplete="username" placeholder="输入账号"></div><div class="field"><label for="password">密码</label><input id="password" name="password" type="password" required autocomplete="current-password" placeholder="输入密码"></div><button class="button primary" type="submit">查看资料 ${icon('arrow')}</button><div class="form-error" role="alert"></div></form><div class="demo-logins"><p>本机试用：选择身份后点击“查看资料”。</p><div class="demo-buttons"><button class="button" data-action="demo-login" data-id="researcher">研究员</button><button class="button" data-action="demo-login" data-id="admin">资料管理员</button><button class="button" data-action="demo-login" data-id="colleague">协作同事</button></div></div></section></div></div>`;}
 async function login(username,password){const r=await api('/api/login',{method:'POST',body:{username,password}});state.me=r.user;state.csrf=r.csrf;announceAccount();await loadLookups();await route();}
-async function loadLookups(){const [s,u,c,h]=await Promise.all([api('/api/sources'),api('/api/users'),api('/api/collections'),api('/health')]);state.sources=s.items;state.users=u.items;state.collections=c.items;state.schema=h.schema;}
+async function loadLookups(){const account=state.me?.id;const [s,u,c,h]=await Promise.all([api('/api/sources'),api('/api/users'),api('/api/collections'),api('/health')]);if(account!==state.me?.id)return;state.sources=s.items;state.users=u.items;state.collections=c.items;state.schema=h.schema;}
 function nav(n){return `<button class="nav-item ${(state.page===n[0]||(n[0]==='sources'&&state.page==='people'))?'active':''}" data-action="nav" data-id="${n[0]}" title="${n[2]}" ${state.page===n[0]?'aria-current="page"':''}>${icon(n[1])}<span>${n[2]}</span></button>`;}
 const navigationMedia=matchMedia('(max-width:1000px)');
 let navigationFocus=false;
@@ -82,9 +82,10 @@ async function route(){
   state.page=navs.some(n=>n[0]===page)?page:'collaboration';state.params=new URLSearchParams(query);
   const legacyPortals=state.page==='sources'&&state.params.get('group')==='maintenance';
   if(legacyPortals&&state.me.role==='admin')return go('maintenance-sources',state.params);
-  if(['collaboration','compilations'].includes(state.page)&&state.params.get('scope')==='maintenance'&&state.me.role==='admin')return go('maintenance-work',state.params);
-  const denied=state.me.role!=='admin'&&(isMaintenancePage()||legacyPortals);
-  if(state.page==='compilations'&&state.params.get('kind')?.split('|').some(k=>!['compilation','research_report','directory_translation'].includes(k))){const old=new URLSearchParams(state.params);old.delete('legacy');old.set('feed','all');return go('library',old);}
+  const legacyWork=['collaboration','compilations'].includes(state.page)&&state.params.get('scope')==='maintenance';
+  if(legacyWork&&state.me.role==='admin')return go('maintenance-work',state.params);
+  const denied=state.me.role!=='admin'&&(isMaintenancePage()||legacyPortals||legacyWork);
+  if(!denied&&state.page==='compilations'&&state.params.get('kind')?.split('|').some(k=>!['compilation','research_report','directory_translation'].includes(k))){const old=new URLSearchParams(state.params);old.delete('legacy');old.set('feed','all');return go('library',old);}
   if(typeof libraryRouteContext==='function')libraryRouteContext();if(typeof continuityBeforeRender==='function')continuityBeforeRender();closeModal(false);state.detail=null;shell();const id=++state.loadId;
   try{
     let html;

@@ -48,17 +48,23 @@ async function uxLibraryPage(data=null) {
   return readingLibraryHTML(data||await api('/api/records?'+recordQuery()));
 }
 async function uxRefreshBackground() {
-  const hash=location.hash,loadId=++state.loadId;
+  const hash=location.hash,account=state.me?.id,loadId=++state.loadId,scrollY=window.scrollY;
   let html;
   if(state.page==='dashboard')html=await dashboard();
   else if(state.page==='sources')html=readingArchiveTabs()+await sourcesPage();
+  else if(state.page==='maintenance-sources')html=await sourcesPage();
   else if(state.page==='people')html=readingArchiveTabs()+await peoplePage();
   else if(state.page==='personal')html=await readingPersonalPage();
   else if(state.page==='collections')html=await collectionsPage();
   else if(state.page==='system')html=await systemPage();
   else if(state.page==='drafts')html=await draftsPage();
   else html=await libraryPage();
-  if(state.me&&location.hash===hash&&loadId===state.loadId){document.querySelector('#content').innerHTML=html;if(typeof libraryAfterRender==='function')libraryAfterRender();}
+  if(!state.me||state.me.id!==account||location.hash!==hash||loadId!==state.loadId)return false;
+  document.querySelector('#content').innerHTML=html;
+  if(typeof sourceAfterRender==='function')sourceAfterRender();
+  if(typeof libraryAfterRender==='function')libraryAfterRender();
+  window.scrollTo(0,scrollY);
+  return true;
 }
 function uxCopyLabel(record) {
   return ['compilation','research_report'].includes(record.kind)?'复制引用清单':record.kind==='research_note'?(record.evidence_record_id?'复制摘录与出处':'复制笔记与出处'):'复制出处';

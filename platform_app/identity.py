@@ -137,7 +137,13 @@ def register(app, *, db, body, records, validate_source):
             abort(400)
         table = "records" if kind == "record" else "sources"
         access = records()
-        rows = [r for r in db().execute(f"SELECT * FROM {table} WHERE merged_into IS NULL LIMIT 2000") if kind == "source" or access.visible(r)]
+        personal = request.args.get("scope") == "personal"
+        condition = " AND kind IN ('compilation','research_report')" if personal else " LIMIT 2000"
+        rows = [r for r in db().execute(f"SELECT * FROM {table} WHERE merged_into IS NULL" + condition) if kind == "source" or access.visible(r)]
+        if personal:
+            # Apply author ACL before limiting the scan, so unrelated public work
+            # cannot crowd a member's own or authorized reports out of discovery.
+            rows = [r for r in rows if kind == "record" and access.editable(r)][:2000]
         title, original = ("title", "original_title") if kind == "record" else ("name", "original_name")
         items = []
         for i, first in enumerate(rows):

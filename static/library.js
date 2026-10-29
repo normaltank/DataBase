@@ -62,7 +62,8 @@ function readingLibraryHTML(data){
 
   const chips=[...p].filter(([key,value])=>savedSearchKeys.has(key)&&!['sort','feed'].includes(key)&&value);
   const dateField=p.get('date_field')||'published';
-  const tools=linkButton('批量整理','reading-organize')+(state.me.role==='admin'&&isMaintenancePage()&&state.schema>=4?linkButton('整理重复','duplicates','record'):'')+linkButton('导出完整内容','export-content','','button tiny').replace('data-id=""','data-query="'+esc(p)+'"')+'<a class="button tiny" href="/api/export?'+esc(p)+'">导出清单</a>';
+  const mergeTool=state.schema>=4?(isMaintenancePage()?(state.me.role==='admin'?linkButton('整理重复','duplicates','record'):''):linkButton('整理个人成果重复','duplicates','personal')):'';
+  const tools=linkButton('批量整理','reading-organize')+mergeTool+linkButton('导出完整内容','export-content','','button tiny').replace('data-id=""','data-query="'+esc(p)+'"')+'<a class="button tiny" href="/api/export?'+esc(p)+'">导出清单</a>';
   return '<div class="ux-library reading-library"><div class="page-heading between"><h1>'+esc(title)+'</h1>'+(state.page==='compilations'?linkButton('导入成品','import-output','','button primary tiny'):linkButton('补充资料','new-record','','button tiny'))+'</div>'
     +(state.page==='library'?'<nav class="reading-tabs" aria-label="资料范围"><button type="button" data-action="reading-feed" data-feed="new" aria-current="'+(isNew?'page':'false')+'">新文章</button><button type="button" data-action="reading-feed" data-feed="all" aria-current="'+(!isNew?'page':'false')+'">全部资料</button></nav>':'')
     +(state.page==='compilations'?'<p class="small">旧笔记、说明和摘录可在'+linkButton('全部资料与旧研究积累','work-old-content')+'继续查阅。</p>':'')
