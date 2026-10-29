@@ -47,7 +47,11 @@ document.addEventListener('click',event=>{
   else if(b.dataset.action==='work-filter')go(state.page,parameters({[b.dataset.key]:b.dataset.id}));
   else if(b.dataset.action==='work-retry')route();
   else if(b.dataset.action==='work-back')go('collaboration');
-  else if(b.dataset.action==='work-reset')go(state.page);
+  else if(b.dataset.action==='work-reset'){
+    const p=new URLSearchParams();
+    for(const key of ['business','scope'])if(state.params.has(key))p.set(key,state.params.get(key));
+    go(state.page,p);
+  }
   else if(b.dataset.action==='work-browse')go(state.page,{business:'all',scope:'all'});
   else if(b.dataset.action==='work-journals')go('collaboration',{business:'journal'});
   else if(b.dataset.action==='work-read')go('library',{feed:'all'});
