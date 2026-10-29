@@ -232,6 +232,12 @@ input:disabled{opacity:1;background:var(--disabled-bg);color:var(--disabled-text
 select:disabled{opacity:1;background:var(--disabled-bg);color:var(--disabled-text);border-color:var(--control-border);cursor:not-allowed;}
 textarea:disabled{opacity:1;background:var(--disabled-bg);color:var(--disabled-text);border-color:var(--control-border);cursor:not-allowed;}
 .button:disabled:hover{background:var(--disabled-bg);color:var(--disabled-text);}
+/* Shared appearance for controls outside .field; page styles own their sizing.
+   Keep this after the generic disabled rules, as in the former page styles. */
+.ai-budget-card input,.ai-budget-card textarea,
+.ingestion-controls input[type=number],.ingestion-controls select,
+.work-search input,.work-discovery input,
+[data-saved-manager] input{border:1px solid var(--control-border);border-radius:6px;background:var(--surface);color:var(--text);font-size:16px;}
 .button.primary:not(:disabled){color:var(--on-primary);}
 .link-button:hover{text-decoration:underline;}
 .icon-button.saved .icon{fill:var(--accent);}
