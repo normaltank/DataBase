@@ -29,6 +29,8 @@ def create_backup(data_dir):
         snapshot_db = connect(snapshot)
         try:
             uploaded = [r[0] for r in snapshot_db.execute("SELECT stored_name FROM attachments")]
+            handoffs = ([dict(r) for r in snapshot_db.execute("SELECT * FROM handoff_files")]
+                        if snapshot_db.execute("SELECT 1 FROM sqlite_master WHERE name='handoff_files'").fetchone() else [])
             avatars = ([dict(r) for r in snapshot_db.execute("SELECT stored_name,sha256,bytes FROM person_avatars")]
                        if snapshot_db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='person_avatars'").fetchone() else [])
             setting = snapshot_db.execute("SELECT value FROM settings WHERE key='thinktank_import_v1'").fetchone()
@@ -50,6 +52,15 @@ def create_backup(data_dir):
             if len(content) != avatar["bytes"] or hashlib.sha256(content).hexdigest() != avatar["sha256"]:
                 raise ValueError("头像文件与登记信息不一致。")
             payloads["avatars/" + name] = content
+        for original in handoffs:
+            from .handoff_files import STORED_NAME
+            name = original["stored_name"]
+            if not re.fullmatch(STORED_NAME, name):
+                raise ValueError("交接原件路径无效。")
+            content = (data_dir / "handoffs" / name).read_bytes()
+            if len(content) != original["bytes"] or hashlib.sha256(content).hexdigest() != original["sha256"]:
+                raise ValueError("交接原件与登记信息不一致。")
+            payloads["handoffs/" + name] = content
         for name, content in payloads.items():
             manifest["files"][name] = {"sha256": hashlib.sha256(content).hexdigest(), "bytes": len(content)}
         partial = destination.with_suffix(".tmp")
@@ -82,6 +93,7 @@ def restore_backup(archive_path, target_dir):
             for name in names:
                 if (name not in ["platform.sqlite3", "manifest.json", "import-report.json"]
                         and not re.fullmatch(r"uploads/[a-f0-9]{32}\.(pdf|docx|txt|md)", name)
+                        and not re.fullmatch(r"handoffs/[a-f0-9]{32}\.(pdf|docx|txt|md)", name)
                         and not re.fullmatch(r"avatars/[a-f0-9]{32}\.(jpg|png|webp)", name)):
                     raise ValueError("备份包含未允许的文件路径。")
             manifest = json.loads(archive.read("manifest.json"))
@@ -99,7 +111,7 @@ def restore_backup(archive_path, target_dir):
             if db.execute("PRAGMA integrity_check").fetchone()[0] != "ok" or db.execute("PRAGMA foreign_key_check").fetchall():
                 raise ValueError("数据库完整性检查失败。")
             version = db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0]
-            if version not in {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15"}:
+            if version not in {str(v) for v in range(1, 24)}:
                 raise ValueError("数据库版本不匹配。")
             from . import evidence
             if int(version) >= evidence.SCHEMA_VERSION:
@@ -113,6 +125,43 @@ def restore_backup(archive_path, target_dir):
             from . import translations
             if int(version) >= translations.SCHEMA_VERSION:
                 translations.validate_backup(db)
+            from . import reading_feed
+            if int(version) >= reading_feed.SCHEMA_VERSION:
+                reading_feed.validate_backup(db)
+            from . import ingestion
+            if int(version) >= ingestion.SCHEMA_VERSION:
+                ingestion.validate_backup(db)
+            from . import reading_queries
+            if int(version) >= reading_queries.SCHEMA_VERSION:
+                reading_queries.validate_backup(db)
+            from . import ai_gateway
+            if int(version) >= ai_gateway.SCHEMA_VERSION:
+                ai_gateway.validate_backup(db)
+                from .automatic_processing import validate_backup as validate_automatic
+                validate_automatic(db)
+            from . import collaboration, handoff_files
+            if int(version) >= collaboration.SCHEMA_VERSION:
+                referenced_ids = {r[0] for r in db.execute("SELECT file_id FROM topic_candidates")}
+                from . import topic_review
+                if int(version) >= topic_review.SCHEMA_VERSION:
+                    referenced_ids.update(topic_review.referenced_files(db))
+                    topic_review.validate_backup(db)
+                from . import topic_finals
+                if int(version) >= topic_finals.SCHEMA_VERSION:
+                    summary_files = set(topic_finals.referenced_files(db))
+                    if referenced_ids & summary_files:
+                        raise ValueError('整期汇总必须拥有独立提交原件。')
+                    referenced_ids.update(summary_files)
+                    topic_finals.validate_backup(db)
+                from . import journal_collaboration
+                if int(version) >= journal_collaboration.SCHEMA_VERSION:
+                    journal_collaboration.validate_backup(db)
+                    journal_files = journal_collaboration.referenced_files(db)
+                    if referenced_ids & journal_files:
+                        raise ValueError('交接原件不能同时归属不同业务。')
+                    referenced_ids.update(journal_files)
+                handoff_files.validate_backup(db, manifest, referenced_ids)
+                collaboration.validate_backup(db)
             for row in db.execute("SELECT stored_name,sha256 FROM attachments"):
                 name = "uploads/" + row["stored_name"]
                 if name not in manifest["files"] or manifest["files"][name]["sha256"] != row["sha256"]:

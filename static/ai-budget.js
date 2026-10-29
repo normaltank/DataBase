@@ -1,0 +1,37 @@
+ 'use strict';
+function aiMoney(units,currency){return `${(units/1000000).toLocaleString('zh-CN',{maximumFractionDigits:2})} ${esc(currency||'')}`;}
+function aiExact(units){return (units/1000000).toFixed(6);}
+async function aiBudgetCard(){
+ if(state.me.role!=='admin')return '';
+ const d=await api('/api/admin/ai');
+ const status={sent:'已预留，发送结果待核',unknown:'费用未知，保留占用',settled:'已记录费用',released:'明确未发送，已释放'};
+ return `<section class="system-card ai-budget-card" aria-labelledby="ai-budget-heading"><div class="between wrap"><h2 id="ai-budget-heading">AI 费用</h2><button class="button" data-action="ai-refresh">刷新费用</button></div><p>翻译、分类及概述共用月上限。中文暂不可用时，原始资料仍可阅读。</p><div class="ai-totals"><p>月上限<strong>${d.cap_units?aiMoney(d.cap_units,d.currency):'尚未设置'}</strong></p><p>本月已记录<strong>${aiMoney(d.charged_units,d.currency)}</strong></p><p>本月待核占用<strong>${aiMoney(d.held_units,d.currency)}</strong></p></div><p class="small muted">账期 ${esc(d.month)}，按 UTC 月份归属；待核占用不会因重启或新月消失。本地价格估算不等同于供应商最终账单。</p>${d.blocked_reasons.length?`<p class="notice">${d.blocked_reasons.map(esc).join('；')}</p>`:'<p>费用设置有效，未手动暂停。</p>'}<form data-form="ai-config"><div class="ai-controls"><label>月额度<input name="cap" type="number" min="0.000001" max="1000000000" step="0.000001" value="${d.cap_units?aiExact(d.cap_units):''}" required></label><label>币种<input name="currency" pattern="[A-Z]{3}" maxlength="3" value="${esc(d.currency)}" placeholder="三字母币种" required></label><button class="button primary" type="submit">保存月额度</button><button class="button" type="button" data-action="ai-pause" data-paused="${!d.paused}">${d.paused?'恢复 AI':'暂停 AI'}</button></div><div class="form-error" role="alert"></div></form>${d.months.filter(m=>m.held_units>0&&m.month!==d.month).map(m=>`<p class="notice">${esc(m.month)} 仍保留待核占用 ${aiMoney(m.held_units,m.currency)}，请展开核对。</p>`).join('')}${d.legacy_unknown?`<details class="section-gap"><summary>核对升级前旧调用费用（${d.legacy_unknown} 次）</summary><p>旧调用缺少完整预留记录。核实金额保守计入当前月；旧任务与操作历史继续保留。</p><form data-form="ai-legacy"><label>核实的旧调用费用（${esc(d.currency)}）<input name="charged" type="number" min="0" max="1000000000" step="0.000001" required></label><label>账单核对依据<textarea name="basis" minlength="10" maxlength="2000" required></textarea></label><button class="button" type="submit">记录旧调用费用</button><div class="form-error" role="alert"></div></form></details>`:''}<details class="section-gap"><summary>精确金额与调用依据</summary><p>本月已记录 ${aiExact(d.charged_units)}；待核占用 ${aiExact(d.held_units)} ${esc(d.currency)}。凭据及供应商价格版本由本机运行配置提供，页面不会显示密钥。</p>${d.months.map(m=>`<p>${esc(m.month)} · ${esc(m.currency)}：已记录 ${aiExact(m.charged_units)}，待核 ${aiExact(m.held_units)}</p>`).join('')}${d.attempts.map(a=>`<article class="ai-attempt"><p><strong>${esc(status[a.status]||a.status)}</strong> · ${esc(a.task)} · ${esc(a.month)} ${esc(a.currency)}</p><p>已记录 ${aiExact(a.charged_units)}；预留 ${aiExact(a.reserved_units)}</p><p class="small muted">调用 ${esc(a.id)} · ${esc(a.scope)} · ${dateTime(a.created_at)}</p><details><summary>模型、价格版本与用量</summary><p>${esc(a.configuration.model)} · ${esc(a.configuration.version)} · ${esc(a.configuration.pricing.version)}</p><pre>${esc(JSON.stringify(a.evidence,null,2))}</pre></details>${['sent','unknown'].includes(a.status)?`<details><summary>核对并记录这次费用</summary><p>先确认调用已结束并核对供应商账单。仅有明确未发送／未计费依据时填零；记录会保留，不能删除绕过额度。</p><form data-form="ai-resolve" data-id="${esc(a.id)}"><label>已核实费用（${esc(a.currency)}）<input name="charged" type="number" min="0" max="1000000000" step="0.000001" required></label><label>核对依据<textarea name="basis" minlength="10" maxlength="2000" required></textarea></label><button class="button" type="submit">记录核实费用</button><div class="form-error" role="alert"></div></form></details>`:''}</article>`).join('')||'<p>尚无 AI 调用。</p>'}<details><summary>费用操作历史</summary>${d.events.map(e=>`<p>${dateTime(e.created_at)} · ${esc(e.action)} · ${esc(e.basis)}</p>`).join('')||'<p>尚无操作。</p>'}</details></details>${aiTasksHtml(d)}</section>`;
+}
+document.addEventListener('submit',async event=>{
+ const form=event.target;if(!['ai-config','ai-resolve','ai-legacy','ai-task-retry'].includes(form.dataset.form))return;
+ event.preventDefault();const saved=aiViewState();const button=form.querySelector('[type=submit]');button.disabled=true;
+ try{const values=Object.fromEntries(new FormData(form));await api(form.dataset.form==='ai-task-retry'?'/api/admin/ai/tasks/'+encodeURIComponent(form.dataset.id)+'/retry':form.dataset.form==='ai-config'?'/api/admin/ai/config':form.dataset.form==='ai-legacy'?'/api/admin/ai/legacy/resolve':'/api/admin/ai/attempts/'+encodeURIComponent(form.dataset.id)+'/resolve',{method:'POST',body:values});toast('AI 费用设置已保存');await aiRefreshView(saved);}
+ catch(e){form.querySelector('.form-error').textContent=e.message;button.disabled=false;}
+});
+document.addEventListener('click',async event=>{
+ const button=event.target.closest('[data-action^="ai-"]');if(!button)return;const saved=aiViewState();button.disabled=true;
+ try{if(button.dataset.action==='ai-pause')await api('/api/admin/ai/pause',{method:'POST',body:{paused:button.dataset.paused==='true'}});await aiRefreshView(saved);}
+ catch(e){toast(e.message);button.disabled=false;}
+});
+
+function aiTasksHtml(d){
+ const labels={queued:'等待后台',running:'处理中',paused:'暂停待恢复',failed:'需维护者处理',succeeded:'已完成'};
+ const names={translation:'题名及摘要翻译',classification:'内容分类',summary:'正文机器概述'};
+ return `<section class="section-gap" data-ai-tasks><h3>自动中文任务与异常</h3><p class="small muted">后台最近心跳：${d.worker_heartbeat?dateTime(d.worker_heartbeat):'尚未检测到'}。配置或月度额度恢复后，暂停任务由后台自动续作。</p><p>${Object.entries(d.task_counts).map(([k,n])=>esc(labels[k]||k)+' '+n).join('；')||'尚无任务'}</p>${d.tasks.map(t=>`<details><summary>${esc(names[t.task]||t.task)} · ${esc(labels[t.status]||t.status)} · ${esc(t.title)}</summary><p>${esc(t.reason||'等待后台处理')}</p><p class="small">下次尝试：${dateTime(t.next_run)}</p>${['failed','paused'].includes(t.status)?`<form data-form="ai-task-retry" data-id="${esc(t.id)}"><p>先处理异常并核实未知费用。每轮最多三次调用，每次仍须通过月额度预留；旧记录及费用保留。</p><label>处理及批准依据<textarea name="basis" minlength="10" maxlength="2000" required></textarea></label><button class="button" type="submit">批准受控重试</button><div class="form-error" role="alert"></div></form>`:''}</details>`).join('')}</section>`;
+}
+
+function aiViewState(){
+ const card=document.querySelector('.ai-budget-card');
+ return {open:[...(card?.querySelectorAll('details[open]')||[])].map(d=>d.querySelector(':scope > summary')?.textContent),task:document.activeElement?.closest('[data-ai-tasks]')!==null};
+}
+async function aiRefreshView(saved){
+ await route();const card=document.querySelector('.ai-budget-card');if(!card)return;
+ card.querySelectorAll('details').forEach(d=>{if(saved.open.includes(d.querySelector(':scope > summary')?.textContent))d.open=true;});
+ const anchor=saved.task?card.querySelector('[data-ai-tasks]'):card;
+ anchor.scrollIntoView({block:'start'});const heading=anchor.querySelector('h2,h3');heading.tabIndex=-1;heading.focus({preventScroll:true});
+}

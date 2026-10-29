@@ -1,5 +1,6 @@
 """Local research collections, member administration and permission-aware export."""
 import hashlib
+import base64
 import html
 import io
 import json
@@ -22,10 +23,10 @@ def collection_values(data, base=None):
     for key in COLLECTION_FIELDS:
         value = data.get(key, base[key] if base else "")
         if not isinstance(value, str) or len(value) > (500000 if key.startswith("comparison_") else 40000):
-            abort(400, "专题字段格式不正确或内容过长。")
+            abort(400, "资料夹字段格式不正确或内容过长。")
         values[key] = value.strip()
     if not values["name"] or values["visibility"] not in {"private", "shared"}:
-        abort(400, "请填写专题名称并选择共享范围。")
+        abort(400, "请填写资料夹名称并选择共享范围。")
     try:
         values["comparison_html"], values["comparison_text"] = workflow.clean_rich(values["comparison_html"])
     except ValueError as error:
@@ -64,13 +65,13 @@ def register(app, ctx):
         ctx.check_version(data, row)
         values = collection_values(data, row)
         if values["visibility"] != row["visibility"] and row["owner_id"] != user()["id"]:
-            abort(403, "只有专题创建者可以调整可见范围。")
+            abort(403, "只有资料夹创建者可以调整可见范围。")
         with db():
             if not db().execute("SELECT 1 FROM revisions WHERE target_type='collection' AND target_id=?", (cid,)).fetchone():
-                save_revision(db(), "collection", cid, "专题修订前版本", user()["id"])
+                save_revision(db(), "collection", cid, "资料夹修订前版本", user()["id"])
             values.update(version=row["version"] + 1, updated_at=now())
             db().execute(f"UPDATE collections SET {','.join(k+'=?' for k in values)} WHERE id=?", [*values.values(), cid])
-            save_revision(db(), "collection", cid, "修订研究问题、比较或阶段判断", user()["id"])
+            save_revision(db(), "collection", cid, "修订资料夹及已有内容", user()["id"])
         return jsonify(id=cid)
 
     @app.get("/api/collections/<cid>/history")
@@ -96,20 +97,20 @@ def register(app, ctx):
             rid = ctx.get_record(item["record_id"])["id"]
             decision = collection_scope.decision(item)
             if rid in records and records[rid] != decision:
-                abort(409, "历史专题条目已合并，但纳入／排除理由不同，请先人工整理。")
+                abort(409, "历史资料夹条目已合并，但纳入／排除理由不同，请先人工整理。")
             records[rid] = decision
         with db():
             values.update(version=row["version"] + 1, updated_at=now())
             db().execute(f"UPDATE collections SET {','.join(k+'=?' for k in values)} WHERE id=?", [*values.values(), cid])
             db().execute("DELETE FROM collection_items WHERE collection_id=?", (cid,))
             db().executemany("INSERT INTO collection_items(collection_id,record_id,disposition,rationale) VALUES (?,?,?,?)", [(cid, rid, *decision) for rid, decision in records.items()])
-            save_revision(db(), "collection", cid, "恢复专题版本 " + str(snapshot["version"]), user()["id"])
+            save_revision(db(), "collection", cid, "恢复资料夹版本 " + str(snapshot["version"]), user()["id"])
         return jsonify(id=cid)
 
     @app.get("/api/members")
     def members():
         ctx.admin()
-        return jsonify(items=[dict(r) for r in db().execute("SELECT id,username,name,role,active FROM users ORDER BY active DESC,name")])
+        return jsonify(items=[dict(r) for r in db().execute("SELECT id,username,name,role,active FROM users WHERE role<>'system' ORDER BY active DESC,name")])
 
     @app.post("/api/members")
     def new_member():
@@ -138,6 +139,8 @@ def register(app, ctx):
         row, data = db().execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone(), body()
         if not row:
             abort(404)
+        if row['role'] == 'system':
+            abort(403,'系统处理主体不属于成员账号，不能启用、重置或改写。')
         values = {}
         for key in ["name", "role", "active"]:
             if key in data:
@@ -245,9 +248,13 @@ def register(app, ctx):
                     if original and ctx.visible(original):
                         attachments[aid] = {**dict(a), "path": "attachments/" + a["stored_name"]}
         avatars = content_export.prepare_people(db(), people)
+        from . import topic_finals
+        final_files = topic_finals.prepare_export(db(), records)
+        from . import journal_collaboration
+        journal_works = journal_collaboration.export_projection(db(),ctx.records(),set(records))
         payload = {"format": "research-content-v1", "exported_at": now(), "selected_ids": [r["id"] for r in selected],
                    "records": list(records.values()), "sources": sources, "collections": collections, "attachments": list(attachments.values()),
-                   "people": people, "avatars": list(avatars.values())}
+                   "people": people, "avatars": list(avatars.values()), "journal_works": journal_works}
         coverage = content_export.evidence_coverage(records, attachments, sources)
         output = io.BytesIO()
         style = "body{font:16px/1.7 system-ui,sans-serif;max-width:960px;margin:32px auto;padding:0 20px;color:#202f42}a{color:#234e78}pre{font:inherit;white-space:pre-wrap}section{margin:28px 0}"
@@ -303,9 +310,18 @@ def register(app, ctx):
                 index += '<li><a href="' + paths[rid] + '">' + html.escape(item["title"]) + "</a></li>"
                 content = '<p><a href="../index.html">返回目录</a></p>' + prose("出版题录", reading.citation(item)) + prose("身份与出处", f"编号：{rid}\n署名：{item['authors']}\n日期：{item['published_on']}\n版本：{item['version']}\n覆盖范围：{item['coverage']}\n原目录出处：{item['original_catalogue']}\n原文链接：{item['url']}")
                 content += reviews.html(item)
+                for work in item.get("collaboration_works", []):
+                    content += prose("编译工作与采用依据", json.dumps(work, ensure_ascii=False, indent=2))
+                    content += '<p><a href="../' + html.escape(work["path"]) + '">已留档原件：' + html.escape(work["name"]) + '</a></p>'
+                    for adopted in work.get("adoptions", []):
+                        content += '<p><a href="../' + html.escape(adopted["path"]) + '">采用定稿 v' + str(adopted["version"]) + '：' + html.escape(adopted["name"]) + '</a></p>'
+                content += prose("当前阅读题名（" + {'human':'人工中文','machine':'机器中文，未人工校订','original':'原始信息'}.get(item.get('translation_origin'), '原始信息') + "）", item.get('display_title'))
+                content += prose("当前阅读摘要", item.get('display_abstract'))
                 content += prose("人工中文题名", item.get("chinese_title")) + prose("人工中文摘要", item.get("chinese_abstract"))
                 content += prose("机器译文版本、原文输入与出处（非核对结论）", json.dumps(item.get("translations", []), ensure_ascii=False, indent=2) if item.get("translations") else "")
                 content += prose("人工中文修订历史", json.dumps(item.get("translation_history", []), ensure_ascii=False, indent=2) if item.get("translation_history") else "")
+                content += prose('机器概述（非原摘要，未人工核对）', item.get('machine_summary',{}).get('summary','') if item.get('machine_summary') else '')
+                content += prose('机器概述原文与定位、分类及处理版本',json.dumps({k:item[k] for k in ['machine_summary_basis','machine_classification','automatic_tasks'] if item.get(k)},ensure_ascii=False,indent=2) if item.get('automatic_tasks') else '')
                 content += prose("摘要与说明", item["abstract"]) + "<section><h2>正文</h2>" + item["body_html"] + "</section>"
                 if item.get("intake_evidence"):
                     content += prose("辅助录入取得依据（题录，非全文或核对结论）", json.dumps(item["intake_evidence"], ensure_ascii=False, indent=2))
@@ -313,6 +329,14 @@ def register(app, ctx):
                     content += prose("RIS 交换依据（仅本条题录，非全文或核对结论）", json.dumps(item["ris_evidence"], ensure_ascii=False, indent=2))
                 if item.get("discovery_evidence"):
                     content += prose("来源发现依据（公开描述非已核实摘要）", json.dumps(item["discovery_evidence"], ensure_ascii=False, indent=2))
+                if item.get('automatic_acquisition'):
+                    content += prose('自动取得状态','系统处理，未人工核对；中文待处理；网页说明与作品实质正文分别保留。')
+                    for snapshot in item['automatic_acquisition']['snapshots']:
+                        if snapshot['path'] not in archive.namelist():
+                            archive.writestr(snapshot['path'],base64.b64decode(snapshot['raw_base64']))
+                        content += prose('网页说明快照（未验证作品全文）',snapshot['page_text'])
+                        content += prose('快照出处与版本',snapshot['url']+'\n'+snapshot['retrieved_at']+'\nSHA256: '+snapshot['sha256']+'\n'+snapshot['reason'])
+                        content += '<p>原始响应字节：'+html.escape(snapshot['path'])+'（仅供下载核对，含未执行的原站代码）</p>'
                 content += content_export.record_relations_html(item, prose, source_paths, people)
                 for key, label in [("quote", "原文摘录"), ("translation", "译文"), ("interpretation", "研究员说明"), ("locator", "原文定位")]:
                     content += prose(label, item[key])
@@ -358,6 +382,13 @@ def register(app, ctx):
                         content += '<p><a href="../' + source_paths[sid] + '">查看关联来源：' + html.escape(next(s["name"] for s in sources if s["id"] == sid)) + '</a></p>'
                 archive.writestr(paths[rid], page(item["title"], content))
             index += "</ul>"
+            if journal_works:
+                index += '<h2>期刊编译工作及全部原件版本</h2><ul>'
+                for work in journal_works:
+                    index += '<li><a href="'+work['path']+'">'+html.escape(work['journal_name']+' · '+work['coverage'])+'</a></li>'
+                    archive.writestr(work['path'],page(work['journal_name'],journal_collaboration.export_html(work)))
+                index += '</ul>'
+                journal_collaboration.write_export_files(archive,ctx.data_dir,db(),journal_works)
             index += "<h2>来源介绍与登记</h2><ul>"
             for source in sources:
                 index += '<li><a href="' + source_paths[source["id"]] + '">' + html.escape(source["name"]) + '</a></li>'
@@ -373,7 +404,7 @@ def register(app, ctx):
             for collection in collections:
                 index += "<section><h2>" + html.escape(collection["name"]) + "</h2>" + prose("研究问题", collection["research_question"]) + collection["comparison_html"] + prose("阶段判断", collection["stage_judgment"]) + "</section>"
             archive.writestr("index.html", page("研究资料内容导出", index + scope_html))
-            for group, folder, label in [(attachments, "uploads", "附件"), (avatars, "avatars", "头像")]:
+            for group, folder, label in [(attachments, "uploads", "附件"), (avatars, "avatars", "头像"), (final_files, "handoffs", "编译定稿")]:
                 for entry in group.values():
                     try:
                         data = (ctx.data_dir / folder / entry["stored_name"]).read_bytes()

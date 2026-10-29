@@ -6,7 +6,7 @@ function continuityPosition(){
   if(!state.me)return null;
   const topic=typeof topicPosition==='function'?topicPosition():null;
   if(topic)return {account:state.me.id,hash:location.hash,topic,y:window.scrollY};
-  if(document.querySelector('.library-workspace'))return {account:state.me.id,hash:location.hash,reader:libraryWorkspace.readerId,view:libraryWorkspace.view,y:window.scrollY,returnY:libraryWorkspace.returnY,readerY:document.querySelector('.library-reader-body')?.scrollTop||0};
+  if(document.querySelector('.library-workspace'))return {account:state.me.id,hash:location.hash,reader:libraryWorkspace.readerId,readerLanguage:document.querySelector('.library-reader [data-reading-language]')?.dataset.readingLanguage||'chinese',view:libraryWorkspace.view,selection:[...libraryWorkspace.selected],organizing:libraryWorkspace.organizing,focusId:libraryWorkspace.returnFocus?.dataset.id||null,focusAction:libraryWorkspace.returnFocus?.dataset.action||null,y:window.scrollY,returnY:libraryWorkspace.returnY,workspaceDetails:[...document.querySelectorAll('.library-workspace details:not(.library-reader details)')].flatMap((el,index)=>el.open?[index]:[]),readerDetails:[...document.querySelectorAll('.library-reader details')].flatMap((el,index)=>el.open?[index]:[]),readerY:document.querySelector('.library-reader')?.scrollTop||0,listY:document.querySelector('.record-list')?.scrollTop||0};
   return null;
 }
 function continuityRemember(){
@@ -31,7 +31,7 @@ function continuityRouteStart(){
 }
 function continuityBeforeRender(){
   const pos=history.state?.position;
-  if(pos?.account===state.me?.id&&pos.hash===location.hash&&pos.view)libraryWorkspace.view=pos.view;
+  if(pos?.account===state.me?.id&&pos.hash===location.hash&&pos.view){libraryWorkspace.view=pos.view;libraryWorkspace.organizing=!!pos.organizing;}
 }
 function continuityRouteFailed(error){
   continuityRouting=false;
@@ -52,12 +52,25 @@ async function continuityRestore(){
   if(!pos||pos.account!==account||pos.hash!==hash)return;
   continuityRestoring=true;
   try{
+    document.querySelectorAll('.library-workspace details:not(.library-reader details)').forEach((el,index)=>{el.open=(pos.workspaceDetails||[]).includes(index);});
+    if(document.querySelector('.library-workspace')&&Array.isArray(pos.selection)){
+      const valid=[];
+      for(const id of pos.selection.slice(0,librarySelectionLimit)){
+        try{const record=await api('/api/records/'+encodeURIComponent(id));if(record.id===id)valid.push(id);}catch(error){if(![403,404].includes(error.status))throw error;}
+        if(!current())return;
+      }
+      libraryWorkspace.selected=new Set(valid);librarySelectionChanged();
+    }
     if(pos.topic){await openResearchCollection(pos.topic.id,pos.topic);if(!current())return;if(pos.record)await workflowOpenRecord(pos.record);}
     else if(pos.reader&&document.querySelector('.library-workspace')){
-      if(libraryWorkspace.items.some(r=>r.id===pos.reader)){libraryWorkspace.returnY=pos.returnY||0;await libraryOpenReader(pos.reader);if(!current())return;libraryWorkspace.returnY=pos.returnY||0;const body=document.querySelector('.library-reader-body');if(body)body.scrollTop=pos.readerY||0;}
+      if(libraryWorkspace.items.some(r=>r.id===pos.reader)){libraryWorkspace.returnY=pos.returnY||0;await libraryOpenReader(pos.reader);if(!current())return;libraryWorkspace.returnY=pos.returnY||0;const panel=document.querySelector('.library-reader');if(panel){readingChooseLanguage(panel.querySelector('.ux-reading-article'),libraryWorkspace.readerRecord,pos.readerLanguage==='original');panel.querySelectorAll('details').forEach((el,index)=>{el.open=(pos.readerDetails||[]).includes(index);});panel.scrollTop=pos.readerY||0;}const list=document.querySelector('.record-list');if(list)list.scrollTop=pos.listY||0;}
       else{history.replaceState({...history.state,position:{...pos,reader:null}},'',location.href);toast('原资料已不在当前结果中，已返回查找列表。');}
     }
-    if(current())window.scrollTo(0,pos.y||0);
+    if(current()){
+      if(pos.focusId)libraryWorkspace.returnFocus=[...document.querySelectorAll('.record-list [data-action]')].find(el=>el.dataset.id===pos.focusId&&el.dataset.action===(pos.focusAction||'detail'))||null;
+      if(!pos.reader)libraryWorkspace.returnFocus?.focus({preventScroll:true});
+      window.scrollTo(0,pos.y||0);
+    }
   }catch(error){if(current()){history.replaceState({...history.state,position:null},'',location.href);toast('原工作位置已失效，已返回当前页面。'+error.message);}}
   finally{if(generation===continuityGeneration)continuityRestoring=false;}
 }

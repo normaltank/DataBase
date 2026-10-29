@@ -23,20 +23,26 @@ provider_delay = {'seconds': 0}
 def provider(*args,**kwargs):
  time.sleep(provider_delay['seconds'])
  response=MagicMock();response.__enter__.return_value=response;response.geturl.return_value='https://api.deepseek.com/chat/completions'
- response.read.return_value=json.dumps({'choices':[{'message':{'content':json.dumps({'title':'合成机器译题','abstract':'合成机器摘要'})}}]}).encode()
+ response.read.return_value=json.dumps({'choices':[{'finish_reason':'stop','message':{'content':json.dumps({'title':'合成机器译题','abstract':'合成机器摘要'})}}]}).encode()
  return response
 results={}
 try:
- with patch.dict(os.environ,{'DEEPSEEK_API_KEY':'synthetic-browser-key','DEEPSEEK_BASE_URL':'https://api.deepseek.com','DEEPSEEK_MODEL':'deepseek-chat'}),patch('urllib.request.OpenerDirector.open',side_effect=provider),sync_playwright() as p:
+ with patch.dict(os.environ,{'DEEPSEEK_API_KEY':'synthetic-browser-key','DEEPSEEK_BASE_URL':'https://api.deepseek.com','DEEPSEEK_MODEL':'deepseek-flash'}),patch('urllib.request.OpenerDirector.open',side_effect=provider),sync_playwright() as p:
   browser=p.chromium.launch(executable_path=os.environ.get('DATABASE_BROWSER_EXECUTABLE') or None,args=['--no-sandbox'])
   for width in [1366,390]:
    ctx=browser.new_context(viewport={'width':width,'height':900});page=ctx.new_page();errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
    page.goto('http://127.0.0.1:'+str(server.server_port));page.get_by_role('button',name='研究员',exact=True).click()
-   page.locator('[data-action=detail][data-id="'+rid+'"]').first.click()
-   panel=page.locator('[data-translations]');expect(panel).to_be_visible(timeout=5000)
+   def open_reader():
+    page.locator('[data-action=detail][data-id="'+rid+'"]').first.click()
+    history=page.locator('.library-reader details').filter(has=page.locator('[data-translations]')).first
+    expect(history).to_be_visible(timeout=5000)
+    history.locator('>summary').click()
+    return page.locator('.library-reader [data-translations]')
+   panel=open_reader();expect(panel).to_be_visible(timeout=5000)
    if panel.locator('details').first.get_attribute('open') is None:panel.locator('summary').first.click()
    panel.get_by_role('button',name='新建翻译任务',exact=True).click()
    panel.get_by_role('button',name='执行本篇翻译',exact=True).first.click()
+   expect(panel.locator('[data-translation-action="run"]')).to_have_count(0)
    expect(panel).to_contain_text('合成机器译题',timeout=10000)
    adoption=panel.locator('[data-translation-adoption]').first
    adoption.locator('summary').click()
@@ -46,6 +52,7 @@ try:
    page.screenshot(path=str(root/f'translation-{width}.png'),full_page=True)
    panel.get_by_role('button',name='新建翻译任务',exact=True).click()
    panel.get_by_role('button',name='执行本篇翻译',exact=True).first.click()
+   expect(panel.locator('[data-translation-action="run"]')).to_have_count(0)
    adoption=panel.locator('[data-translation-adoption]').first
    expect(adoption).to_be_visible()
    adoption.locator('summary').click()
@@ -55,15 +62,14 @@ try:
    expect(panel.locator('[data-translation-status]')).to_contain_text('更新')
    expect(adoption.locator('[name=chinese_title]')).to_have_value('冲突时保留的人工输入')
    page.screenshot(path=str(root/f'conflict-{width}.png'),full_page=True)
-   page.locator('[data-action=close]').first.click()
-   page.locator('[data-action=detail][data-id="'+rid+'"]').first.click()
-   panel=page.locator('[data-translations]')
+   page.get_by_role('button',name='返回列表',exact=True).click()
+   panel=open_reader()
    expect(panel).to_contain_text('原文已变化，待复核')
    panel.get_by_role('button',name='新建翻译任务',exact=True).click()
    provider_delay['seconds']=.4
    with page.expect_response(lambda response: '/api/translations/' in response.url and response.url.endswith('/run')):
     panel.get_by_role('button',name='执行本篇翻译',exact=True).first.click()
-    page.locator('[data-action=close]').first.click()
+    page.get_by_role('button',name='返回列表',exact=True).click()
    expect(panel).not_to_be_attached()
    provider_delay['seconds']=0
    results[str(width)]={'page_errors':errors,'horizontal_overflow':page.evaluate('document.documentElement.scrollWidth>innerWidth'),'conflict_preserves_input':True,'late_response_keeps_reader_closed':True}

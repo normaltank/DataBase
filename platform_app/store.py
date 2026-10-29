@@ -5,7 +5,7 @@ from pathlib import Path
 
 from werkzeug.security import generate_password_hash
 
-CURRENT_SCHEMA_VERSION = 15
+CURRENT_SCHEMA_VERSION = 23
 
 
 def now():
@@ -112,6 +112,22 @@ def initialize(data_dir):
     migrate_collection_scope(data_dir)
     from .translations import migrate as migrate_translations
     migrate_translations(data_dir)
+    from .reading_feed import migrate as migrate_reading_feed
+    migrate_reading_feed(data_dir)
+    from .ingestion import migrate as migrate_ingestion
+    migrate_ingestion(data_dir)
+    from .reading_queries import migrate as migrate_reading_queries
+    migrate_reading_queries(data_dir)
+    from .ai_gateway import migrate as migrate_ai
+    migrate_ai(data_dir)
+    from .collaboration import migrate as migrate_collaboration
+    migrate_collaboration(data_dir)
+    from .topic_review import migrate as migrate_topic_review
+    migrate_topic_review(data_dir)
+    from .journal_collaboration import migrate as migrate_journal_collaboration
+    migrate_journal_collaboration(data_dir)
+    from .topic_finals import migrate as migrate_topic_finals
+    migrate_topic_finals(data_dir)
 
 
 def decoded(row):

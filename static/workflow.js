@@ -139,7 +139,7 @@ async function restoreEditorDraft(form) {
   if(draft.type==='byline')restoreBylineDraft(form,draft);
   if(draft.type==='employment'||draft.type==='affiliation')restoreRelationshipDraft(form,draft);
   form.querySelectorAll('[data-rich-field]').forEach(field=>field.querySelector('[data-rich-input]').innerHTML=cleanRich(draft.values[field.dataset.richField]));
-  state.links=draft.links||[];form._links=state.links.slice();renderSelectedLinks();if(typeof uxRefreshReadingContext==='function')uxRefreshReadingContext(form);
+  state.links=draft.links||[];form._links=state.links.slice();renderSelectedLinks();
   let fileMissing=false;
   if(draft.file){try{const file=await draftFileOperation(form.dataset.draftKey,'get');if(form.dataset.draftUser!==state.me?.id)return;if(file){form._draftFile=file;showDraftFile(form);}else fileMissing=true;}catch{fileMissing=true;}}
   const latestVersion=form._editing.version;form._editing.version=draft.version;form._draftOffer=null;form._dirty=true;form.querySelector('.draft-offer')?.remove();form.querySelector('[type=submit]').disabled=false;
@@ -168,7 +168,7 @@ function updateRecordInformationMode(form){
   const target=form.querySelector(research?'[data-record-extra-metadata]':'[data-record-main-metadata]');
   if(metadata&&target&&metadata.parentElement!==target)target.append(metadata);
   const body=form.querySelector('[data-record-body]');
-  if(body&&form._informationKind!==form.elements.kind.value)body.open=research||!!form.elements.body_html.value;
+  if(body&&form._informationKind!==form.elements.kind.value)body.open=!!form.elements.body_html.value;
   const intake=form.querySelector('[data-intake-editor]');if(intake){intake.hidden=research&&!form.elements.intake_token.value;intake.querySelector('[data-intake-kind-warning]').hidden=!research;intake.querySelector('[data-intake-fetch]').disabled=research;}
   form._informationKind=form.elements.kind.value;
 }
@@ -188,15 +188,20 @@ function updateRecordFormMode(form) {
   form.querySelector('#reference-section').hidden=!isResearchContent(kind);
   form.querySelector('[data-signature-label]').textContent=directory?'编译者 *':personalKinds.has(kind)?'作者 / 编译者署名':'原文作者';
   form.querySelector('[data-proxy-note]').textContent=proxy?'保存后等待负责作者本人确认；确认前不开放正文修订。':'本人提交直接生效。';
-  if(typeof updateNoteSubjectMode==='function')updateNoteSubjectMode(form);if(typeof updateEvidenceMode==='function')updateEvidenceMode(form);if(form.dataset.readingNote){form.querySelector('[data-evidence-editor]')?.setAttribute('hidden','');form.querySelector('[data-evidence-picker]')?.setAttribute('hidden','');form.querySelector('#reference-section').hidden=true;}
+  if(typeof updateNoteSubjectMode==='function')updateNoteSubjectMode(form);if(typeof updateEvidenceMode==='function')updateEvidenceMode(form);
 }
 async function workflowRecordForm(id='',kind='report',sourceId='',draftKey='',evidenceId='',initial={}) {
   const r=id?await api('/api/records/'+encodeURIComponent(id)):{kind,visibility:'shared',editors:[],related_source_ids:state.sources.some(s=>s.id===sourceId)?[sourceId]:[],linked_records:[],author_id:state.me.id,...initial};
+  let savedDraft;try{savedDraft=JSON.parse(localStorage.getItem(draftKey||draftPrefix+encodeURIComponent(state.me.id)+':record:'+(id||'new-'+kind+'-'+sourceId))||'null');}catch{}
+  const legacyDraft=savedDraft?.user_id===state.me.id?savedDraft:null;
   if(id&&!r.can_edit){await workflowOpenRecord(id);toast('当前账号没有正文编辑授权。');return;}
   state.editing={type:'record',id,version:r.version,owner_id:r.owner_id,editors:r.editors,visibility:r.visibility,original:r};state.links=r.linked_records||[];
+  const finished=sourceId==='finished'||authorControlledKinds.has(kind)||kind==='directory_translation';
+  const choices=id?kinds:finished?Object.fromEntries(['compilation','research_report','directory_translation'].map(k=>[k,kinds[k]])):Object.fromEntries(Object.entries(kinds).filter(([k])=>k!=='research_note'));
+  if(!id&&draftKey)choices[r.kind]=kinds[r.kind];
   const html='<form data-form="record" class="workflow-form"><div class="form-grid">'
     +'<h3 class="wide record-info-heading">基本信息</h3><p class="wide form-help record-info-help" data-record-required-help>题名必填；其余信息可按需要补充。</p>'
-    +inputField('title','题名 *',r.title,'',true)+selectField('kind','内容类型',kinds,r.kind)+'<div class="field"><label for="f-authors" data-signature-label>作者 / 编译者</label><input id="f-authors" name="authors" value="'+esc(r.authors)+'"></div>'
+    +inputField('title','题名 *',r.title,'',true)+selectField('kind','内容类型',choices,r.kind)+'<div class="field"><label for="f-authors" data-signature-label>作者 / 编译者</label><input id="f-authors" name="authors" value="'+esc(r.authors)+'"></div>'
     +'<div class="wide" data-record-main-metadata><div class="form-grid" data-record-basic-metadata>'+inputField('published_on','发表 / 编译日期',r.published_on,'YYYY、YYYY-MM 或 YYYY-MM-DD')+inputField('publication_title','刊物名称 / 出处',r.publication_title)+inputField('volume','卷',r.volume)+inputField('issue','期',r.issue)+inputField('pages','页码 / 文章编号',r.pages)+inputField('issn','ISSN',r.issn,'多个标识按原题录保留')+inputField('doi','DOI',r.doi)+inputField('url','原文链接',r.url,'https://…',false,'url')+'</div></div>'
     +'<div class="wide" data-coverage>'+inputField('coverage','年份 / 卷期 / 覆盖范围 *',r.coverage,'例如：2026 年第 1–3 期',true)+'</div><div class="wide notice" data-directory-rule>目录译稿由全体有效成员共同编辑。</div>'
     +'<div class="wide" data-author-new>'+selectField('author_id','负责作者账号',Object.fromEntries(state.users.map(u=>[u.id,u.name])),r.author_id||state.me.id,'请选择负责作者')+'<p class="form-help" data-proxy-note></p></div>'
@@ -208,11 +213,11 @@ async function workflowRecordForm(id='',kind='report',sourceId='',draftKey='',ev
     +'<details class="wide record-form-section" data-record-attachments '+(r.attachments?.length?'open':'')+'><summary>附件（选填）</summary><div class="attachment-editor section-gap">'+(r.attachments||[]).map(a=>'<p>'+icon('file')+' '+esc(a.name)+'</p>').join('')+'<label for="f-file">添加 Word、PDF 或文本文件（最多 20 MB）</label><input id="f-file" type="file" name="file" accept=".pdf,.docx,.txt,.md"><div data-file-status class="form-help"></div><label class="check-label"><input type="checkbox" name="sharing_confirmed">我确认本次附件可以在所选范围内共享。</label></div></details>'
     +'<section class="wide" data-access-fields><h3>可见范围与权限</h3><p class="form-help" data-common-rule>当前有权读取的有效成员共同编辑；共同编辑不改变可见范围。</p>'+selectField('visibility','可见范围',{shared:'中心成员可见',restricted:'限有读取权限的成员'},r.visibility)+'<fieldset class="editor-grants"><legend data-grants-label>获授权共同编辑的成员</legend>'
     +state.users.filter(u=>u.id!==(r.author_id||state.me.id)).map(u=>'<label class="check-label"><input type="checkbox" name="editors" value="'+esc(u.id)+'" '+(r.editors?.includes(u.id)?'checked':'')+'>'+esc(u.name)+(u.role==='admin'?'（管理员）':'')+'</label>').join('')+'</fieldset><p class="form-help" data-acl-rule></p></section>'
-    +'</div><div class="form-error" role="alert"></div><div class="form-actions"><button type="button" class="button" data-action="close">关闭并保留草稿</button><button type="submit" class="button primary">'+(id?'保存修订':'保存内容')+'</button></div></form>';
-  if(modal(id?'修订内容':'新建'+(kinds[kind]||'资料'),html)===false)return;
+    +'</div><div class="form-error" role="alert"></div><div class="form-actions"><button type="button" class="button" data-action="close">关闭并保留草稿</button><button type="submit" class="button primary">'+(id?'保存修订':finished?'保存成品':'保存内容')+'</button></div></form>';
+  if(modal(id?'修订内容':finished?'导入已完成成果':'补充资料',html)===false)return;
   const form=document.querySelector('[data-form=record]'),generation=modalGeneration,account=state.me?.id;
   const active=()=>form.isConnected&&document.querySelector('[data-form=record]')===form&&generation===modalGeneration&&account===state.me?.id;
-  form._editing=state.editing;if(sourceId.startsWith('collection:'))form.dataset.collectionId=sourceId.slice(11);
+  form._editing=state.editing;if(finished&&!id){const files=form.querySelector('[data-record-attachments]');files.open=true;files.querySelector('summary').textContent='原文件（选填）';form.querySelector('[data-author-new]').before(files);}form.elements.kind.required=true;if(finished)form.elements.kind.querySelector('option[value=""]')?.remove();
   if(typeof prepareIntakeForm==='function')prepareIntakeForm(form);
   form._updateInformationMode=()=>updateRecordInformationMode(form);form._updateInformationMode();
   form.addEventListener('change',event=>{if(event.target.name==='kind')form._updateInformationMode();});
@@ -224,11 +229,12 @@ async function workflowRecordForm(id='',kind='report',sourceId='',draftKey='',ev
   const preparationStatus=document.createElement('p');preparationStatus.className='notice';preparationStatus.setAttribute('role','status');preparationStatus.textContent='正在准备编辑与草稿保护…';form.prepend(preparationStatus);
   form.querySelector('[type=submit]').disabled=true;
   try{
-    if(state.schema>=4&&typeof enhanceEvidenceForm==='function')await enhanceEvidenceForm(form,r,evidenceId);
+    const legacy={...r,...(legacyDraft?.values||{}),evidence_citations:[...(r.evidence_citations||[])]};
+    for(const excerpt of legacyDraft?.values?.evidence_ids||[]){if(!legacy.evidence_citations.some(c=>c.excerpt_id===excerpt)){const note=await api('/api/records/'+encodeURIComponent(excerpt));if(!active())return;legacy.evidence_citations.push({excerpt_id:excerpt,snapshot:note,current_version:note.version});}}
+    if(state.schema>=4&&typeof enhanceEvidenceForm==='function')await enhanceEvidenceForm(form,legacy,evidenceId);
     if(!active())return;
     await prepareNoteSubjectForm(form,r);if(!active())return;
     await enableEditorDraft(form,form._editing,sourceId,draftKey);if(!active())return;
-    if(typeof uxPrepareReadingForm==='function')uxPrepareReadingForm(form,sourceId);
   }
   catch(error){if(!active())return;form._evidenceLoadFailed=true;if(!form.dataset.draftKey)await enableEditorDraft(form,form._editing,sourceId,draftKey);form.querySelector('.form-error').textContent='关联证据未能读取，请关闭后重新打开。已有草稿仍保留。';form.querySelector('[type=submit]').disabled=true;throw error;}
   finally{preparing.replaceWith(...preparing.childNodes);preparationStatus.remove();form.inert=false;if(!form._evidenceLoadFailed&&!form._draftOffer)form.querySelector('[type=submit]').disabled=false;}
@@ -242,10 +248,10 @@ async function workflowSubmitRecord(form,data) {
   if(values.kind==='directory_translation'){values.visibility='shared';values.editors=[];}
   if(!authorControlledKinds.has(values.kind)||edit.id)delete values.author_id;
   values.linked_ids=isResearchContent(values.kind)?state.links.map(r=>r.id):[];values.related_source_ids=data.getAll('related_source_ids');values.sharing_confirmed=data.get('sharing_confirmed')==='on';values.version=edit.version;
-  if(values.kind==='research_note')values.research_subjects=noteSubjectValues(form);delete values.research_subject_choices;
+  if(values.kind==='research_note'&&form.querySelector('[data-note-subject-picker]'))values.research_subjects=noteSubjectValues(form);delete values.research_subject_choices;
   if(data.has('evidence_occurrence'))values.evidence_occurrence=Number(data.get('evidence_occurrence'));
   if(data.has('evidence_selection_start'))values.evidence_selection_start=Number(data.get('evidence_selection_start'));
-  values.evidence_ids=['compilation','research_report'].includes(values.kind)?data.getAll('evidence_ids'):[];values.evidence_citations=values.evidence_ids.map(id=>({excerpt_id:id,stance:data.get('citation_stance_'+id)||'unclassified',claim_note:data.get('citation_claim_'+id)||''}));values.refresh_evidence=data.get('refresh_evidence')==='on';values.refresh_citations=data.get('refresh_citations')==='on';
+  if(form.querySelector('[data-evidence-picker]')){values.evidence_ids=data.getAll('evidence_ids');values.evidence_citations=values.evidence_ids.map(id=>({excerpt_id:id,stance:data.get('citation_stance_'+id)||'unclassified',claim_note:data.get('citation_claim_'+id)||''}));values.refresh_citations=data.get('refresh_citations')==='on';}values.refresh_evidence=data.get('refresh_evidence')==='on';
   if(values.kind!=='research_note')for(const key of ['evidence_record_id','evidence_attachment_id','evidence_url','quote','translation','interpretation','locator'])delete values[key];
   if(form._conflictPending)throw new Error('请先对照最新版本，再继续保存。');
   if(form._draftOffer)throw new Error('请先选择恢复或舍弃已有草稿。');
@@ -257,8 +263,7 @@ async function workflowSubmitRecord(form,data) {
   try{
   const r=await api('/api/records'+(edit.id?'/'+encodeURIComponent(edit.id):''),{method:edit.id?'PUT':'POST',body:multipart});
   if(form._risQueue){await risRecordSaved(form,r);return;}
-  let topicError='';if(form.dataset.collectionId){try{await api('/api/collections/'+encodeURIComponent(form.dataset.collectionId)+'/items',{method:'POST',body:{record_id:r.id}});}catch(e){topicError=e.message;}}
-  const readingOriginal=form.dataset.readingOriginalId;await clearEditorDraft(form);await loadLookups();if(typeof uxRefreshBackground==='function')await uxRefreshBackground();else{delete form.dataset.saving;form.inert=false;await route();}await workflowOpenRecord(readingOriginal||r.id);if(readingOriginal)document.querySelector('[data-reading-notes]')?.scrollIntoView({block:'start'});toast(topicError?'内容已保存，加入专题未完成：'+topicError:readingOriginal?'阅读说明已保存':'内容已保存');
+  await clearEditorDraft(form);await loadLookups();await uxRefreshBackground();await workflowOpenRecord(r.id);toast('内容已保存');
   }catch(error){if(form._risQueue){form._risQueue.items[form._risIndex].saveError=error.message;saveEditorDraft(form,true);}throw error;}
   finally{delete form.dataset.saving;if(form.isConnected)form.inert=false;}
 }
@@ -298,10 +303,10 @@ async function showSaveConflict(form) {
   if(latest.version===edit.version){form._conflictPending=false;saveEditorDraft(form,true);return;}
   form.querySelector('[data-conflict-panel]')?.remove();const panel=document.createElement('section');panel.className='conflict-panel';panel.dataset.conflictPanel='';
   const values=collectDraft(form).values,richName=edit.type==='record'?'body_html':'introduction_html';
-  const labels={title:'题名',name:'名称',kind:'类型',authors:'作者 / 编译者',coverage:'覆盖范围',original_catalogue:'原文出处',aliases:'其他题名',original_title:'原题名',original_name:'原名称',published_on:'日期',volume:'卷',issue:'期',pages:'页码',issn:'ISSN',language:'语言',abstract:'摘要',chinese_title:'人工中文题名',chinese_abstract:'人工中文摘要',notes:'备注',url:'链接',website:'官网',catalogue_url:'目录入口',keywords:'关键词',countries:'研究对象',location:'所在地',country:'机构国家',country_evidence:'国家依据',host_id:'主办方',publisher_id:'出版方',host_evidence:'主办依据',international_status:'国际定位',international_evidence:'国际依据',related_source_ids:'关联来源',visibility:'可见范围',editors:'编辑授权'};
+  const labels={quote:'原文摘录',translation:'摘录译文',interpretation:'研究说明',locator:'引用位置',evidence_record_id:'所据原文',unresolved_refs:'未入库出处',title:'题名',name:'名称',kind:'类型',authors:'作者 / 编译者',coverage:'覆盖范围',original_catalogue:'原文出处',aliases:'其他题名',original_title:'原题名',original_name:'原名称',published_on:'日期',volume:'卷',issue:'期',pages:'页码',issn:'ISSN',language:'语言',abstract:'摘要',chinese_title:'人工中文题名',chinese_abstract:'人工中文摘要',notes:'备注',url:'链接',website:'官网',catalogue_url:'目录入口',keywords:'关键词',countries:'研究对象',location:'所在地',country:'机构国家',country_evidence:'国家依据',host_id:'主办方',publisher_id:'出版方',host_evidence:'主办依据',international_status:'国际定位',international_evidence:'国际依据',related_source_ids:'关联来源',visibility:'可见范围',editors:'编辑授权'};
   const differences=Object.entries(labels).filter(([key])=>values[key]!==undefined&&JSON.stringify(values[key])!==JSON.stringify(latest[key]??''));
   const display=(key,value)=>['related_source_ids','editors'].includes(key)?(Array.isArray(value)?value:[]).map(id=>state.sources.find(s=>s.id===id)?.name||state.users.find(u=>u.id===id)?.name||id).join('；'):Array.isArray(value)?value.join('；'):String(value??'');
-  panel.innerHTML='<h3>新版本已保存，你的输入仍保留</h3><p>当前编辑基于版本 '+esc(edit.version)+'，服务器为版本 '+latest.version+'。对照后可以继续整理，再保存为新修订。</p><details open><summary>对照最新版本</summary><div class="comparison-grid"><section><h4>你的正文草稿</h4><div class="rich-prose">'+readRich(values[richName])+'</div></section><section><h4>最新正文 · 版本 '+latest.version+'</h4><div class="rich-prose">'+readRich(latest[richName])+'</div></section></div><div class="table-scroll"><table class="comparison-table"><thead><tr><th>项目</th><th>你的输入</th><th>最新内容</th></tr></thead><tbody>'+differences.map(([key,label])=>'<tr><th>'+label+'</th><td>'+esc(display(key,values[key]))+'</td><td>'+esc(display(key,latest[key]))+'</td></tr>').join('')+'</tbody></table></div>'+(latest.attachments?'<p>最新附件：'+esc(latest.attachments.map(a=>a.name).join('；')||'无')+'</p>':'')+'</details>'+(edit.type==='record'?noteSubjectConflict(form,latest):'')+(edit.type==='record'&&!latest.can_edit?'<p class="error-text">当前账号已无编辑权限。草稿保留在“我的草稿”，不能提交。</p>':'<button type="button" class="button primary" data-action="accept-latest-version">我已对照，以新版本继续编辑</button>');
+  panel.innerHTML='<h3>新版本已保存，你的输入仍保留</h3><p>当前编辑基于版本 '+esc(edit.version)+'，服务器为版本 '+latest.version+'。对照后可以继续整理，再保存为新修订。</p><details open><summary>对照最新版本</summary><div class="comparison-grid"><section><h4>你的正文草稿</h4><div class="rich-prose">'+readRich(values[richName])+'</div></section><section><h4>最新正文 · 版本 '+latest.version+'</h4><div class="rich-prose">'+readRich(latest[richName])+'</div></section></div><div class="table-scroll"><table class="comparison-table"><thead><tr><th>项目</th><th>你的输入</th><th>最新内容</th></tr></thead><tbody>'+differences.map(([key,label])=>'<tr><th>'+label+'</th><td>'+esc(display(key,values[key]))+'</td><td>'+esc(display(key,latest[key]))+'</td></tr>').join('')+'</tbody></table></div>'+(latest.attachments?'<p>最新附件：'+esc(latest.attachments.map(a=>a.name).join('；')||'无')+'</p>':'')+'</details>'+(edit.type==='record'?noteSubjectConflict(form,latest):'')+(form.querySelector('[data-evidence-picker]')?citationConflict(form,latest):'')+(edit.type==='record'&&!latest.can_edit?'<p class="error-text">当前账号已无编辑权限。草稿保留在“我的草稿”，不能提交。</p>':'<button type="button" class="button primary" data-action="accept-latest-version">我已对照，以新版本继续编辑</button>');
   panel._latest=latest;form.querySelector('.form-actions').before(panel);panel.scrollIntoView({block:'nearest'});
 }
 function enhanceSourceForm(form,draftKey='') {

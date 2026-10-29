@@ -155,7 +155,29 @@ def verify(path, expected_sha256=None):
                 if size != row['bytes'] or digest != row['sha256']:
                     raise VerificationError('File checksum mismatch: ' + name)
             verify_anchors(archive, entries)
+            verify_ai_material(archive,entries)
             return len(entries)
+
+
+def verify_ai_material(archive,entries):
+    """Check declared machine overview locators against the retained original text."""
+    if 'content.json' not in entries:return
+    content=json.loads(archive.read('content.json'),object_pairs_hook=unique_object)
+    for row in content['records']:
+        result=row.get('machine_summary')
+        if result is None:continue
+        basis=row.get('machine_summary_basis')
+        if (not isinstance(basis,dict) or not isinstance(basis.get('body'),str) or not basis['body']
+            or basis.get('abstract') or not basis.get('snapshot_id') or not basis.get('body_basis')
+            or not re.fullmatch('[0-9a-f]{64}',basis.get('snapshot_sha256',''))
+            or not isinstance(result,dict) or not isinstance(result.get('summary'),str) or not result['summary'].strip()
+            or not isinstance(result.get('citations'),list) or not result['citations']):
+            raise VerificationError('Machine overview lacks retained original body/version')
+        for citation in result['citations']:
+            if (not isinstance(citation,dict) or type(citation.get('start')) is not int or type(citation.get('end')) is not int
+                or not 0<=citation['start']<citation['end']<=len(basis['body'])
+                or basis['body'][citation['start']:citation['end']]!=citation.get('quote')):
+                raise VerificationError('Machine overview quote/locator differs from retained original body')
 
 
 def main():

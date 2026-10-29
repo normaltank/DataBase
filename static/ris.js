@@ -153,7 +153,7 @@ async function risRecordSaved(form,result){
 }
 document.addEventListener('library:rendered',event=>{
   if(state.page!=='library')return;
-  const button=document.createElement('button');button.type='button';button.className='button';button.dataset.risStart='';button.textContent='导入 RIS 文件';event.detail.root.querySelector('.page-heading').append(button);
+  const button=document.createElement('button');button.type='button';button.className='button tiny';button.dataset.risStart='';button.textContent='导入 RIS 文件';(event.detail.root.querySelector('[data-library-tools]')||event.detail.root.querySelector('.page-heading')).append(button);
 });
 document.addEventListener('click',async event=>{
   const button=event.target.closest('[data-ris-start],[data-ris-preview],[data-ris-edit],[data-ris-skip],[data-ris-open],[data-ris-recheck]');if(!button)return;

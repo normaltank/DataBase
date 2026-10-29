@@ -18,7 +18,7 @@ from .attachment_search import AttachmentIndex, original_path
 from .publication_dates import interval as publication_interval, query_range as publication_query_range
 from .store import connect, decoded, initialize, now, save_revision
 from .record_revisions import RecordRevisions, validate_text, check_version
-from . import source_catalog, workflow, evidence, identity, operations, reading, people, note_subjects, bylines, affiliations, person_identity, bulk, intake, saved_searches, collection_scope, reviews, translations, ris, discovery
+from . import source_catalog, workflow, evidence, identity, operations, reading, people, note_subjects, bylines, affiliations, person_identity, bulk, intake, saved_searches, collection_scope, reviews, translations, ris, discovery, reading_feed
 
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE_FIELDS = ["name", "original_name", "kind", "classification", "location", "country", "research_scope",
@@ -175,6 +175,10 @@ def create_app(data_dir=None, testing=False):
         obj = {k: r[k] for k in ["id", "kind", "title", "original_title", "authors", "source_id", "serial_id",
                "publication_title", "volume", "issue", "pages", "issn", "published_on", "language", "abstract", "keywords", "countries", "status",
                 "visibility", "owner_id", "version", "updated_at", "upstream_status", "aliases", "coverage", "author_id", "author_confirmed"]}
+        obj.update(translations.projection(db(), r))
+        from .automatic_processing import projection as automatic_projection
+        obj.update(automatic_projection(db(),r))
+        obj['created_at'] = r['created_at']
         if 'record_search' in g:
             source = g.record_search.sources.get(r['source_id'])
             obj['source_name'] = source['name'] if source else ''
@@ -186,7 +190,9 @@ def create_app(data_dir=None, testing=False):
         obj["can_manage_access"] = records().manages_access(r)
         obj["has_attachment"] = bool(json.loads(r["attachment_ids"]))
         obj["related_source_ids"] = g.record_search.associated[r["id"]] if "record_search" in g else workflow.source_ids(db(), r["id"])
-        text = " ".join(r[k] or "" for k in ["title", "original_title", "aliases", "abstract", "body_text", "coverage"])
+        text = " ".join(r[k] or "" for k in ["title", "original_title", "aliases", "abstract", "body_text", "coverage"]) + ' ' + obj['display_title'] + ' ' + obj['display_abstract']
+        from .ingestion import searchable_text
+        text += ' '+searchable_text(r)
         obj["search_snippet"] = workflow.snippet(text, request.args.get("q", "")) if request.args.get("q") else ""
         obj["attachment_matches"] = attachment_index().matches(r, request.args.get("q", ""))
         if obj["attachment_matches"] and not any(word in normalize(text) for word in normalize(request.args.get("q", "")).split()):
@@ -202,11 +208,20 @@ def create_app(data_dir=None, testing=False):
 
     def filtered_records(args):
         args = saved_searches.resolve(db(), user()['id'], args)
+        from . import reading_queries
+        frozen = reading_queries.get(db(), args)
         date_from, date_to = publication_query_range(args)
+        date_field = args.get('date_field', 'published')
+        if date_field not in {'published', 'collected', 'updated'}:
+            abort(400, '时间类型不正确。')
         all_rows = db().execute("SELECT * FROM records ORDER BY published_on DESC, created_at DESC, id").fetchall()
         access = records()
         access.prefetched_records = {r['id']: r for r in all_rows}
         rows = [r for r in all_rows if not r['merged_into'] and visible(r)]
+        batch_ids = reading_feed.scope_ids(db(), user()['id'], args)
+        if batch_ids is not None:
+            batch_order = {rid: index for index, rid in enumerate(batch_ids)}
+            rows = [r for r in rows if r['id'] in batch_order]
         g.record_search = RecordSearch(db(), access)
         from collections import defaultdict
         attachments = defaultdict(list)
@@ -216,14 +231,16 @@ def create_app(data_dir=None, testing=False):
         g.reading_attachments = {a["id"]: a for group in attachments.values() for a in group}
         favorites = {r[0] for r in db().execute("SELECT record_id FROM favorites WHERE user_id=?", (user()["id"],))}
         q = normalize(args.get("q", "").strip())
-        country = args.get("country", "").strip().casefold()
+        countries = {country.casefold() for country in reading_feed.choices(args.get('country'))}
         source_names = {sid: g.record_search.source_text(sid) for sid in g.record_search.sources}
         collection_ids = None
         if args.get("collection"):
             get_collection(args["collection"])
             collection_ids = {r[0] for r in db().execute("SELECT record_id FROM collection_items WHERE collection_id=? AND disposition='included'", (args["collection"],))}
         results = []
-        selected_source_row = get_source(args["source"]) if args.get("source") else None
+        source_unknown = '__unknown__' in reading_feed.choices(args.get('source'))
+        selected_sources = {get_source(s)['id'] for s in reading_feed.choices(args.get('source')) if s != '__unknown__'}
+        selected_source_row = get_source(next(iter(selected_sources))) if len(selected_sources) == 1 else None
         selected_source = selected_source_row["id"] if selected_source_row else None
         source_section = args.get("source_section")
         if source_section and (not selected_source or source_section not in {"published", "associated", "translations", "outputs"}):
@@ -231,15 +248,22 @@ def create_app(data_dir=None, testing=False):
         source_group = args.get("source_group", "")
         source_country = args.get("source_country", "").strip()
         source_international = args.get("source_international", "")
-        if source_group not in {"", "institution", "journal", "publication"} or source_international not in {"", "yes", "no", "unknown"}:
+        if set(reading_feed.choices(source_group)) - {'institution', 'journal', 'publication'} or source_international not in {"", "yes", "no", "unknown"}:
             abort(400, "来源类型或国际办刊定位不正确。")
         if source_international and source_group not in {"", "journal"}:
             abort(400, "国际办刊定位只适用于期刊。")
         source_scope = None
         if source_group or source_country or source_international:
             source_scope = {sid for sid, source in source_catalog.catalog(db()).items()
-                            if source["group"] != "maintenance" and (not selected_source or sid == selected_source)
-                            and source_catalog.matches_scope(source, source_group, source_country, source_international)}
+                            if source['group'] != 'maintenance' and (not selected_sources or sid in selected_sources)
+                            and any(source_catalog.matches_scope(source, group, country, source_international)
+                                    for group in reading_feed.choices(source_group) or ['']
+                                    for country in reading_feed.choices(source_country) or [''])}
+        if frozen is not None:
+            order = {rid: i for i, rid in enumerate(json.loads(frozen['ids_json']))}
+            results = sorted((r for r in rows if r['id'] in order), key=lambda r: order[r['id']])
+            g.reading_confirmation = reading_queries.confirmation(frozen, results)
+            return results, favorites
         for r in rows:
             if args.get("editable") == "1" and not editable(r):
                 continue
@@ -250,7 +274,8 @@ def create_app(data_dir=None, testing=False):
             associated = g.record_search.associated[r["id"]]
             if source_scope is not None and not source_scope.intersection([r["source_id"], r["serial_id"], *associated]):
                 continue
-            if selected_source and selected_source not in [r["source_id"], r["serial_id"], *associated]:
+            record_sources = {sid for sid in [r['source_id'], r['serial_id'], *associated] if sid}
+            if args.get('source') and not (selected_sources.intersection(record_sources) or (source_unknown and not record_sources)):
                 continue
             if source_section:
                 content_kind = r["kind"] in workflow.CONTENT_KINDS
@@ -263,18 +288,28 @@ def create_app(data_dir=None, testing=False):
                     continue
                 if source_section == "outputs" and r["kind"] not in workflow.PERSONAL_KINDS:
                     continue
-            if args.get("kind") and r["kind"] != args["kind"]:
+            from .automatic_processing import projection as automatic_projection
+            automatic = automatic_projection(db(),r)
+            if args.get('kind') and automatic['classified_kind'] not in reading_feed.choices(args['kind']):
                 continue
             if args.get("evidence_of") and r["evidence_record_id"] != args["evidence_of"]:
                 continue
             if args.get("status") and r["status"] != args["status"]:
                 continue
-            if args.get("language") and args["language"] not in re.split(r"[;,|\s]+", r["language"]):
+            if args.get('language') and not set(reading_feed.choices(args['language'])).intersection(re.split(r'[;,|\s]+', r['language']) if r['language'] else ['__unknown__']):
                 continue
-            if country and country not in r["countries"].casefold():
+            subject_countries = {country.casefold() for country in reading_feed.terms(automatic['subject_countries'])} or {'__unknown__'}
+            if countries and not countries.intersection(subject_countries):
+                continue
+            if args.get('topic') and not any((not automatic['subject_topics'].strip()) if t == '__unknown__' else t.casefold() in automatic['subject_topics'].casefold() for t in reading_feed.choices(args['topic'])):
+                continue
+            if args.get('availability') and not set(reading_feed.choices(args['availability'])).intersection(reading_feed.available(r, translations.projection(db(), r))):
+                continue
+            date_value = r['published_on'] if date_field == 'published' else r['created_at' if date_field == 'collected' else 'updated_at'][:10]
+            if args.get('date_unknown') == '1' and publication_interval(date_value) is not None:
                 continue
             if date_from or date_to:
-                possible = publication_interval(r["published_on"])
+                possible = publication_interval(date_value)
                 if possible is None:
                     continue
                 if date_from and possible[1] < date_from:
@@ -284,14 +319,30 @@ def create_app(data_dir=None, testing=False):
             if q:
                 hay = " ".join(str(r[k]) for k in ["title", "original_title", "authors", "abstract", "keywords", "publication_title", "doi", "id", "aliases", "body_text", "coverage", "original_catalogue", "quote", "translation", "interpretation", "locator"]) + " " + " ".join(source_names.get(sid, "") for sid in [r["source_id"], r["serial_id"], *associated])
                 hay += " " + " ".join(g.record_search.bylines[r["id"]])
+                from .ingestion import searchable_text
+                hay += ' '+searchable_text(r)
+                chinese = translations.projection(db(), r)
+                hay += ' ' + chinese['display_title'] + ' ' + chinese['display_abstract']
+                hay += ' ' + automatic['subject_countries'] + ' ' + automatic['subject_topics']
+                hay += ' ' + (automatic['machine_summary']['summary'] if automatic['machine_summary'] else '')
                 hay += " " + " ".join(s["text"] for s in attachment_index().segments(r))
                 if not all(word in normalize(hay) for word in q.split()):
                     continue
             results.append(r)
-        if args.get("sort") == "updated":
+        if batch_ids is not None:
+            results.sort(key=lambda r: batch_order[r['id']])
+        elif args.get("sort") == "collected":
+            results.sort(key=lambda r: (r['title'].casefold(), r['id']))
+            results.sort(key=lambda r: (r['created_at'], r['published_on']), reverse=True)
+        elif args.get("sort") == "updated":
             results.sort(key=lambda r: r["updated_at"], reverse=True)
         elif args.get("sort") == "title":
             results.sort(key=lambda r: r["title"].casefold())
+        frozen = reading_queries.freeze(db(), args, results)
+        if frozen is not None:
+            order = {rid: i for i, rid in enumerate(json.loads(frozen['ids_json']))}
+            results = sorted((r for r in rows if r['id'] in order), key=lambda r: order[r['id']])
+            g.reading_confirmation = reading_queries.confirmation(frozen, results)
         return results, favorites
 
     @app.get("/api/records")
@@ -302,7 +353,8 @@ def create_app(data_dir=None, testing=False):
             size = min(100, max(1, int(request.args.get("size", 12))))
         except ValueError:
             abort(400, "页码不正确。")
-        return jsonify(items=[record_summary(r, favorites) for r in rows[(page - 1)*size:page*size]], total=len(rows), page=page, size=size)
+        return jsonify(items=[record_summary(r, favorites) for r in rows[(page - 1)*size:page*size]], total=len(rows), page=page, size=size,
+                       facets=reading_feed.facets(rows, db()), reading_confirmation=g.get('reading_confirmation'))
 
     @app.get("/api/record-candidates")
     def record_candidates():
@@ -335,6 +387,10 @@ def create_app(data_dir=None, testing=False):
             obj["ris_evidence"] = obj["raw_json"]["ris_evidence"]
         if obj.get("raw_json", {}).get("discovery_evidence"):
             obj["discovery_evidence"] = obj["raw_json"]["discovery_evidence"]
+        from .ingestion import acquisition_projection
+        acquired = acquisition_projection(row)
+        if acquired:
+            obj['automatic_acquisition'] = acquired
         obj.update(record_summary(row))
         obj["owner_name"] = db().execute("SELECT name FROM users WHERE id=?", (row["owner_id"],)).fetchone()[0]
         last = reviews.last_modifier(db(), "record", rid)
@@ -356,6 +412,10 @@ def create_app(data_dir=None, testing=False):
             obj["research_subjects"] = note_subjects.read(db(), rid, visible)
         obj["translations"] = translations.items(db(), row)
         obj["translation_history"] = translations.human_history(db(), row["id"])
+        from .topic_finals import record_works
+        works = record_works(db(), user(), rid)
+        if works:
+            obj["collaboration_works"] = works
         return jsonify(obj)
 
     @app.get("/api/records/<rid>/copy-text")
@@ -632,12 +692,12 @@ def create_app(data_dir=None, testing=False):
     def new_collection():
         values = operations.collection_values(body())
         if not values["name"] or values["visibility"] not in ["shared", "private"]:
-            abort(400, "请填写专题名称并选择共享范围。")
+            abort(400, "请填写资料夹名称并选择共享范围。")
         cid = "COL-" + uuid.uuid4().hex[:10]
         with db():
             values.update(id=cid, owner_id=user()["id"], created_at=now(), updated_at=now())
             db().execute(f"INSERT INTO collections({','.join(values)}) VALUES({','.join('?' for _ in values)})", list(values.values()))
-            save_revision(db(), "collection", cid, "创建研究专题", user()["id"])
+            save_revision(db(), "collection", cid, "创建资料夹", user()["id"])
         return jsonify(id=cid), 201
 
     @app.post("/api/collections/<cid>/items")
@@ -653,7 +713,7 @@ def create_app(data_dir=None, testing=False):
         disposition, rationale = collection_scope.decision({**(dict(existing) if existing else {}), **data})
         with db():
             if not db().execute("SELECT 1 FROM revisions WHERE target_type='collection' AND target_id=?", (cid,)).fetchone():
-                save_revision(db(), "collection", cid, "专题整理前版本", user()["id"])
+                save_revision(db(), "collection", cid, "资料夹整理前版本", user()["id"])
             if data.get("remove") is True:
                 db().execute("DELETE FROM collection_items WHERE collection_id=? AND record_id=?", (cid, rid))
             else:
@@ -662,7 +722,7 @@ def create_app(data_dir=None, testing=False):
                 else:
                     db().execute("INSERT OR IGNORE INTO collection_items(collection_id,record_id) VALUES (?,?)", (cid, rid))
             db().execute("UPDATE collections SET version=version+1,updated_at=? WHERE id=?", (now(), cid))
-            save_revision(db(), "collection", cid, "移出专题资料" if data.get("remove") is True else "修订专题条目决定与理由" if "disposition" in data or "rationale" in data else "加入专题资料", user()["id"])
+            save_revision(db(), "collection", cid, "移出资料夹资料" if data.get("remove") is True else "修订专题条目决定与理由" if "disposition" in data or "rationale" in data else "加入资料夹资料", user()["id"])
         return jsonify(ok=True)
 
     def current_attachment(aid):
@@ -720,10 +780,14 @@ def create_app(data_dir=None, testing=False):
     def export_csv(rows, filename="research-records.csv"):
         output = io.StringIO(newline="")
         writer = csv.writer(output)
-        writer.writerow(["稳定编号", "题名", "原题名", "作者/编译者", "类型", "日期", "语言", "研究对象", "关键词", "刊物", "卷", "期", "页码", "ISSN", "DOI", "原文链接", "核对状态", "来源编号", "期刊编号", "关联原文编号", "人工中文题名", "人工中文摘要", "机器译文版本及出处"])
+        writer.writerow(["稳定编号", "题名", "原题名", "作者/编译者", "类型", "日期", "语言", "研究对象", "关键词", "刊物", "卷", "期", "页码", "ISSN", "DOI", "原文链接", "核对状态", "来源编号", "期刊编号", "关联原文编号", "人工中文题名", "人工中文摘要", "机器译文版本及出处", "当前阅读题名", "当前阅读摘要", "阅读版本类型", "首次收录", "最近修订"])
         for r in rows:
             linked = [x["id"] for x in db().execute("SELECT r.* FROM record_links l JOIN records r ON r.id=l.original_id WHERE l.report_id=?", (r["id"],)) if visible(x)]
             values = [r[k] or "" for k in ["id", "title", "original_title", "authors", "kind", "published_on", "language", "countries", "keywords", "publication_title", "volume", "issue", "pages", "issn", "doi", "url", "status", "source_id", "serial_id"]] + [";".join(linked), r["chinese_title"], r["chinese_abstract"], json.dumps(translations.items(db(), r), ensure_ascii=False)]
+            projection = translations.projection(db(), r)
+            values.extend([projection['display_title'], projection['display_abstract'],
+                           {'human':'人工中文','machine':'机器中文，未人工校订','original':'原始信息'}[projection['translation_origin']],
+                           r['created_at'], r['updated_at']])
             writer.writerow(["'" + v if str(v).lstrip().startswith(("=", "+", "-", "@")) else v for v in values])
         return send_file(io.BytesIO(output.getvalue().encode("utf-8-sig")), mimetype="text/csv; charset=utf-8", as_attachment=True, download_name=filename)
 
@@ -769,9 +833,14 @@ def create_app(data_dir=None, testing=False):
         return send_file(path, as_attachment=True, download_name=path.name, mimetype="application/zip")
 
     saved_searches.register(app, SimpleNamespace(db=db, user=user, body=body, filtered_records=filtered_records))
+    reading_feed.register(app, SimpleNamespace(db=db, user=user, body=body, filtered_records=filtered_records))
     intake.register(app, SimpleNamespace(db=db, user=user, body=body, records=records))
     discovery.register(app, SimpleNamespace(db=db, user=user, body=body, records=records))
+    from . import ingestion
+    ingestion.register(app, SimpleNamespace(db=db, user=user, body=body, records=records, admin=admin))
     ris.register(app, SimpleNamespace(db=db, user=user, body=body, records=records))
+    from . import ai_gateway
+    ai_gateway.register(app, SimpleNamespace(db=db, user=user, body=body, admin=admin))
     translations.register(app, SimpleNamespace(db=db, user=user, body=body, records=records))
     bulk.register(app, SimpleNamespace(db=db, user=user, body=body, visible=visible, get_collection=get_collection, export_csv=export_csv))
     identity.register(app, db=db, body=body, records=records, validate_source=source_values)
@@ -785,4 +854,14 @@ def create_app(data_dir=None, testing=False):
                                             get_collection=get_collection, record_summary=record_summary,
                                             record_detail=record_detail, filtered_records=filtered_records,
                                             check_version=check_version, data_dir=data_dir, records=records))
+    from . import collaboration
+    collaboration.register(app, SimpleNamespace(db=db, user=user, body=body, admin=admin, data_dir=data_dir))
+    from . import topic_review
+    topic_review.register(app, SimpleNamespace(db=db, user=user, body=body, data_dir=data_dir))
+    from . import topic_finals
+    topic_finals.register(app, SimpleNamespace(db=db, user=user, body=body, data_dir=data_dir))
+    from . import journal_collaboration
+    journal_collaboration.register(app, SimpleNamespace(db=db, user=user, body=body, records=records, data_dir=data_dir))
+    from . import collaboration_library
+    collaboration_library.register(app, SimpleNamespace(db=db, user=user, data_dir=data_dir))
     return app

@@ -11,6 +11,7 @@ from pathlib import Path
 from platform_app.web import create_app
 from platform_app.maintenance import restore_backup
 from platform_app.store import CURRENT_SCHEMA_VERSION
+from tests.test_people import legacy_automatic_fields
 
 
 class BylineTests(unittest.TestCase):
@@ -444,10 +445,16 @@ class BylineTests(unittest.TestCase):
             self.assertEqual(self.get("/health")["schema"], CURRENT_SCHEMA_VERSION)
             old_record = expected["records"][rid]
             self.assertEqual(self.get("/api/records/" + rid), {
-                **old_record, "volume": "", "issue": "", "pages": "", "issn": "", "attachment_matches": [], "can_manage_access": True,
+                **old_record, **legacy_automatic_fields(old_record), "display_title": old_record["title"], "display_abstract": old_record["abstract"],
+                "translation_origin": "original", "reading_translation_id": "", "has_chinese": False,
+                "abstract_is_chinese": False, "original_abstract_missing": not bool(old_record["abstract"]), "volume": "", "issue": "", "pages": "", "issn": "", "attachment_matches": [], "can_manage_access": True,
                 "chinese_title": "", "chinese_abstract": "", "adopted_translation_id": "", "translations": [], "translation_history": [],
                 "last_verified": None, "review_history": [],
-                **{key: [{**item, "volume": "", "issue": "", "pages": "", "issn": "", "attachment_matches": [], "can_manage_access": True} for item in old_record[key]]
+                **{key: [{**item, **legacy_automatic_fields(item), "chinese_title": "", "chinese_abstract": "", "display_title": item["title"],
+                          "display_abstract": item["abstract"], "translation_origin": "original", "reading_translation_id": "",
+                          "has_chinese": False, "abstract_is_chinese": False, "original_abstract_missing": not bool(item["abstract"]),
+                          "created_at": expected["records"][item["id"]]["created_at"],
+                          "volume": "", "issue": "", "pages": "", "issn": "", "attachment_matches": [], "can_manage_access": True} for item in old_record[key]]
                    for key in ["linked_records", "cited_by", "excerpts"]}, "attachments": [
                     {**attachment, "index": {"status": "unindexed", "message": "尚未建立索引"}}
                     for attachment in old_record["attachments"]]})
