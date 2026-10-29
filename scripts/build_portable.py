@@ -38,7 +38,7 @@ def safe_entries(archive):
     for item in archive.infolist():
         path = PurePosixPath(item.filename)
         key = item.filename.rstrip('/').casefold()
-        if (not item.filename or '\\' in item.filename or ':' in item.filename
+        if (item.orig_filename != item.filename or not item.filename or '\\' in item.filename or ':' in item.filename
                 or path.is_absolute() or any(p in ('', '.', '..') for p in item.filename.rstrip('/').split('/'))
                 or key in seen or stat.S_ISLNK(item.external_attr >> 16)):
             raise ValueError('Unsafe or duplicate archive entry: ' + item.filename)

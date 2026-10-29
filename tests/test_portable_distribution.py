@@ -1,5 +1,4 @@
 """Malformed distribution archives are rejected at the public verifier CLI."""
-import os
 from pathlib import Path
 import stat
 import subprocess
@@ -17,6 +16,7 @@ class PortableArchiveTests(unittest.TestCase):
             for i, (names, expected) in enumerate([
                 (['../outside'], 'Unsafe file name'), (['/absolute'], 'Unsafe file name'),
                 (['C:/drive'], 'Unsafe file name'), (['a\\secret'], 'Unsafe file name'),
+                (['safeXtail'], 'Unsafe file name'),
                 (['same', 'SAME'], 'Duplicate case-insensitive'), (['link'], 'symbolic link'),
             ]):
                 with self.subTest(names=names):
@@ -29,6 +29,12 @@ class PortableArchiveTests(unittest.TestCase):
                                 item.create_system = 3
                                 item.external_attr = (stat.S_IFLNK | 0o777) << 16
                             z.writestr(item, b'synthetic only')
+                    if names == ['a\\secret']:
+                        # ZipInfo normalizes Windows separators on write; mutate the raw stored entry.
+                        path.write_bytes(path.read_bytes().replace(b'a/secret', b'a\\secret'))
+                    if names == ['safeXtail']:
+                        # Python retains the original NUL-bearing ZIP name separately from filename.
+                        path.write_bytes(path.read_bytes().replace(b'safeXtail', b'safe\0tail'))
                     result = subprocess.run([sys.executable, str(root / 'scripts/verify_portable.py'), str(path)],
                         capture_output=True, text=True, timeout=20)
                     self.assertNotEqual(result.returncode, 0)

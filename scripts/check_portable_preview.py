@@ -9,6 +9,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -77,6 +78,15 @@ def command(root, env, *args):
     return result.stdout.strip()
 
 
+def batch(root, env, action, *args):
+    # Only fixed action/options are supplied; no user content is interpreted as shell code.
+    result = subprocess.run([str(Path(env['SYSTEMROOT']) / 'System32/cmd.exe'), '/d', '/c',
+        'call', action + '.bat', *args], cwd=root, env=env,
+        capture_output=True, text=True, encoding='utf-8', timeout=150)
+    assert result.returncode == 0, result.stdout + result.stderr
+    return result.stdout.strip()
+
+
 def originals(data):
     return {p.relative_to(data).as_posix(): sha(p.read_bytes())
             for folder in ('uploads', 'handoffs', 'avatars') for p in (data / folder).glob('*') if p.is_file()}
@@ -142,11 +152,17 @@ def verify_seed(root, client, admin):
         assert record['url'].startswith('https://example.invalid/')
         assert record['chinese_title'] and record['chinese_abstract']
         assert record['attachments'][0]['index']['status'] == 'ready'
-    assert admin.request('/api/ingestion').get('heartbeat') in (None, '')
+        assert client.request('/api/records/' + rid + '/bylines')['items'][0]['target_id'] in seed['person_ids']
+    ingestion = admin.request('/api/ingestion')
+    assert not ingestion['worker_heartbeat']
+    assert all(not s['enabled'] and not s['runs'] for s in ingestion['items'])
+    ai = admin.request('/api/admin/ai')
+    assert ai['attempts'] == [] and not ai['worker_heartbeat'] and not ai['cap_units']
+    assert ai['task_counts'] == {} and ai['blocked_reasons']
     return seed, workflow, journal
 
 
-def browser_check(base, evidence):
+def browser_check(base, second_base, evidence):
     from playwright.sync_api import sync_playwright, expect
     errors = []
     with sync_playwright() as p:
@@ -157,17 +173,100 @@ def browser_check(base, evidence):
         page.on('pageerror', lambda error: errors.append(str(error)))
         for name in ('researcher', 'colleague', 'admin'):
             page.goto(base)
-            if page.get_by_role('button', name='退出', exact=True).count():
-                page.get_by_role('button', name='退出', exact=True).click()
+            if page.get_by_role('button', name=re.compile(r'^退出(?:登录)?$')).count():
+                page.get_by_role('button', name=re.compile(r'^退出(?:登录)?$')).click()
             page.get_by_label('账号', exact=True).fill(name)
             page.get_by_label('密码', exact=True).fill('LocalDemo2026!')
             page.get_by_role('button', name='查看资料', exact=True).click()
             expect(page.get_by_role('heading', name='编译协作', exact=True)).to_be_visible()
             page.screenshot(path=str(evidence / f'browser-{name}.png'), full_page=True)
-            page.evaluate("async()=>{const s=await(await fetch('/api/session')).json();await fetch('/api/logout',{method:'POST',headers:{'X-CSRF-Token':s.csrf,'Content-Type':'application/json'},body:'{}'});location.reload()}")
+            page.get_by_role('button', name=re.compile(r'^退出(?:登录)?$')).click()
             expect(page.get_by_label('账号', exact=True)).to_be_visible()
+        # A single real browser context shares cookies between both localhost ports.
+        page.goto(base)
+        page.get_by_label('账号', exact=True).fill('researcher')
+        page.get_by_label('密码', exact=True).fill('LocalDemo2026!')
+        page.get_by_role('button', name='查看资料', exact=True).click()
+        expect(page.get_by_role('heading', name='编译协作', exact=True)).to_be_visible()
+        peer = context.new_page()
+        peer.on('pageerror', lambda error: errors.append(str(error)))
+        peer.goto(second_base)
+        expect(peer.get_by_label('账号', exact=True)).to_be_visible()
+        peer.get_by_label('账号', exact=True).fill('colleague')
+        peer.get_by_label('密码', exact=True).fill('LocalDemo2026!')
+        peer.get_by_role('button', name='查看资料', exact=True).click()
+        expect(peer.get_by_role('heading', name='编译协作', exact=True)).to_be_visible()
+        session = "async()=> (await(await fetch('/api/session')).json()).user.id"
+        assert page.evaluate(session) == 'researcher'
+        assert peer.evaluate(session) == 'colleague'
+        assert len({cookie['name'] for cookie in context.cookies() if cookie['name'].startswith('preview_')}) == 2
+        peer.get_by_role('button', name=re.compile(r'^退出(?:登录)?$')).click()
+        expect(peer.get_by_label('账号', exact=True)).to_be_visible()
+        page.reload()
+        expect(page.get_by_role('heading', name='编译协作', exact=True)).to_be_visible()
+        assert page.evaluate(session) == 'researcher'
+        page.screenshot(path=str(evidence / 'browser-shared-context.png'), full_page=True)
         assert not errors, errors
         browser.close()
+
+
+def continue_work(researcher, lead, admin, seed):
+    """Continue the supplied unfinished work over the real embedded HTTP server."""
+    source = researcher.request('/api/sources', {'name': '演示｜验收贡献来源',
+        'kind': 'institution', 'website': 'https://example.invalid/acceptance/source'})['id']
+    detail = lead.request('/api/sources/' + source)
+    assert (detail['status'], detail['scope_status']) == ('pending', 'candidate')
+    assert detail['automatic_collection'] == {'supported': False, 'enabled': False}
+    admin.request('/api/review/source/' + source, {'version': detail['version'],
+        'review_scope': 'metadata_only', 'review_note': '只核对合成演示来源，不确认任何真实研究事实'})
+    assert researcher.request('/api/sources/' + source)['status'] == 'verified'
+
+    prefix = '/api/collaboration/topics/' + seed['active_topic']
+    candidate = researcher.request(prefix + '/candidates', {'request_id': 'http-candidate-2',
+        'version': 1, 'topic_version': 1, 'note': '真实HTTP提交继续演示'},
+        file=('验收候选-v2.txt', b'DEMO HTTP candidate v2'))['id']
+    lead.request(prefix + '/meetings', {'request_id': 'http-meeting', 'version': 0,
+        'topic_version': 1, 'note': '负责人实际接续研究员候选v2', 'assignments': [{
+            'title': '演示｜验收继续编译', 'candidate_id': candidate,
+            'candidate_item': '第1项', 'record_id': seed['article_ids'][1],
+            'author_id': 'researcher', 'country': '拉脱维亚'}]},
+        file=('验收会议.txt', b'DEMO HTTP meeting adopts candidate v2'))
+    assignment = prefix + '/assignments/' + researcher.request(prefix + '/workflow')['assignments'][0]['id']
+    first = researcher.request(assignment + '/submissions', {'request_id': 'http-draft-1',
+        'version': 0, 'topic_version': 1, 'meeting_version': 1},
+        file=('验收初稿.txt', b'DEMO HTTP manuscript v1'))['id']
+    lead.request(assignment + '/returns', {'request_id': 'http-return', 'submission_id': first,
+        'topic_version': 1, 'meeting_version': 1, 'note': '演示审稿：补齐第1段出处'})
+    revised = b'DEMO HTTP revised manuscript v2; synthetic paragraph 1'
+    second = researcher.request(assignment + '/submissions', {'request_id': 'http-draft-2',
+        'version': 1, 'topic_version': 1, 'meeting_version': 1},
+        file=('验收返修.txt', revised))['id']
+    final = lead.request(assignment + '/finals', {'request_id': 'http-final',
+        'submission_id': second, 'version': 2, 'topic_version': 1, 'meeting_version': 1,
+        'status': 'pending', 'visibility': 'shared', 'sharing_confirmed': True})
+    researcher.request('/api/records/' + final['record_id'] + '/author', {'version': 1, 'confirm': True})
+    researcher.request(prefix + '/summaries', {'request_id': 'http-summary', 'version': 0,
+        'topic_version': 1, 'author_id': 'researcher', 'final_ids': [final['id']]},
+        file=('验收汇总.txt', b'DEMO HTTP summary adopts exact revised manuscript v2'))
+    workflow = researcher.request(prefix + '/workflow')
+    row = workflow['assignments'][0]
+    assert [s['version'] for s in row['submissions']] == [2, 1]
+    assert row['returns'][0]['submission_id'] == first
+    assert workflow['summaries'][0]['adoptions'][0]['submission_id'] == second
+    assert researcher.request(row['submissions'][0]['file_url'], raw=True) == revised
+
+    path = '/api/collaboration/journals/' + seed['journal']
+    previous = researcher.request(path)
+    current = lead.request(path + '/submissions', {'version': previous['version'],
+        'request_id': 'http-journal', 'material_kind': 'product'},
+        file=('验收期刊-v3.txt', b'DEMO HTTP shared journal product v3'))['id']
+    journal = researcher.request(path)
+    assert journal['current_product_id'] == previous['current_product_id']
+    researcher.request(path + '/product', {'version': journal['version'], 'submission_id': current})
+    journal = researcher.request(path)
+    assert journal['current_product_id'] == current
+    assert researcher.request(journal['submissions'][0]['file_url'], raw=True) == b'DEMO HTTP shared journal product v3'
+    return workflow, journal
 
 
 def main():
@@ -202,9 +301,9 @@ def main():
         assert all(Path(p).is_relative_to(one) for p in diagnostic['paths'] + diagnostic['modules'])
         assert not set(diagnostic['environment_keys']) & {'RESEARCH_DATA_DIR', 'PYTHONPATH', 'PYTHONHOME', 'DEEPSEEK_API_KEY', 'DS_API_KEY', 'HTTP_PROXY', 'HTTPS_PROXY', 'SSL_CERT_FILE'}
         result['diagnostic'] = diagnostic
-        base = command(one, env, 'start', '--no-browser')
+        base = batch(one, env, 'start', '--no-browser')
         assert base != 'http://127.0.0.1:8848'
-        assert command(one, env, 'start', '--no-browser') == base
+        assert batch(one, env, 'start', '--no-browser') == base
         jar = http.cookiejar.CookieJar()
         researcher = HTTP(base, jar)
         researcher.login('researcher')
@@ -215,6 +314,8 @@ def main():
         assert lead.request('/api/session')['user']['role'] == 'researcher'
         seed, workflow, journal = verify_seed(one, researcher, admin)
         result['checks'].append('first start: exact synthetic account/source/person/record/original inventory; role login; avatar; PDF/TXT parser; exact topic v2 adoption; independent journal v2')
+        active_workflow, journal = continue_work(researcher, lead, admin, seed)
+        result['checks'].append('real HTTP continuation: member source contribution/admin metadata review; candidate v2/lead meeting/return/revision/exact final/summary; shared journal v3 explicitly adopted')
         for kind, wid in [('topic', seed['complete_topic']), ('journal', seed['journal'])]:
             raw = researcher.request(f'/api/collaboration/materials/{kind}/{wid}?scope=all', raw=True)
             path = evidence / f'{kind}-materials.zip'
@@ -239,40 +340,48 @@ def main():
             if k in {'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'SYSTEMDRIVE', 'PATH', 'TEMP', 'TMP'}},
             capture_output=True, text=True, encoding='utf-8', timeout=60)
         assert restored.returncode == 0, restored.stderr
-        second_base = command(two, env, 'start', '--no-browser')
+        second_base = batch(two, env, 'start', '--no-browser')
         assert second_base != base
         peer = HTTP(second_base, jar)
         peer.login('colleague')
         assert researcher.request('/api/session')['user']['id'] == 'researcher'
         assert peer.request('/api/session')['user']['id'] == 'colleague'
+        assert len({cookie.name for cookie in jar if cookie.name.startswith('preview_')}) == 2
+        peer.request('/api/logout', {})
+        assert researcher.request('/api/session')['user']['id'] == 'researcher'
+        peer.login('colleague')
         restored_reader = HTTP(second_base)
         restored_reader.login('researcher')
         assert restored_reader.request('/api/collaboration/topics/' + seed['complete_topic'] + '/workflow') == workflow
+        assert restored_reader.request('/api/collaboration/topics/' + seed['active_topic'] + '/workflow') == active_workflow
         assert restored_reader.request('/api/collaboration/journals/' + seed['journal']) == journal
         assert originals(two / 'data') == before
         result['checks'].append('materials/content export; standards-based DOCX indexing/search; full backup CLI restore; same-cookie-jar simultaneous instances')
         previous_state = json.loads((one / '.portable/server.json').read_text(encoding='utf-8'))
-        command(one, env, 'stop')
+        batch(one, env, 'stop')
+        batch(one, env, 'stop')
         assert peer.request('/health')['status'] == 'ok'
         assert originals(one / 'data') == before
         database_hash = sha((one / 'data/platform.sqlite3').read_bytes())
         # Stale state with an unrelated port/token must not kill that server.
         (one / '.portable/server.json').write_text(json.dumps({'identity': previous_state['identity'],
             'port': int(second_base.rsplit(':', 1)[1]), 'token': '0' * 64, 'instance': 'stale'}), encoding='utf-8')
-        assert command(one, env, 'start', '--no-browser') == base
+        assert batch(one, env, 'start', '--no-browser') == base
         assert sha((one / 'data/platform.sqlite3').read_bytes()) == database_hash
         assert originals(one / 'data') == before
-        researcher.login('researcher')
         assert researcher.request('/api/records/' + rid)['id'] == rid
         assert researcher.request('/api/session')['user']['id'] == 'researcher'
         assert peer.request('/api/session')['user']['id'] == 'colleague'
         assert not (evidence / 'forbidden-data').exists()
+        assert not admin.request('/api/ingestion')['worker_heartbeat']
+        assert not admin.request('/api/admin/ai')['attempts']
+        assert not admin.request('/api/admin/ai')['worker_heartbeat']
         if baseline8848:
             assert HTTP('http://127.0.0.1:8848').request('/health') == baseline8848
         result['checks'].append('restart preserves database/original hashes and added upload; old port reused; stale state safe; stopping one leaves other and 8848 healthy')
         if args.browser:
-            browser_check(base, evidence)
-            result['checks'].append('real Chromium: all three role login and collaboration rendering; no page errors')
+            browser_check(base, second_base, evidence)
+            result['checks'].append('real Chromium: all three responsibilities; same browser context authenticates both copies independently and logout stays isolated; no page errors')
         result['ok'] = True
     finally:
         for root in (one, two):

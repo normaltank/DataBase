@@ -96,6 +96,8 @@ def initialize_data():
     from portable.demo_seed import seed
     import shutil
     temporary = STATE / ('initializing-' + secrets.token_hex(8))
+    if temporary.resolve().parent != STATE.resolve():
+        raise RuntimeError('Initialization path is outside this portable copy.')
     try:
         app = create_app(temporary)
         seed(app)

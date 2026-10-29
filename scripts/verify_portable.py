@@ -75,6 +75,10 @@ def verify(read, names, require_intro=True):
 def verify_zip(path):
     with zipfile.ZipFile(path) as z:
         for entry in z.infolist():
+            # ZipInfo.filename normalizes backslashes on Windows; inspect its original spelling.
+            check_name(entry.orig_filename)
+            if entry.orig_filename != entry.filename:
+                raise ValueError('Unsafe file name: ' + entry.orig_filename)
             if entry.is_dir() or stat.S_ISLNK(entry.external_attr >> 16):
                 raise ValueError('Directory or symbolic link ZIP entry')
         return verify(z.read, z.namelist())

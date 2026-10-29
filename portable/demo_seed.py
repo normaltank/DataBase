@@ -87,7 +87,8 @@ def seed(app):
             f'DEMO original {i+1}. This fictional text illustrates archiving only.\n中文阅读说明：仅用于操作，不代表实际观察。')
         rid = call(researcher, '/api/records', {'kind': 'journal_article' if i == 2 else 'report', 'title': title,
             'original_title': 'DEMO fictional community article ' + str(i+1),
-            'authors': PEOPLE_NAMES[i % 2], 'source_id': sources[i], 'language': 'English',
+            'authors': PEOPLE_NAMES[i % 2], 'source_id': sources[i] if i < 2 else sources[0],
+            'serial_id': sources[2] if i == 2 else '', 'language': 'English',
             'published_on': '2026-10-01', 'countries': '拉脱维亚',
             'abstract': 'Fictional abstract for a local demonstration. No research claim.',
             'chinese_title': title, 'chinese_abstract': '合成中文摘要：演示资料保存、阅读与出处追溯，不含真实研究结论。',
@@ -95,6 +96,13 @@ def seed(app):
             'url': f'https://example.invalid/demo/article-{i+1}',
             'visibility': 'shared', 'sharing_confirmed': True}, file=file)['id']
         articles.append(rid)
+        byline = researcher.get('/api/records/' + rid + '/bylines').json
+        call(researcher, '/api/records/' + rid + '/bylines', {
+            'version': byline['version'], 'record_version': byline['record_version'],
+            'change_note': '虚构原文署名与合成作者档案的演示关联，不代表真实身份核实',
+            'items': [{'raw_name': PEOPLE_NAMES[i % 2], 'status': 'confirmed',
+                'target_type': 'person', 'target_id': people[i % 2],
+                'evidence': f'本包从零生成的合成原文及档案：https://example.invalid/demo/article-{i+1}'}]}, method='PUT')
         detail = researcher.get('/api/records/' + rid).json
         for attachment in detail['attachments']:
             remember(researcher, '/api/attachments/' + attachment['id'], file[1])
@@ -164,3 +172,17 @@ def seed(app):
         'complete_topic': tid, 'active_topic': active, 'journal': wid, 'files': files}
     (Path(app.config['DATA_DIR']) / 'demo-seed.json').write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
     return payload
+
+
+if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser(description='Generate the fictional preview through public APIs in a new directory. No collectors or AI workers.')
+    parser.add_argument('--data-dir', required=True, type=Path)
+    args = parser.parse_args()
+    target = args.data_dir.resolve()
+    if target.exists():
+        parser.error('Use a new, nonexistent data directory; existing data is never reset.')
+    from platform_app.web import create_app
+    payload = seed(create_app(target))
+    print(json.dumps({'data_dir': str(target), 'synthetic': True, 'articles': len(payload['article_ids']),
+                      'sources': len(payload['source_ids']), 'people': len(payload['person_ids'])}))
