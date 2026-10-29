@@ -438,9 +438,19 @@ python scripts/check.py
 
 该入口检查应用、维护脚本和测试的 Python 语法，再发现并执行完整合成数据套件。测试使用独立临时目录；入口始终关闭外部资料测试，包括当前终端曾设置外部检查开关的情况。语法错误、测试失败、未发现测试或全部跳过均返回非零退出码。
 
-直接运行 `python -m unittest discover -s tests -v` 时，外部资料测试同样默认跳过，连 ThinkTank 目录是否存在也不会探测。需要单项调试时，可使用 unittest 的 `-p` 或 `-k` 筛选；交付前仍运行上述完整入口。
+直接运行 `python -m unittest discover -s tests -v` 时，外部资料测试同样默认跳过，连 ThinkTank 目录是否存在也不会探测。需要单项调试时，可使用 unittest 的 `-p` 或 `-k` 筛选；交付验收使用完整入口，或核对覆盖范围后全部分片的执行结果。
 
-[GitHub Actions](.github/workflows/check.yml) 在推送和 PR 时，使用 Ubuntu、Windows 与 Python 3.12 执行同一命令，令牌仅有读取仓库内容的权限。结果以对应提交的实际检查记录为准；配置存在不代表某次运行已经通过。
+[GitHub Actions](.github/workflows/check.yml) 在推送和 PR 时，使用 Python 3.12 执行校验，令牌仅有读取仓库内容的权限。Ubuntu 在10分钟预算内运行上述默认完整入口；Windows 按完整模块分成两个并行检查，各有30分钟预算，模块内保持原发现次序及类、模块准备与清理边界。分组依据发现的用例数量确定，不保证两组耗时相等。
+
+需要在本机查看计划或单独复跑某片时，运行：
+
+```powershell
+python scripts/check.py --plan --shard-count 2
+python scripts/check.py --shard-index 1 --shard-count 2
+python scripts/check.py --shard-index 2 --shard-count 2
+```
+
+计划模式检查语法和完整发现，核对两片无交叠、用例ID多重集合并集与完整套件相等，输出数量与SHA-256摘要；它不执行测试，不代表校验通过。执行分片仍检查全部源文件语法并禁用外部资料；空片、非法参数、失败及整片跳过均返回非零。CI 用 `--expected-plan-digest` 绑定实际执行与预先核对的计划。原必需检查名 `Python 3.12 / windows-latest` 保留为总放行检查，只有两个分片均成功、实际检出提交与事件提交一致、覆盖计划相同时才通过；取消、跳过、缺结果或缺摘要均不放行。每片保留实际执行／跳过数量、总耗时与最慢10项信息。结果以对应提交的实际检查记录为准；配置和规划数量不代表某次执行已经通过。
 
 辅助录入的定向浏览器回归为 `python scripts/check_intake_preview_browser.py`，需另有 Playwright 和 Chromium；可用 `DATABASE_BROWSER_EXECUTABLE` 指定浏览器。脚本只在空闲的 8851 端口启动临时合成库，模拟题录服务，不访问真实资料或外部站点；它不包含在上述无浏览器的合成套件中。
 

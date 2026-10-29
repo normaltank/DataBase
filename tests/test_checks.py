@@ -1,11 +1,14 @@
 """Exercise test discovery and the check command without any external dataset."""
+import json
 import os
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
+from collections import Counter
 from pathlib import Path
 
 
@@ -47,14 +50,198 @@ class CheckCommandTests(unittest.TestCase):
         (root / "tests/test_fixture.py").write_text(test_source, encoding="utf-8")
         return root
 
-    def run_check(self, root):
+    def run_check(self, root, *args):
         env = {**os.environ, EXTERNAL_OPT_IN: "1", "PYTHONIOENCODING": "utf-8"}
         script = FILESYSTEM_GUARD + '''
 import runpy
+import sys
+sys.argv = ["scripts/check.py", *sys.argv[1:]]
 runpy.run_path("scripts/check.py", run_name="__main__")
 '''
-        return subprocess.run([sys.executable, "-c", script], cwd=root, env=env,
+        return subprocess.run([sys.executable, "-c", script, *args], cwd=root, env=env,
                               capture_output=True, text=True, encoding="utf-8")
+
+    def test_shard_command_runs_only_selected_whole_module(self):
+        root = self.checkout('''
+import unittest
+class FirstFixture(unittest.TestCase):
+    def test_one(self): print("FIRST_MODULE_EXECUTED")
+    def test_two(self): pass
+''')
+        (root / "tests/test_zulu.py").write_text('''
+import unittest
+class LastFixture(unittest.TestCase):
+    def test_only(self): print("LAST_MODULE_EXECUTED")
+''', encoding="utf-8")
+        result = self.run_check(root, "--shard-index", "2", "--shard-count", "2")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("LAST_MODULE_EXECUTED", result.stdout)
+        self.assertNotIn("FIRST_MODULE_EXECUTED", result.stdout)
+        self.assertIn("Ran 1 test", result.stderr)
+
+    def test_windows_gate_requires_both_successes_and_identical_nonempty_plans(self):
+        workflow = (ROOT / ".github/workflows/check.yml").read_text(encoding="utf-8")
+        gate = workflow.split("  windows_gate:\n", 1)[1]
+        self.assertIn("name: Python 3.12 / windows-latest\n", gate)
+        self.assertIn("needs: [windows_one, windows_two]", gate)
+        self.assertIn("if: ${{ always() }}", gate)
+        self.assertIn("shell: python", gate)
+        code = textwrap.dedent(gate.split("        run: |\n", 1)[1])
+        head = {"SHA_ONE": "expected", "SHA_TWO": "expected", "EXPECTED_SHA": "expected"}
+        for first, second, plan_a, plan_b, succeeds in [
+            ("success", "success", "same", "same", True),
+            ("success", "success", "first", "second", False),
+            ("success", "success", "", "", False),
+            ("success", "success", "same", "", False),
+        ] + [(status, "success", "same", "same", False) for status in ("failure", "cancelled", "skipped")] + [
+            ("success", status, "same", "same", False) for status in ("failure", "cancelled", "skipped")
+        ]:
+            with self.subTest(first=first, second=second, plans=(plan_a, plan_b)):
+                env = {**os.environ, "SHARD_ONE_RESULT": first, "SHARD_TWO_RESULT": second,
+                       "PLAN_ONE": plan_a, "PLAN_TWO": plan_b, **head}
+                result = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode == 0, succeeds, result.stdout + result.stderr)
+        for invalid in [{"SHA_ONE": "different"}, {"SHA_TWO": "different"},
+                        {"SHA_ONE": ""}, {"SHA_TWO": ""}, {"EXPECTED_SHA": ""}]:
+            with self.subTest(invalid_head=invalid):
+                env = {**os.environ, **head, **invalid, "SHARD_ONE_RESULT": "success",
+                       "SHARD_TWO_RESULT": "success", "PLAN_ONE": "same", "PLAN_TWO": "same"}
+                result = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_shards_match_full_multiset_and_preserve_module_class_fixture_order(self):
+        root = self.checkout('''
+import unittest
+def setUpModule(): print("EVENT module setup")
+def tearDownModule(): print("EVENT module teardown")
+class First(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls): print("EVENT first setup")
+    @classmethod
+    def tearDownClass(cls): print("EVENT first teardown")
+    def test_one(self): print("EVENT first test")
+class Second(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls): print("EVENT second setup")
+    @classmethod
+    def tearDownClass(cls): print("EVENT second teardown")
+    def test_two(self): print("EVENT second test")
+def load_tests(loader, tests, pattern):
+    return unittest.TestSuite([First("test_one"), First("test_one"), Second("test_two")])
+''')
+        (root / "tests/test_zulu.py").write_text('''
+import unittest
+def setUpModule(): print("EVENT zulu setup")
+def tearDownModule(): print("EVENT zulu teardown")
+class Last(unittest.TestCase):
+    def test_last(self): print("EVENT last test")
+''', encoding="utf-8")
+        full = self.run_check(root)
+        self.assertEqual(full.returncode, 0, full.stdout + full.stderr)
+        plan_result = self.run_check(root, "--plan", "--shard-count", "2")
+        self.assertEqual(plan_result.returncode, 0, plan_result.stdout + plan_result.stderr)
+        plan = json.loads(plan_result.stdout)
+        self.assertTrue(plan["coverage_verified"])
+        self.assertEqual(plan["full"]["tests"], 4)
+        self.assertEqual(plan["full"]["modules"], 2)
+        self.assertEqual([shard["tests"] for shard in plan["shards"]], [3, 1])
+        self.assertEqual(plan_result.stdout, self.run_check(root, "--plan", "--shard-count", "2").stdout)
+        self.assertIn("Plan only; no tests executed", plan_result.stderr)
+        self.assertNotIn("EVENT", plan_result.stdout + plan_result.stderr)
+        parts = [self.run_check(root, "--shard-index", str(index), "--shard-count", "2",
+                                "--expected-plan-digest", plan["plan_digest"]) for index in (1, 2)]
+        for part in parts:
+            self.assertEqual(part.returncode, 0, part.stdout + part.stderr)
+        self.assertIn("Synthetic execution: started=3, non-skipped=3, skipped=0", parts[0].stderr)
+        self.assertIn("Synthetic execution: started=1, non-skipped=1, skipped=0", parts[1].stderr)
+        def ids(result):
+            return re.findall(r"^test_\w+ \(([^)]+)\) \.\.\.", result.stderr, re.MULTILINE)
+        expected = ["test_fixture.First.test_one", "test_fixture.First.test_one",
+                    "test_fixture.Second.test_two", "test_zulu.Last.test_last"]
+        self.assertEqual(ids(full), expected)
+        self.assertEqual([ids(part) for part in parts], [expected[:3], expected[3:]])
+        self.assertEqual(Counter(ids(parts[0]) + ids(parts[1])), Counter(ids(full)))
+        self.assertFalse(set(ids(parts[0])) & set(ids(parts[1])))
+        events = lambda result: [line for line in result.stdout.splitlines() if line.startswith("EVENT")]
+        self.assertEqual(events(full), ["EVENT module setup", "EVENT first setup", "EVENT first test",
+                                      "EVENT first test", "EVENT first teardown", "EVENT second setup",
+                                      "EVENT second test", "EVENT second teardown", "EVENT module teardown",
+                                      "EVENT zulu setup", "EVENT last test", "EVENT zulu teardown"])
+        self.assertEqual(events(parts[0]) + events(parts[1]), events(full))
+        mismatch = self.run_check(root, "--shard-index", "1", "--shard-count", "2",
+                                  "--expected-plan-digest", "wrong-plan")
+        self.assertNotEqual(mismatch.returncode, 0)
+        self.assertIn("Actual discovery differs", mismatch.stderr)
+        self.assertNotIn("EVENT", mismatch.stdout)
+
+    def test_shard_arguments_and_empty_shards_cannot_succeed(self):
+        root = self.checkout("import unittest\nclass Sample(unittest.TestCase):\n def test_ok(self): pass\n")
+        for args in [("--shard-index", "1"), ("--shard-count", "2"),
+                     ("--shard-index", "0", "--shard-count", "2"),
+                     ("--shard-index", "3", "--shard-count", "2"),
+                     ("--shard-index", "1", "--shard-count", "0"),
+                     ("--plan", "--shard-count", "-1"),
+                     ("--shard-index", "2", "--shard-count", "2"),
+                     ("--plan", "--shard-count", "2"),
+                     ("--plan", "--shard-index", "1"),
+                     ("--expected-plan-digest", "a"), ("--unexpected",)]:
+            with self.subTest(args=args):
+                result = self.run_check(root, *args)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertNotIn("Ran 1 test", result.stderr)
+                self.assertRegex(result.stderr, r"Total check time: [0-9.]+s")
+
+    def test_shard_checks_keep_failure_skip_syntax_and_external_guards(self):
+        sources = {
+            "empty": "",
+            "skip": 'import unittest\n@unittest.skip("all skipped")\nclass Sample(unittest.TestCase):\n def test_one(self): pass\n',
+            "module_skip": 'import unittest\ndef setUpModule(): raise unittest.SkipTest("module skipped")\nclass Sample(unittest.TestCase):\n def test_one(self): pass\n',
+            "class_skip": 'import unittest\nclass Sample(unittest.TestCase):\n @classmethod\n def setUpClass(cls): raise unittest.SkipTest("class skipped")\n def test_one(self): pass\n',
+            "failure": 'import unittest\nclass Sample(unittest.TestCase):\n def test_one(self): self.fail("deliberate shard failure")\n',
+            "import_error": 'raise RuntimeError("discovery error fixture")\n',
+        }
+        for name, source in sources.items():
+            with self.subTest(case=name):
+                result = self.run_check(self.checkout(source), "--shard-index", "1", "--shard-count", "1")
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                if name in {"skip", "module_skip", "class_skip"}:
+                    self.assertIn("No synthetic tests ran", result.stderr)
+                if name == "failure":
+                    self.assertIn("deliberate shard failure", result.stderr)
+                if name == "import_error":
+                    self.assertIn("Cannot partition test discovery errors", result.stderr)
+        empty_plan = self.run_check(self.checkout(""), "--plan", "--shard-count", "2")
+        self.assertNotEqual(empty_plan.returncode, 0)
+        root = self.checkout('''
+import os
+import unittest
+from pathlib import Path
+if os.environ.get("RUN_THINKTANK_IMPORT_TEST") == "1":
+    Path("D:/Agent Workspace/ThinkTank").is_dir()
+class Sample(unittest.TestCase):
+    def test_one(self):
+        self.assertEqual(os.environ["RUN_THINKTANK_IMPORT_TEST"], "0")
+''')
+        result = self.run_check(root, "--shard-index", "1", "--shard-count", "1")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        # Syntax validation still includes application sources outside test discovery.
+        (root / "platform_app/unimported.py").write_text("def invalid syntax\n", encoding="utf-8")
+        invalid = self.run_check(root, "--shard-index", "1", "--shard-count", "1")
+        self.assertNotEqual(invalid.returncode, 0)
+        self.assertIn("SyntaxError", invalid.stderr)
+
+    def test_shard_plan_rejects_overlapping_ids_from_distinct_modules(self):
+        source = '''
+import unittest
+class Ambiguous(unittest.TestCase):
+    def id(self): return "shared.custom.id"
+    def test_one(self): pass
+'''
+        root = self.checkout(source)
+        (root / "tests/test_zulu.py").write_text(source, encoding="utf-8")
+        result = self.run_check(root, "--plan", "--shard-count", "2")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Test IDs overlap across shards", result.stderr)
 
     def test_default_discovery_never_probes_external_data(self):
         script = FILESYSTEM_GUARD + r'''
