@@ -60,7 +60,7 @@ def main():
                 page.get_by_role('button',name='保存文件新版本',exact=True).click()
                 expect(page.get_by_role('link',name='下载期刊原件 v1',exact=True)).to_be_visible()
                 expect(page.get_by_label('期刊编译文件',exact=False)).to_be_hidden()
-                page.get_by_role('button',name='提交文件',exact=True).click()
+                page.get_by_role('button',name='提交期刊文件',exact=True).click()
                 page.get_by_label('期刊编译文件',exact=False).set_input_files({'name':'修订成品.docx','mimeType':'application/vnd.openxmlformats-officedocument.wordprocessingml.document','buffer':second})
                 page.get_by_label('材料类型',exact=True).select_option('product')
                 page.get_by_label('简短说明',exact=False).fill('实际成品，另行记录采用。')
@@ -108,7 +108,7 @@ def main():
                 page.get_by_role('button',name=name+' · 2025年第1—3期 · 跨期整体概览',exact=True).click()
                 expect(page.get_by_text('当前成品',exact=True)).to_be_visible()
                 # Real keyboard can reach the note after the file/select controls.
-                page.get_by_role('button',name='提交文件',exact=True).click()
+                page.get_by_role('button',name='提交期刊文件',exact=True).click()
                 page.get_by_label('期刊编译文件',exact=False).focus()
                 page.keyboard.press('Tab')
                 expect(page.get_by_label('材料类型',exact=True)).to_be_focused()

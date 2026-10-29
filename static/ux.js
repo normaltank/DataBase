@@ -88,14 +88,14 @@ async function uxReadRecord(record,target=null) {
   const bodySection=record.body_html?'<section class="detail-section ux-main-body" id="ux-body"><h3>正文</h3><div class="rich-prose">'+readRich(record.body_html)+'</div></section>':'';
   const research=isResearchContent(record.kind),access=uxAccess(record),references=record.linked_records||[],hasEvidence=!!record.evidence_record_id||!!record.evidence_citations?.length;
   const meta=[record.authors,record.published_on,languageLabel(record.language)].filter(Boolean),sources=recordSourceLabels(record).filter(label=>!label.startsWith('关联来源：'));
-  const maintenance=(record.can_edit?linkButton('编辑内容','edit-record',record.id)+linkButton('修改历史','history','record:'+record.id):'')+linkButton('加入资料夹','add-to-collection',record.id)+linkButton(record.favorite?'取消收藏':'收藏资料','favorite',record.id)
+  const maintenance=(record.can_edit?linkButton('编辑内容','edit-record',record.id)+linkButton('修改历史','history','record:'+record.id):'')
     +(state.me.role==='admin'&&isMaintenancePage()?linkButton('标记已核对','verify','record:'+record.id):'');
   const content='<article class="ux-reading-article"><div class="row wrap ux-reading-labels">'+typeBadge(record.kind)+badge(record.status)+'<span class="badge neutral">'+(record.visibility==='shared'?'中心共享':'限授权成员')+'</span><span class="ux-version">版本 '+record.version+'</span></div>'
     +'<h2 class="detail-title" data-reading-title>'+esc(record.display_title||record.title)+'</h2>'+(record.original_title&&record.original_title!==record.title?'<p class="original-title">'+esc(record.original_title)+'</p>':'')
     +'<div class="ux-bibliography">'+(meta.length?'<p>'+meta.map(esc).join(' · ')+'</p>':'')+(sources.length?'<p>'+sources.map(esc).join(' · ')+'</p>':'')+(record.coverage?'<p>'+esc(record.coverage)+'</p>':'')+((record.related_source_ids||[]).length?'<p>关联来源：'+record.related_source_ids.map(sourceName).join(' / ')+'</p>':'')+'</div>'
-    +'<div class="ux-reading-actions ux-reading-toolbar">'+uxReadingActions(record)+'<button class="button tiny" type="button" data-action="ux-copy" data-id="'+esc(record.id)+'">'+uxCopyLabel(record)+'</button></div><div data-copy-region></div>'
+    +'<div class="ux-reading-actions ux-reading-toolbar">'+uxReadingActions(record)+linkButton(record.favorite?'取消收藏':'收藏资料','favorite',record.id)+linkButton('加入资料夹','add-to-collection',record.id)+'<button class="button tiny" type="button" data-action="ux-copy" data-id="'+esc(record.id)+'">'+uxCopyLabel(record)+'</button></div><div data-copy-region></div>'
     +(target?'':identities)
-    +(record.kind==='research_note'?authorPanel(record):authorControlledKinds.has(record.kind)&&!record.author_confirmed?authorPanel(record):authorControlledKinds.has(record.kind)?'<p class="ux-author">负责作者：'+esc(record.author_name||recordAuthorLabel(record))+' · 已由本人确认</p>':'<p class="ux-author">当前有权读取的有效成员共同编辑</p>')
+    +(record.kind==='research_note'?authorPanel(record):authorControlledKinds.has(record.kind)&&!record.author_confirmed?authorPanel(record):authorControlledKinds.has(record.kind)?'<p class="ux-author">负责作者：'+esc(record.author_name||recordAuthorLabel(record))+' · 已由本人确认</p>':'')
     +(research?bodySection+abstractSection:abstractSection+bodySection)
     +(typeof topicRecordWorks==='function'?topicRecordWorks(record):'')
     +(typeof automaticProcessingHtml==='function'?automaticProcessingHtml(record):'')
@@ -117,11 +117,11 @@ async function uxReadRecord(record,target=null) {
     +(typeof intakeEvidenceHtml==='function'?intakeEvidenceHtml(record.intake_evidence):'')
     +(typeof discoveryEvidenceHtml==='function'?discoveryEvidenceHtml(record.discovery_evidence):'')
     +(typeof risEvidenceHtml==='function'?risEvidenceHtml(record.ris_evidence):'')
-    +'<details class="ux-maintenance"><summary>整理、编辑与核对</summary><div class="detail-actions">'+maintenance+'</div>'+(!research&&!record.translations?.length&&!record.chinese_title&&!record.chinese_abstract?translationPanel(record):'')+'</details>'
+    +'<details class="ux-maintenance"><summary>整理、编辑与核对</summary><div class="detail-actions">'+maintenance+(!authorControlledKinds.has(record.kind)&&record.kind!=='research_note'?'<p>当前有权读取的有效成员共同编辑。</p>':'')+'</div>'+(!research&&!record.translations?.length&&!record.chinese_title&&!record.chinese_abstract?translationPanel(record):'')+'</details>'
     +(!hasEvidence&&research&&typeof archivedLinks==='function'?archivedLinks('record',record):'')+'</article>';
   if(target)target.innerHTML=content;else modal(kinds[record.kind]||'阅读资料',content);
   const body=target||document.querySelector('.drawer-body');body.classList.add('ux-reader');body.closest('.drawer')?.classList.add('ux-reading-drawer');
-  const favorite=body.querySelector('[data-action=favorite]');if(favorite)favorite.dataset.saved=!!record.favorite;
+  const favorite=body.querySelector('[data-action=favorite]');if(favorite){favorite.dataset.saved=!!record.favorite;favorite.setAttribute('aria-pressed',String(!!record.favorite));}
   for(const button of body.querySelectorAll('.icon-button[data-action=add-to-collection]'))button.setAttribute('aria-label','加入资料夹');
   state.detail={type:'record',data:record};
   document.dispatchEvent(new CustomEvent('library:reader-rendered',{detail:{record,root:body}}));
