@@ -129,6 +129,7 @@
   min-width: 0;
 }
 .collaboration-file strong,
+.collaboration-file details,
 .collaboration-note,
 .collaboration-hash {
   overflow-wrap: anywhere;
@@ -322,5 +323,8 @@
   }
   .collaboration-file > div {
     flex: 0 1 auto;
+  }
+  .collaboration-file {
+    flex-wrap: nowrap;
   }
 }
