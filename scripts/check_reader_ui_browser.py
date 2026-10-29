@@ -236,6 +236,26 @@ def progress(page,base):
     return {'scroll_end':100,'next_resets':0,'header_sticky':True}
 
 
+def synthetic_table():
+    header='<thead><tr>'+''.join('<th>合成表头 '+str(n)+'</th>' for n in range(12))+'</tr></thead>'
+    rows='<tbody>'+''.join('<tr>'+''.join('<td>合成表格内容 '+str(r)+'-'+str(c)+'</td>' for c in range(12))+'</tr>' for r in range(24))+'</tbody>'
+    return '<table>'+header+rows+'</table>'
+
+
+def tables(page,base):
+    call(page.context,base,'/api/records',{'title':'长表格阅读边界','kind':'report','body_html':synthetic_table(),'visibility':'shared','sharing_confirmed':True},expected=201)
+    page.goto(base+'/#library?feed=all&q=长表格阅读边界')
+    page.locator('.record-title button').click()
+    table=page.locator('.library-reader .reading-table')
+    table.scroll_into_view_if_needed()
+    table.evaluate('(x)=>{x.scrollTop=200;x.scrollLeft=200}')
+    metrics=table.evaluate('(x)=>({top:x.scrollTop,left:x.scrollLeft,headerTop:x.querySelector("th").getBoundingClientRect().top,tableTop:x.getBoundingClientRect().top})')
+    assert metrics['top']>=150 and metrics['left']>=150,metrics
+    assert abs(metrics['headerTop']-metrics['tableTop'])<3,metrics
+    assert page.evaluate('() => document.documentElement.scrollWidth<=document.documentElement.clientWidth+1')
+    return {'long_table_two_axis_scroll':True,'header_sticky':True}
+
+
 def copying(page,base):
     reader=open_first(page,base)
     next_title=page.locator('.record-title button').nth(1).inner_text()
@@ -284,8 +304,9 @@ def matrix(page,context,base,evidence,worker,downloads):
         data['reader_large']=measure(page,evidence,'reader-large-'+suffix)
         table=reader.locator('.reading-table')
         table.scroll_into_view_if_needed()
-        data['table']=table.evaluate('(x)=>{x.scrollLeft=x.scrollWidth;return {width:x.clientWidth,scrollWidth:x.scrollWidth,scrollLeft:x.scrollLeft}}')
-        assert data['table']['scrollLeft']>0,data['table']
+        data['table']=table.evaluate('(x)=>{x.scrollLeft=x.scrollWidth;x.scrollTop=200;return {width:x.clientWidth,scrollWidth:x.scrollWidth,scrollLeft:x.scrollLeft,scrollTop:x.scrollTop,headerTop:x.querySelector("th").getBoundingClientRect().top,tableTop:x.getBoundingClientRect().top}}')
+        assert data['table']['scrollLeft']>0 and data['table']['scrollTop']>=150,data['table']
+        assert abs(data['table']['headerTop']-data['table']['tableTop'])<3,data['table']
         # Screenshot the actual long table after local horizontal scrolling.
         page.screenshot(path=str(evidence/('long-table-'+suffix+'.png')))
         assert page.evaluate('() => document.documentElement.scrollWidth<=document.documentElement.clientWidth+1')
@@ -319,7 +340,7 @@ def matrix(page,context,base,evidence,worker,downloads):
 
 def main():
     parser=argparse.ArgumentParser()
-    parser.add_argument('--check',choices=['preferences','storage','shortcuts','files','statistics','collaboration','progress','copying','matrix'],default='preferences')
+    parser.add_argument('--check',choices=['preferences','storage','shortcuts','files','statistics','collaboration','progress','tables','copying','matrix'],default='preferences')
     args=parser.parse_args()
     logging.getLogger('werkzeug').setLevel(logging.ERROR)
     expect.set_options(timeout=4000)
@@ -353,7 +374,7 @@ def main():
             login(page,base,'researcher')
             for n in range(14):
                 call(context,base,'/api/records',{'title':f'合成阅读资料 {n:02d}', 'kind':'report',
-                    'body_html':'<p>'+('真实可读合成正文。'*100)+'</p><table><tbody><tr>'+''.join('<td>长表格合成列 '+str(x)+'</td>' for x in range(12))+'</tr></tbody></table>',
+                    'body_html':'<p>'+('真实可读合成正文。'*100)+'</p>'+synthetic_table(),
                     'visibility':'shared','sharing_confirmed':True},expected=201)
             try:
                 result=matrix(page,context,base,evidence,worker,downloads) if args.check=='matrix' else globals()[args.check](page,base)

@@ -6,7 +6,8 @@
   max-width: 100%;
   min-width: 0;
   margin: 16px 0;
-  overflow-x: auto;
+  max-height: 65vh;
+  overflow: auto;
   overscroll-behavior-x: contain;
   border-radius: 6px;
   border: 1px solid var(--border, #d8e1eb);
@@ -61,7 +62,7 @@
 .reading-table th > :last-child { margin-bottom: 0; }
 .reading-content { min-width: 0; overflow-wrap: anywhere; }
 @media print {
-  .reading-table { overflow: visible; border: 0; box-shadow: none; }
+  .reading-table { overflow: visible; max-height: none; border: 0; box-shadow: none; }
   .reading-table table th, .reading-table table td { min-width: 0; }
   .reading-table tr { break-inside: avoid; }
 }
