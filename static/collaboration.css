@@ -320,4 +320,7 @@
     width: 100%;
     text-align: center;
   }
+  .collaboration-file > div {
+    flex: 0 1 auto;
+  }
 }

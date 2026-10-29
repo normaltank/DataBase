@@ -62,6 +62,31 @@ def preferences(page, base):
 
 
 def storage(page, base):
+    # Quota failures can leave an older, readable preference in storage.
+    # Controls must keep working in this document, including the next article.
+    saved='{"scale":"normal","serif":false}'
+    page.evaluate('(raw)=>localStorage.setItem("zhihui_reader_prefs",raw)',saved)
+    page.reload()
+    reader=open_first(page,base)
+    page.evaluate('''() => {const originalSet=Storage.prototype.setItem;
+      Storage.prototype.setItem=function(key,value){if(key==='zhihui_reader_prefs')throw new DOMException('full','QuotaExceededError');return originalSet.call(this,key,value)}}''')
+    larger=reader.get_by_role('button',name='放大阅读字号',exact=True)
+    larger.click()
+    expect(reader.locator('.ux-main-body .rich-prose')).to_have_css('font-size','19px')
+    larger.click()
+    expect(reader.locator('.ux-main-body .rich-prose')).to_have_css('font-size','21px')
+    expect(larger).to_be_disabled()
+    reader.get_by_role('button',name='切换学术衬线体',exact=True).click()
+    expect(reader.get_by_role('button',name='切换学术衬线体',exact=True)).to_have_attribute('aria-pressed','true')
+    assert 'Georgia' in reader.locator('.ux-main-body .rich-prose').evaluate('(x)=>getComputedStyle(x).fontFamily')
+    first_title=reader.locator('.detail-title').inner_text()
+    page.keyboard.press('j')
+    expect(reader.locator('.detail-title')).not_to_have_text(first_title)
+    expect(reader.locator('.ux-main-body .rich-prose')).to_have_css('font-size','21px')
+    expect(reader.get_by_role('button',name='切换学术衬线体',exact=True)).to_have_attribute('aria-pressed','true')
+    reader.get_by_role('button',name='缩小阅读字号',exact=True).click()
+    expect(reader.locator('.ux-main-body .rich-prose')).to_have_css('font-size','19px')
+    assert page.evaluate('localStorage.getItem("zhihui_reader_prefs")')==saved
     sid=call(page.context,base,'/api/sources',{'name':'禁用存储合成来源','kind':'think_tank','website':'https://example.org/synthetic'},expected=201)['id']
     page.add_init_script("""const originalGet=Storage.prototype.getItem,originalSet=Storage.prototype.setItem;
       Storage.prototype.getItem=function(key){if(this===sessionStorage||key==='zhihui_reader_prefs')throw new DOMException('blocked','SecurityError');return originalGet.call(this,key)};
@@ -77,7 +102,7 @@ def storage(page, base):
     expect(page.get_by_role('heading',name='禁用存储合成来源',exact=True)).to_be_visible()
     page.get_by_role('link',name='← 返回来源目录',exact=True).click()
     expect(page.get_by_role('heading',name='来源目录',exact=True)).to_be_visible()
-    return {'disabled_storage_reading_and_change':True,'source_return':True}
+    return {'readable_storage_write_quota_controls_and_next_article':True,'disabled_storage_reading_and_change':True,'source_return':True}
 
 
 def shortcuts(page, base):

@@ -3,7 +3,9 @@
 // Reading and continuation views share the existing records, drafts and permission checks.
 const uxReaderScaleLevels=['normal','large','xlarge'];
 let uxReaderMemoryPrefs={scale:'normal',serif:false};
+let uxReaderMemoryOnly=false;
 function uxGetReaderPrefs() {
+  if(uxReaderMemoryOnly)return {...uxReaderMemoryPrefs};
   try {
     const raw=localStorage.getItem('zhihui_reader_prefs');
     const parsed=raw?JSON.parse(raw):{};
@@ -15,7 +17,13 @@ function uxGetReaderPrefs() {
 }
 function uxSaveReaderPrefs(prefs) {
   uxReaderMemoryPrefs={...prefs};
-  try { localStorage.setItem('zhihui_reader_prefs',JSON.stringify(prefs)); } catch {}
+  try {
+    localStorage.setItem('zhihui_reader_prefs',JSON.stringify(prefs));
+    uxReaderMemoryOnly=false;
+  } catch {
+    // A readable older value must not overwrite the user's latest page preference.
+    uxReaderMemoryOnly=true;
+  }
 }
 function uxApplyReaderPrefs(root=document.querySelector('.ux-reader')) {
   if(!root)return;
