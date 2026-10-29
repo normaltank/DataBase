@@ -258,7 +258,7 @@ async function libraryOpenReader(id,origin=null,section='') {
     const record=await api('/api/records/'+encodeURIComponent(id));
     if(epoch!==libraryWorkspace.readerEpoch||account!==state.me?.id||hash!==location.hash||!panel.isConnected)return;
     const index=libraryWorkspace.items.findIndex(record=>record.id===id);
-    panel.innerHTML='<header class="library-reader-head"><button class="button tiny" type="button" data-action="library-reader-close">返回列表</button><div class="row"><button class="button tiny" type="button" data-action="library-reader-prev" '+(index<=0?'disabled':'')+'>上一条</button><button class="button tiny" type="button" data-action="library-reader-next" '+(index<0||index>=libraryWorkspace.items.length-1?'disabled':'')+'>下一条</button></div><p>本页第 '+(index+1)+' / '+libraryWorkspace.items.length+' 条</p></header><div class="drawer-body library-reader-body"></div>';
+    panel.innerHTML='<header class="library-reader-head"><button class="button tiny" type="button" data-action="library-reader-close">返回列表</button><div class="row"><button class="button tiny" type="button" data-action="library-reader-prev" title="上一条 (Alt+↑)" '+(index<=0?'disabled':'')+'>上一条</button><button class="button tiny" type="button" data-action="library-reader-next" title="下一条 (Alt+↓)" '+(index<0||index>=libraryWorkspace.items.length-1?'disabled':'')+'>下一条</button></div><p>本页第 '+(index+1)+' / '+libraryWorkspace.items.length+' 条</p></header><div class="drawer-body library-reader-body"></div>';
     const body=panel.querySelector('.library-reader-body');await uxReadRecord(record,body);
     if(epoch!==libraryWorkspace.readerEpoch||account!==state.me?.id||!panel.isConnected){body.replaceChildren();return;}
     panel.scrollTop=0;body.scrollTop=0;
@@ -285,6 +285,12 @@ document.addEventListener('click',event=>{
 document.addEventListener('keydown',event=>{
   const panel=document.querySelector('.library-reader:not([hidden])');if(event.defaultPrevented||!panel||document.querySelector('#modal-root .overlay'))return;
   if(event.key==='Escape'){event.preventDefault();libraryCloseReader();}
+  else if(event.altKey&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&!event.isComposing&&(event.key==='ArrowUp'||event.key==='ArrowDown')){
+    if(event.target.closest('input,textarea,select')||event.target.isContentEditable)return;
+    event.preventDefault();
+    const index=libraryWorkspace.items.findIndex(record=>record.id===libraryWorkspace.readerId),next=libraryWorkspace.items[index+(event.key==='ArrowUp'?-1:1)];
+    if(next)libraryOpenReader(next.id).catch(error=>toast(error.message));
+  }
   else if(event.key==='Tab'&&panel.getAttribute('aria-modal')==='true'){
     const targets=dialogFocusTargets(panel),first=targets[0],last=targets[targets.length-1];
     if(event.shiftKey&&(document.activeElement===first||!targets.includes(document.activeElement))){event.preventDefault();last?.focus();}
