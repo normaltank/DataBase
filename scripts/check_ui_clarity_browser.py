@@ -31,7 +31,7 @@ def empty_work(page, base):
 def capture(page, evidence, name):
     no_overflow(page)
     page.evaluate("scrollTo({top:0,left:0,behavior:'instant'})")
-    page.wait_for_function('scrollY===0')
+    page.wait_for_function('() => scrollY===0')
     expect(page.locator('#toast')).not_to_have_class('show')
     page.screenshot(path=str(evidence/(name+'.png')),full_page=False,scale='css')
 

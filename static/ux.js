@@ -1,6 +1,64 @@
 'use strict';
 
 // Reading and continuation views share the existing records, drafts and permission checks.
+const uxReaderScaleLevels=['normal','large','xlarge'];
+let uxReaderMemoryPrefs={scale:'normal',serif:false};
+function uxGetReaderPrefs() {
+  try {
+    const raw=localStorage.getItem('zhihui_reader_prefs');
+    const parsed=raw?JSON.parse(raw):{};
+    uxReaderMemoryPrefs={scale:uxReaderScaleLevels.includes(parsed?.scale)?parsed.scale:'normal',serif:parsed?.serif===true};
+  } catch {
+    // Storage may be unavailable; display preferences remain usable for this page.
+  }
+  return {...uxReaderMemoryPrefs};
+}
+function uxSaveReaderPrefs(prefs) {
+  uxReaderMemoryPrefs={...prefs};
+  try { localStorage.setItem('zhihui_reader_prefs',JSON.stringify(prefs)); } catch {}
+}
+function uxApplyReaderPrefs(root=document.querySelector('.ux-reader')) {
+  if(!root)return;
+  const prefs=uxGetReaderPrefs(),idx=uxReaderScaleLevels.indexOf(prefs.scale);
+  root.dataset.fontScale=prefs.scale;
+  root.dataset.fontSerif=String(!!prefs.serif);
+  const serifBtn=root.querySelector('[data-action="ux-font-serif"]');
+  if(serifBtn)serifBtn.setAttribute('aria-pressed',String(!!prefs.serif));
+  const decBtn=root.querySelector('[data-action="ux-font-step"][data-step="-1"]');
+  const incBtn=root.querySelector('[data-action="ux-font-step"][data-step="1"]');
+  if(decBtn)decBtn.disabled=idx<=0;
+  if(incBtn)incBtn.disabled=idx>=uxReaderScaleLevels.length-1;
+}
+function uxUpdateReadingStats(root) {
+  const stats=root.querySelector('.ux-reading-stats');if(!stats)return;
+  const body=root.querySelector('.ux-main-body .rich-prose');
+  const content=body||root.querySelector('[data-reading-abstract]:not([hidden]) .prose');
+  const plain=content?.innerText||'';
+  const han=(plain.match(/\p{Script=Han}/gu)||[]).length;
+  const words=(plain.replace(/\p{Script=Han}/gu,' ').match(/[\p{L}\p{N}]+(?:['’\-][\p{L}\p{N}]+)*/gu)||[]).length;
+  const count=han+words;stats.hidden=!count;
+  stats.textContent=count?(body?'正文':'摘要')+' · '+count.toLocaleString('zh-CN')+' 字词 · 约 '+Math.max(1,Math.ceil(count/420))+' 分钟':'';
+}
+function uxBindReadingProgress(root){
+  const scroll=root.closest('.library-reader')||root;
+  const head=scroll.matches('.library-reader')?scroll.querySelector('.library-reader-head'):root.closest('.drawer')?.querySelector('.drawer-head');
+  if(!head)return;
+  scroll._readingProgressCleanup?.();
+  const indicator=document.createElement('span');indicator.className='sr-only';
+  indicator.setAttribute('role','progressbar');indicator.setAttribute('aria-label','本篇阅读位置');
+  indicator.setAttribute('aria-valuemin','0');indicator.setAttribute('aria-valuemax','100');
+  head.querySelector('[role="progressbar"]')?.remove();head.append(indicator);
+  const update=()=>{
+    const max=scroll.scrollHeight-scroll.clientHeight;
+    const value=max>1?Math.round(Math.min(100,Math.max(0,scroll.scrollTop/max*100))):0;
+    indicator.setAttribute('aria-valuenow',String(value));
+    head.style.setProperty('--read-progress',value+'%');
+  };
+  scroll.addEventListener('scroll',update,{passive:true});
+  const observer=new ResizeObserver(update);observer.observe(scroll);observer.observe(root.querySelector('.ux-reading-article'));
+  scroll._readingProgressCleanup=()=>{observer.disconnect();scroll.removeEventListener('scroll',update);indicator.remove();head.style.removeProperty('--read-progress');};
+  update();
+}
 function uxSafeExternal(value) {
   if(typeof value!=='string'||!value||/[\s\u0000-\u001f\u007f\\]/u.test(value))return '';
   try { const url=new URL(value),authority=value.match(/^[a-z]+:\/\/([^/?#]*)/i)?.[1]||'';return ['http:','https:'].includes(url.protocol)&&!url.username&&!url.password&&!authority.includes('@')?url.href:''; } catch { return ''; }
@@ -29,7 +87,7 @@ function uxReadingActions(record,compact=false) {
     const cls=index===0?'button tiny ux-read-primary':'ux-read-link';
     return a.platform?'<a class="'+cls+'" href="'+esc(a.url)+'" target="_blank" rel="noopener noreferrer">'+icon('file')+esc(a.label)+'</a>':uxExternal(a.url,a.label,cls);
   }).join('');
-  if(access.hasBody)html+='<button type="button" class="'+(!actions.length?'button tiny ux-read-primary':'ux-read-link')+'" data-action="ux-read-body" data-id="'+esc(record.id)+'">'+icon('book')+'阅读正文</button>';
+  if(access.hasBody&&compact)html+='<button type="button" class="'+(!actions.length?'button tiny ux-read-primary':'ux-read-link')+'" data-action="ux-read-body" data-id="'+esc(record.id)+'">'+icon('book')+'阅读正文</button>';
   if(access.unknownPlatform)html+=linkButton('查看平台附件','ux-files',record.id,'ux-read-link');
   return html;
 }
@@ -90,10 +148,12 @@ async function uxReadRecord(record,target=null) {
   const meta=[record.authors,record.published_on,languageLabel(record.language)].filter(Boolean),sources=recordSourceLabels(record).filter(label=>!label.startsWith('关联来源：'));
   const maintenance=(record.can_edit?linkButton('编辑内容','edit-record',record.id)+linkButton('修改历史','history','record:'+record.id):'')
     +(state.me.role==='admin'&&isMaintenancePage()?linkButton('标记已核对','verify','record:'+record.id):'');
-  const content='<article class="ux-reading-article"><div class="row wrap ux-reading-labels">'+typeBadge(record.kind)+badge(record.status)+'<span class="badge neutral">'+(record.visibility==='shared'?'中心共享':'限授权成员')+'</span><span class="ux-version">版本 '+record.version+'</span></div>'
+  const prefs=uxGetReaderPrefs();
+  const prefsControls='<div class="ux-reader-prefs" role="group" aria-label="阅读排版"><button class="button tiny" type="button" data-action="ux-font-step" data-step="-1" aria-label="缩小阅读字号" title="缩小阅读字号">A-</button><button class="button tiny" type="button" data-action="ux-font-step" data-step="1" aria-label="放大阅读字号" title="放大阅读字号">A+</button><button class="button tiny" type="button" data-action="ux-font-serif" aria-pressed="'+!!prefs.serif+'" aria-label="切换学术衬线体" title="切换学术衬线体">衬线</button></div>';
+  const content='<article class="ux-reading-article"><div class="row wrap ux-reading-labels">'+typeBadge(record.kind)+badge(record.status)+'<span class="badge neutral">'+(record.visibility==='shared'?'中心共享':'限授权成员')+'</span><span class="ux-version">版本 '+record.version+'</span><span class="ux-reading-stats" title="当前正文或摘要的估计篇幅与阅读用时；不代表已读" hidden></span></div>'
     +'<h2 class="detail-title" data-reading-title>'+esc(record.display_title||record.title)+'</h2>'+(record.original_title&&record.original_title!==record.title?'<p class="original-title">'+esc(record.original_title)+'</p>':'')
     +'<div class="ux-bibliography">'+(meta.length?'<p>'+meta.map(esc).join(' · ')+'</p>':'')+(sources.length?'<p>'+sources.map(esc).join(' · ')+'</p>':'')+(record.coverage?'<p>'+esc(record.coverage)+'</p>':'')+((record.related_source_ids||[]).length?'<p>关联来源：'+record.related_source_ids.map(sourceName).join(' / ')+'</p>':'')+'</div>'
-    +'<div class="ux-reading-actions ux-reading-toolbar">'+uxReadingActions(record)+linkButton(record.favorite?'取消收藏':'收藏资料','favorite',record.id)+linkButton('加入资料夹','add-to-collection',record.id)+'<button class="button tiny" type="button" data-action="ux-copy" data-id="'+esc(record.id)+'">'+uxCopyLabel(record)+'</button></div><div data-copy-region></div>'
+    +'<div class="ux-reading-actions ux-reading-toolbar">'+uxReadingActions(record,false)+linkButton(record.favorite?'取消收藏':'收藏资料','favorite',record.id)+linkButton('加入资料夹','add-to-collection',record.id)+'<button class="button tiny" type="button" data-action="ux-copy" data-id="'+esc(record.id)+'">'+uxCopyLabel(record)+'</button>'+prefsControls+'</div><div data-copy-region></div>'
     +(target?'':identities)
     +(record.kind==='research_note'?authorPanel(record):authorControlledKinds.has(record.kind)&&!record.author_confirmed?authorPanel(record):authorControlledKinds.has(record.kind)?'<p class="ux-author">负责作者：'+esc(record.author_name||recordAuthorLabel(record))+' · 已由本人确认</p>':'')
     +(research?bodySection+abstractSection:abstractSection+bodySection)
@@ -101,7 +161,7 @@ async function uxReadRecord(record,target=null) {
     +(typeof automaticProcessingHtml==='function'?automaticProcessingHtml(record):'')
     +(typeof automaticAcquisitionHtml==='function'?automaticAcquisitionHtml(record.automatic_acquisition):'')
     +(!research&&(record.translations?.length||record.chinese_title||record.chinese_abstract)?'<details class="reading-translation-history"><summary>译文来历与处理版本</summary>'+translationPanel(record)+'</details>':'')
-    +(!record.body_html&&!record.abstract&&!uxReadingActions(record)?'<p class="ux-empty-line">此条目目前仅保存题录。</p>':'')+uxFiles(record)
+    +(!record.body_html&&!record.abstract&&!uxReadingActions(record,true)?'<p class="ux-empty-line">此条目目前仅保存题录。</p>':'')+uxFiles(record)
     +(target&&identities?'<details class="ux-identities"><summary>作品署名与文章单位</summary>'+identities+'</details>':'')
     +(record.original_catalogue?'<section class="detail-section"><h3>原目录 / 原文出处</h3><p class="prose">'+esc(record.original_catalogue)+'</p></section>':'')
     +(typeof attachmentIndexSection==='function'?attachmentIndexSection(record):'')
@@ -121,26 +181,40 @@ async function uxReadRecord(record,target=null) {
     +(!hasEvidence&&research&&typeof archivedLinks==='function'?archivedLinks('record',record):'')+'</article>';
   if(target)target.innerHTML=content;else modal(kinds[record.kind]||'阅读资料',content);
   const body=target||document.querySelector('.drawer-body');body.classList.add('ux-reader');body.closest('.drawer')?.classList.add('ux-reading-drawer');
+  uxApplyReaderPrefs(body);
+  uxUpdateReadingStats(body);
+  uxBindReadingProgress(body);
   const favorite=body.querySelector('[data-action=favorite]');if(favorite){favorite.dataset.saved=!!record.favorite;favorite.setAttribute('aria-pressed',String(!!record.favorite));}
   for(const button of body.querySelectorAll('.icon-button[data-action=add-to-collection]'))button.setAttribute('aria-label','加入资料夹');
   state.detail={type:'record',data:record};
   document.dispatchEvent(new CustomEvent('library:reader-rendered',{detail:{record,root:body}}));
 }
 async function uxCopyRecord(button) {
-  const account=state.me?.id;button.disabled=true;
-  document.querySelector('[data-copy-region]')?.replaceChildren();
+  const account=state.me?.id,hash=location.hash,article=button.closest('.ux-reading-article'),region=article?.querySelector('[data-copy-region]');button.disabled=true;
+  const current=()=>state.me?.id===account&&location.hash===hash&&button.isConnected;
+  clearTimeout(button._copyFeedbackTimer);button.classList.remove('copied');
+  const label=button.dataset.copyLabel||button.textContent;button.dataset.copyLabel=label;button.textContent=label;
+  region?.replaceChildren();
   try{
     let result;try{result=await api('/api/records/'+encodeURIComponent(button.dataset.id)+'/copy-text');}catch{throw new Error('暂时无法准备复制内容，请稍后重试。');}
-    if(state.me?.id!==account)return;
+    if(!current())return;
     const text=typeof result.text==='string'?result.text:'';
     if(!text.trim()||(result.mode==='references'&&text.trim()==='暂无可复制的引用。')){toast(text.trim()||result.notice||'暂无可复制的内容。');return;}
-    try{if(!navigator.clipboard?.writeText)throw new Error('unavailable');await navigator.clipboard.writeText(text);toast(result.notice?'已复制。'+result.notice:'已复制');}
+    try{
+      if(!navigator.clipboard?.writeText)throw new Error('unavailable');
+      await navigator.clipboard.writeText(text);
+      if(!current())return;
+      button.textContent='已复制';
+      button.classList.add('copied');
+      button._copyFeedbackTimer=setTimeout(()=>{if(button.isConnected){button.classList.remove('copied');button.textContent=label;}},1600);
+      toast(result.notice?'已复制。'+result.notice:'已复制');
+    }
     catch{
-      const region=document.querySelector('[data-copy-region]');if(!region)return;
+      if(!current()||!region)return;
       region.innerHTML='<section class="ux-copy-panel"><label for="manual-copy-text">选择下方文字后复制</label>'+(result.notice?'<p class="form-help">'+esc(result.notice)+'</p>':'')+'<textarea id="manual-copy-text" readonly rows="9"></textarea><div class="row wrap"><button type="button" class="button tiny" data-action="ux-select-copy">选择全部</button><button type="button" class="ux-read-link" data-action="ux-close-copy">收起</button></div></section>';
       const textarea=region.querySelector('textarea');textarea.value=text;textarea.focus();textarea.select();
     }
-  }catch(error){toast(error.message);}finally{if(button.isConnected)button.disabled=false;}
+  }catch(error){if(current())toast(error.message);}finally{if(button.isConnected)button.disabled=false;}
 }
 document.addEventListener('click',async event=>{
   const button=event.target.closest('[data-action]');if(!button)return;
@@ -160,5 +234,18 @@ document.addEventListener('click',async event=>{
     else if(action==='ux-copy')await uxCopyRecord(button);
     else if(action==='ux-select-copy'){const textarea=document.querySelector('#manual-copy-text');textarea?.focus();textarea?.select();}
     else if(action==='ux-close-copy'){document.querySelector('[data-copy-region]')?.replaceChildren();document.querySelector('[data-action=ux-copy]')?.focus();}
-  }catch(error){toast(error.message);}finally{if(button.isConnected)button.disabled=false;}
+    else if(action==='ux-font-step'){
+      const prefs=uxGetReaderPrefs(),idx=uxReaderScaleLevels.indexOf(prefs.scale);
+      const nextIdx=Math.min(uxReaderScaleLevels.length-1,Math.max(0,idx+Number(button.dataset.step)));
+      prefs.scale=uxReaderScaleLevels[nextIdx];
+      uxSaveReaderPrefs(prefs);
+      uxApplyReaderPrefs(button.closest('.ux-reader'));
+    }
+    else if(action==='ux-font-serif'){
+      const prefs=uxGetReaderPrefs();
+      prefs.serif=!prefs.serif;
+      uxSaveReaderPrefs(prefs);
+      uxApplyReaderPrefs(button.closest('.ux-reader'));
+    }
+  }catch(error){toast(error.message);}finally{if(button.isConnected&&!['ux-font-step'].includes(action))button.disabled=false;}
 });
