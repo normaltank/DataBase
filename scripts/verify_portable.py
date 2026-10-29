@@ -2,7 +2,7 @@
 import argparse
 import hashlib
 import json
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import stat
 import zipfile
 
@@ -16,8 +16,10 @@ def sha(raw):
 
 def check_name(name):
     parts = name.split('/')
+    # Reject spellings that Win32 reserves or extraction rewrites into another path.
     if (not name or '\\' in name or ':' in name or PurePosixPath(name).is_absolute()
-            or any(p in ('', '.', '..') for p in parts)):
+            or any(p in ('', '.', '..') or p.endswith(('.', ' ')) or PureWindowsPath(p).is_reserved()
+                   or any(ord(c) < 32 or c in '<>"|?*' for c in p) for p in parts)):
         raise ValueError('Unsafe file name: ' + name)
     return parts
 
