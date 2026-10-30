@@ -271,6 +271,17 @@ def validate_backup(db):
             raise ValueError('采集来源配置无效。')
 
 
+def _queue_run(db, sid, stamp):
+    active = db.execute("SELECT 1 FROM ingestion_runs WHERE source_id=? AND status IN ('queued','running')",(sid,)).fetchone()
+    if active:
+        return
+    deferred = db.execute("SELECT id FROM ingestion_runs WHERE source_id=? AND status='partial' AND stage='entries' ORDER BY created_at,rowid LIMIT 1",(sid,)).fetchone()
+    if deferred:
+        db.execute("UPDATE ingestion_runs SET status='queued',finished_at='' WHERE id=?",(deferred['id'],))
+    else:
+        db.execute('INSERT INTO ingestion_runs(id,source_id,created_at) VALUES (?,?,?)',(uuid.uuid4().hex,sid,stamp))
+
+
 def _claim(db):
     stamp = store.now()
     with db:
@@ -282,13 +293,7 @@ def _claim(db):
             if source is None or not discovery.supported(source) or source['id'] != config['source_id']:
                 db.execute("UPDATE ingestion_sources SET last_error=?,enabled=0 WHERE source_id=?",('来源已变化或合并；请管理员重新确认启用。',config['source_id']))
                 continue
-            active = db.execute("SELECT 1 FROM ingestion_runs WHERE source_id=? AND status IN ('queued','running')",(config['source_id'],)).fetchone()
-            if not active:
-                deferred = db.execute("SELECT id FROM ingestion_runs WHERE source_id=? AND status='partial' AND stage='entries' ORDER BY created_at,rowid LIMIT 1",(config['source_id'],)).fetchone()
-                if deferred:
-                    db.execute("UPDATE ingestion_runs SET status='queued',finished_at='' WHERE id=?",(deferred['id'],))
-                else:
-                    db.execute('INSERT INTO ingestion_runs(id,source_id,created_at) VALUES (?,?,?)',(uuid.uuid4().hex,config['source_id'],stamp))
+            _queue_run(db,config['source_id'],stamp)
         candidates = db.execute('''SELECT r.* FROM ingestion_runs r JOIN ingestion_sources s ON s.source_id=r.source_id
             WHERE s.enabled=1 AND (r.status='queued' OR (r.status='running' AND r.lease_until<=?))
             ORDER BY r.created_at,r.rowid''',(stamp,)).fetchall()
@@ -443,9 +448,7 @@ def register(app, ctx):
             if not config:
                 abort(409,'请先启用来源。')
             check_backoff(config)
-            active = db.execute("SELECT id FROM ingestion_runs WHERE source_id=? AND status IN ('queued','running')",(source['id'],)).fetchone()
-            if not active:
-                db.execute('INSERT INTO ingestion_runs(id,source_id,created_at) VALUES (?,?,?)',(uuid.uuid4().hex,source['id'],store.now()))
+            _queue_run(db,source['id'],store.now())
             db.execute('UPDATE ingestion_sources SET next_run=? WHERE source_id=?',(store.now(),source['id']))
         return jsonify(configuration(db,source['id']))
 

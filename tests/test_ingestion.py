@@ -155,6 +155,51 @@ class IngestionTests(unittest.TestCase):
         self.assertNotIn('network_backoff',after['coverage'])
         self.assertEqual(self.clients['researcher'].get('/api/records').json['total'],2)
 
+    def test_manual_poll_after_backoff_resumes_original_entries_without_refetching_feed(self):
+        sid=self.source()
+        path='/api/sources/'+sid+'/ingestion'
+        self.call(path,{'enabled':True},user='admin',method='PUT')
+        original=SourceSocket.sendall
+        def throttle(sock,data):
+            if b'/rss.xml ' in data:
+                original(sock,data)
+            else:
+                sock.body=base.PublicSocket(b'',status='429 Too Many Requests',
+                                           headers='Retry-After: 86400\r\n').body
+        with patch.object(SourceSocket,'sendall',throttle):
+            self.assertEqual(self.run_worker()['failed'],1)
+        before=self.clients['admin'].get(path).json
+        run=before['runs'][0]
+        self.assertEqual((run['status'],run['stage']),('partial','entries'))
+        self.assertEqual([e['stage'] for e in run['entries']],['failed','queued'])
+        rss=self.clients['admin'].get('/api/ingestion/runs/'+run['id']+'/rss').data
+        first_record=self.clients['researcher'].get('/api/records').json['items'][0]['id']
+        requests=[]
+        def record(sock,data):
+            requests.append(data.split(b' ')[1].decode())
+            original(sock,data)
+        stamp='2026-10-28T12:00:00+00:00'
+        with patch('platform_app.store.now',return_value=stamp):
+            queued=self.call(path+'/run',{},user='admin')
+            self.assertEqual(queued.status_code,200,queued.json)
+            self.assertEqual([r['id'] for r in queued.json['runs']],[run['id']])
+            self.assertEqual(queued.json['runs'][0]['stage'],'entries')
+            self.assertEqual(self.call(path+'/run',{},user='admin').status_code,200)
+            with patch.object(SourceSocket,'sendall',record):
+                self.assertEqual(self.run_worker(stamp)['saved'],2)
+            self.assertEqual(self.run_worker(stamp)['runs'],0)
+        self.assertEqual(requests,[e['url'].split('liia.lv',1)[1] for e in run['entries']])
+        after=self.clients['admin'].get(path).json
+        self.assertEqual([r['id'] for r in after['runs']],[run['id']])
+        self.assertEqual(after['runs'][0]['status'],'succeeded')
+        self.assertEqual([e['id'] for e in after['runs'][0]['entries']],[e['id'] for e in run['entries']])
+        self.assertEqual([e['stage'] for e in after['runs'][0]['entries']],['saved','saved'])
+        self.assertEqual(self.clients['admin'].get('/api/ingestion/runs/'+run['id']+'/rss').data,rss)
+        records=self.clients['researcher'].get('/api/records').json['items']
+        self.assertEqual(len(records),2)
+        self.assertIn(first_record,[r['id'] for r in records])
+        self.assertNotIn('network_backoff',after['coverage'])
+
     def test_feed_failures_parse_dates_and_bound_invalid_or_extreme_retry_after_without_fake_records(self):
         sid=self.source()
         path='/api/sources/'+sid+'/ingestion'
