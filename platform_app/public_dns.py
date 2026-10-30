@@ -1,6 +1,7 @@
 """Resolve proxy Fake-IP aliases to real addresses before the public-only fetch.
 
-Some desktop proxies return 198.18.0.0/15 aliases for every external hostname.
+Some desktop proxies return 198.18.0.0/15 aliases, paired with 2001:2::/48.
+The paired pattern only triggers a public DNS recheck, never trust in aliases.
 These aliases never become connection targets. A fixed HTTPS DNS endpoint
 supplies real addresses, which the caller must validate and pin as usual.
 """
@@ -15,6 +16,7 @@ from urllib.parse import quote
 
 
 PROXY_ALIAS_RANGE = ipaddress.ip_network('198.18.0.0/15')
+PAIRED_BENCHMARK_RANGE = ipaddress.ip_network('2001:2::/48')
 DNS_BOOTSTRAP = '1.1.1.1'
 MAX_RESPONSE = 65536
 
@@ -86,13 +88,16 @@ class DeadlineConnection(http.client.HTTPConnection):
 
 
 def resolve_proxy_alias(host, system_addresses, deadline):
-    """Return replacement addresses only for an all-Fake-IP domain result."""
+    """Recheck only IPv4 aliases and their bounded dual-stack candidate pattern."""
     try:
         ipaddress.ip_address(host)
         return None
     except ValueError:
         pass
-    if not system_addresses or any(ipaddress.ip_address(value) not in PROXY_ALIAS_RANGE for value in system_addresses):
+    addresses = [ipaddress.ip_address(value) for value in system_addresses]
+    if not any(address in PROXY_ALIAS_RANGE for address in addresses) or any(
+            address not in PROXY_ALIAS_RANGE and address not in PAIRED_BENCHMARK_RANGE
+            for address in addresses):
         return None
     name = host.encode('idna').decode('ascii').rstrip('.').lower()
     if '.' not in name or any(not label or len(label) > 63 for label in name.split('.')):

@@ -107,6 +107,88 @@ class IngestionTests(unittest.TestCase):
         self.assertEqual(self.clients['researcher'].get('/api/records').json['total'],2)
         self.assertEqual(self.call('/api/ingestion/runs/'+run['id']+'/retry',{}).status_code,403)
 
+    def test_article_throttling_stops_run_and_persists_retry_after_without_losing_queued_entries(self):
+        sid=self.source()
+        path='/api/sources/'+sid+'/ingestion'
+        self.call(path,{'enabled':True},user='admin',method='PUT')
+        requests=[]
+        class ThrottledSocket(SourceSocket):
+            def sendall(self, data):
+                requests.append(data.split(b' ')[1].decode())
+                if b'/rss.xml ' in data:
+                    self.body=base.PublicSocket(FEED.encode(),'application/xml').body
+                else:
+                    self.body=base.PublicSocket(b'',status='429 Too Many Requests',
+                                               headers='Retry-After: 86400\r\n').body
+        from platform_app.ingestion import run_pending
+        with patch('socket.getaddrinfo',return_value=[(2,1,6,'',('93.184.216.34',443))]), \
+             patch('socket.create_connection',side_effect=lambda *a,**k:ThrottledSocket(b'')), \
+             patch('ssl.SSLContext.wrap_socket',side_effect=lambda sock,**k:sock):
+            result=run_pending(self.app.config['DATA_DIR'])
+        self.assertEqual(len(requests),2,requests)
+        self.assertEqual(result['failed'],1)
+        status=self.clients['admin'].get(path).json
+        self.assertEqual(status['next_run'],'2026-10-28T12:00:00+00:00')
+        self.assertIn('HTTP 429',status['last_error'])
+        self.assertEqual(status['coverage']['returned'],2)
+        run=status['runs'][0]
+        self.assertEqual(run['status'],'partial')
+        self.assertEqual([e['stage'] for e in run['entries']],['failed','queued'])
+        self.assertEqual(self.clients['researcher'].get('/api/records').json['total'],1)
+        self.assertEqual(self.call('/api/ingestion/runs/'+run['id']+'/retry',{},user='admin').status_code,409)
+        self.assertEqual(self.call(path+'/run',{},user='admin').status_code,409)
+        self.call(path,{'enabled':False},user='admin',method='PUT')
+        self.call(path,{'enabled':True},user='admin',method='PUT')
+        self.assertEqual(self.clients['admin'].get(path).json['next_run'],'2026-10-28T12:00:00+00:00')
+        from platform_app.web import create_app
+        reopened=create_app(self.app.config['DATA_DIR'],testing=True).test_client()
+        csrf=reopened.get('/api/session').json['csrf']
+        csrf=reopened.post('/api/login',json={'username':'admin','password':'LocalDemo2026!'},headers={'X-CSRF-Token':csrf}).json['csrf']
+        self.assertEqual(reopened.post(path+'/run',json={},headers={'X-CSRF-Token':csrf}).status_code,409)
+        self.assertEqual(self.run_worker()['runs'],0)
+        with patch('platform_app.store.now',return_value='2026-10-28T12:00:00+00:00'):
+            self.assertEqual(self.run_worker('2026-10-28T12:00:00+00:00')['saved'],2)
+        after=self.clients['admin'].get(path).json
+        self.assertEqual(len(after['runs']),1)
+        self.assertEqual(after['runs'][0]['id'],run['id'])
+        self.assertEqual(after['runs'][0]['status'],'succeeded')
+        self.assertNotIn('network_backoff',after['coverage'])
+        self.assertEqual(self.clients['researcher'].get('/api/records').json['total'],2)
+
+    def test_feed_failures_parse_dates_and_bound_invalid_or_extreme_retry_after_without_fake_records(self):
+        sid=self.source()
+        path='/api/sources/'+sid+'/ingestion'
+        self.call(path,{'enabled':True},user='admin',method='PUT')
+        cases=[('2026-10-27T12:00:00+00:00','86400','429 Too Many Requests','2026-10-28T12:00:00+00:00'),
+               ('2026-10-29T12:00:00+00:00','Thu, 29 Oct 2026 14:00:00 GMT','429 Too Many Requests','2026-10-29T14:00:00+00:00'),
+               ('2026-10-30T12:00:00+00:00','Thu, 29 Oct 2026 14:00:00 GMT','429 Too Many Requests','2026-10-30T13:00:00+00:00'),
+               ('2026-10-31T12:00:00+00:00','nonsense','429 Too Many Requests','2026-10-31T13:00:00+00:00'),
+               ('2026-11-01T12:00:00+00:00','9'*100,'429 Too Many Requests','2026-11-08T12:00:00+00:00'),
+               ('2026-11-09T12:00:00+00:00','7200','503 Unavailable','2026-11-09T14:00:00+00:00'),
+               ('2026-11-10T12:00:00+00:00','','429 Too Many Requests','2026-11-10T13:00:00+00:00'),
+               ('2026-11-11T12:00:00+00:00','','403 Forbidden','2026-11-11T13:00:00+00:00')]
+        from platform_app.ingestion import run_pending
+        for stamp,header,status,expected in cases:
+            with self.subTest(header=header,status=status),patch('platform_app.store.now',return_value=stamp):
+                self.assertEqual(self.call(path+'/run',{},user='admin').status_code,200)
+                with patch('socket.getaddrinfo',return_value=[(2,1,6,'',('93.184.216.34',443))]), \
+                     patch('socket.create_connection',side_effect=lambda *a,**k:base.PublicSocket(b'',status=status,headers='Retry-After: '+header+'\r\n')) as connections, \
+                     patch('ssl.SSLContext.wrap_socket',side_effect=lambda sock,**k:sock):
+                    self.assertEqual(run_pending(self.app.config['DATA_DIR'])['failed'],1)
+                self.assertEqual(connections.call_count,1)
+                result=self.clients['admin'].get(path).json
+                self.assertEqual(result['next_run'],expected)
+                self.assertIn(status[:3],result['last_error'])
+                self.assertEqual(result['runs'][0]['status'],'failed')
+                self.assertEqual(self.clients['researcher'].get('/api/records').json['total'],0)
+                if status.startswith('403'):
+                    self.assertIn('访问受限',result['last_error'])
+                    self.assertNotIn('network_backoff',result['coverage'])
+                else:
+                    self.assertEqual(result['coverage']['network_backoff']['retry_at'],expected)
+                    self.assertEqual(result['coverage']['network_backoff']['bounded'],header=='9'*100)
+                    self.assertEqual(self.call(path+'/run',{},user='admin').status_code,409)
+
     def test_snapshot_history_export_and_new_directory_restore_preserve_original_bytes(self):
         sid = self.source()
         self.call('/api/sources/'+sid+'/ingestion',{'enabled':True},user='admin',method='PUT')
