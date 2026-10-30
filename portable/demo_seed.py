@@ -1,4 +1,4 @@
-"""Create only fictional, labeled examples through existing authenticated APIs.
+"""Create labeled fictional collaboration and a frozen public research preview.
 
 Called once on a new temporary database. Existing data is never seeded or reset.
 """
@@ -167,16 +167,18 @@ def seed(app):
             remember(researcher, row['file_url'])
     for sub in researcher.get(journal).json['submissions']:
         remember(researcher, sub['file_url'])
-    payload = {'format': 1, 'synthetic': True, 'accounts': ['researcher', 'colleague', 'admin'],
+    from portable.public_batch import seed_public_batch
+    public_batch = seed_public_batch(app)
+    payload = {'format': 2, 'synthetic': False, 'fictional_collaboration': True, 'accounts': ['researcher', 'colleague', 'admin'],
         'source_ids': sources, 'person_ids': people, 'article_ids': articles,
-        'complete_topic': tid, 'active_topic': active, 'journal': wid, 'files': files}
+        'complete_topic': tid, 'active_topic': active, 'journal': wid, 'files': files, 'public_batch': public_batch}
     (Path(app.config['DATA_DIR']) / 'demo-seed.json').write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
     return payload
 
 
 if __name__ == '__main__':
     import argparse
-    parser = argparse.ArgumentParser(description='Generate the fictional preview through public APIs in a new directory. No collectors or AI workers.')
+    parser = argparse.ArgumentParser(description='Generate fictional collaboration and public historical machine excerpts in a new directory. No collectors or AI calls.')
     parser.add_argument('--data-dir', required=True, type=Path)
     args = parser.parse_args()
     target = args.data_dir.resolve()
@@ -184,5 +186,6 @@ if __name__ == '__main__':
         parser.error('Use a new, nonexistent data directory; existing data is never reset.')
     from platform_app.web import create_app
     payload = seed(create_app(target))
-    print(json.dumps({'data_dir': str(target), 'synthetic': True, 'articles': len(payload['article_ids']),
-                      'sources': len(payload['source_ids']), 'people': len(payload['person_ids'])}))
+    print(json.dumps({'data_dir': str(target), 'fictional_articles': len(payload['article_ids']),
+                      'public_articles': len(payload['public_batch']['article_ids']),
+                      'sources': len(payload['source_ids']) + len(payload['public_batch']['source_ids']), 'people': len(payload['person_ids'])}))

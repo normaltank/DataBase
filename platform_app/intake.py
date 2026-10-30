@@ -50,7 +50,11 @@ def normalize_url(value):
 
 
 class AcquisitionError(ValueError):
-    pass
+    def __init__(self, message, *, http_status=None, retry_after='', host=''):
+        super().__init__(message)
+        self.http_status = http_status
+        self.retry_after = retry_after
+        self.host = host
 
 
 def _public_ip(value):
@@ -117,7 +121,14 @@ def fetch_document(url, deadline, *, fixed_feed=None):
                 url = urljoin(canonical, response.getheader("Location"))
                 continue
             if response.status != 200:
-                raise AcquisitionError(f"站点返回 HTTP {response.status}；可能限制访问，请继续手填。")
+                if response.status == 403:
+                    message = '站点返回 HTTP 403，访问受限；请核查原站公开访问范围或继续手填。'
+                elif response.status == 429:
+                    message = '站点返回 HTTP 429，触发限速；请等待后重试或继续手填。'
+                else:
+                    message = f'站点返回 HTTP {response.status}；请稍后重试或继续手填。'
+                raise AcquisitionError(message, http_status=response.status,
+                    retry_after=response.getheader('Retry-After', '')[:128], host=p.hostname)
             mime = response.getheader("Content-Type", "").split(";")[0].strip().lower()
             allowed = {"application/rss+xml", "application/xml", "text/xml"} if fixed_feed else {"text/html", "application/xhtml+xml", "application/json", "application/ld+json"}
             if mime not in allowed:

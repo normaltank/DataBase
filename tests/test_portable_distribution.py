@@ -10,6 +10,18 @@ import zipfile
 
 
 class PortableArchiveTests(unittest.TestCase):
+    def test_builder_checks_actual_html_introduction_before_runtime_download(self):
+        root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory(prefix='portable-intro-html-') as temporary:
+            intro = Path(temporary) / 'intro.html'
+            intro.write_text('This is not an HTML document.', encoding='utf-8')
+            result = subprocess.run([sys.executable, str(root / 'scripts/build_portable.py'),
+                '--output', temporary, '--cache', str(Path(temporary) / 'cache'), '--allow-dirty',
+                '--intro-html', str(intro)], capture_output=True, text=True, timeout=20)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('Introduction must be a regular UTF-8 HTML document', result.stderr)
+            self.assertEqual(list(Path(temporary).rglob('*.download')), [])
+
     def test_public_verifier_rejects_traversal_absolute_backslash_duplicate_and_symlink(self):
         root = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory(prefix='portable-invalid-') as temporary:

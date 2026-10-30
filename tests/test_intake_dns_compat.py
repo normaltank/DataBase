@@ -49,17 +49,19 @@ class IntakeProxyDnsTests(unittest.TestCase):
     def preview(self, address):
         return self.client.post('/api/intake/preview', json={'input':address}, headers={'X-CSRF-Token':self.token})
 
-    def external_network(self, answer='93.184.216.34', question='research.example', system_ip='198.18.1.50'):
+    def external_network(self, answer='93.184.216.34', question='research.example', system_ip='198.18.1.50', dns_result=None,
+                         document=b'<meta name="citation_title" content="Public article through proxy DNS">', mime='text/html'):
         connections=[]
         def connect(address, *args, **kwargs):
             host=address[0]
             connections.append(host)
             if host == '1.1.1.1':
-                payload=json.dumps({'Status':0,'Question':[{'name':question,'type':1}],
-                                    'Answer':[{'name':question,'type':1,'TTL':60,'data':answer}]}).encode()
+                payload=json.dumps(dns_result if dns_result is not None else
+                    {'Status':0,'Question':[{'name':question,'type':1}],
+                     'Answer':[{'name':question,'type':1,'TTL':60,'data':answer}]}).encode()
                 return RemoteSocket(host,payload,'application/dns-json')
             if host == '93.184.216.34':
-                return RemoteSocket(host,b'<meta name="citation_title" content="Public article through proxy DNS">','text/html','research.example')
+                return RemoteSocket(host,document,mime,question)
             raise AssertionError('Unexpected connection target: '+host)
         dns=patch('socket.getaddrinfo',return_value=[(2,1,6,'',(system_ip,443))])
         sockets=patch('socket.create_connection',side_effect=connect)
@@ -72,6 +74,60 @@ class IntakeProxyDnsTests(unittest.TestCase):
             result=self.preview('https://research.example/article')
         self.assertEqual(result.status_code,200,result.json)
         self.assertEqual(result.json['fields']['title'],'Public article through proxy DNS')
+        self.assertEqual(connections,['1.1.1.1','93.184.216.34'])
+        self.assertEqual(self.client.get('/api/records').json['total'],0)
+
+    def test_paired_candidates_still_reject_private_and_mixed_public_dns_answers(self):
+        for answers in [['127.0.0.1'],['93.184.216.34','10.0.0.1'],['198.18.1.50']]:
+            with self.subTest(answers=answers):
+                reply={'Status':0,'Question':[{'name':'research.example','type':1}],
+                       'Answer':[{'name':'research.example','type':1,'data':ip} for ip in answers]}
+                connections,dns,sockets,tls=self.external_network(dns_result=reply)
+                mixed=[(2,1,6,'',('198.18.1.50',443)),(23,1,6,'',('2001:2::50',443,0,0))]
+                with dns,sockets,tls,patch('socket.getaddrinfo',return_value=mixed):
+                    result=self.preview('https://research.example/article')
+                self.assertEqual(result.status_code,422,result.json)
+                self.assertEqual(connections,['1.1.1.1'])
+
+    def test_unrecognized_alias_combinations_and_ip_literals_never_use_public_dns(self):
+        cases=[('https://research.example/', ['2001:2::50'])]
+        for other in ['10.0.0.1','127.0.0.1','169.254.1.1','::1','fc00::1','fe80::1',
+                      '2001:db8::1','2001:2:1::1','::ffff:198.18.1.50','93.184.216.34']:
+            cases.append(('https://research.example/',['198.18.1.50',other]))
+        cases += [('https://198.18.1.50/',['198.18.1.50']),
+                  ('https://[2001:2::50]/',['2001:2::50'])]
+        for url,ips in cases:
+            with self.subTest(url=url,ips=ips):
+                connections,dns,sockets,tls=self.external_network()
+                rows=[(2,1,6,'',(ip,443)) for ip in ips]
+                with dns,sockets,tls,patch('socket.getaddrinfo',return_value=rows):
+                    result=self.preview(url)
+                self.assertEqual(result.status_code,422,result.json)
+                self.assertEqual(connections,[])
+
+    def test_paired_benchmark_addresses_retry_public_dns_without_connecting_to_aliases(self):
+        connections,dns,sockets,tls=self.external_network()
+        mixed=[(2,1,6,'',('198.18.1.50',443)),(23,1,6,'',('2001:2::50',443,0,0))]
+        with dns,sockets,tls,patch('socket.getaddrinfo',return_value=mixed):
+            result=self.preview('https://research.example/article')
+        self.assertEqual(result.status_code,200,result.json)
+        self.assertEqual(result.json['fields']['title'],'Public article through proxy DNS')
+        self.assertEqual(connections,['1.1.1.1','93.184.216.34'])
+        self.assertEqual(self.client.get('/api/records').json['total'],0)
+
+    def test_fixed_rss_discovery_uses_the_same_dual_stack_boundary(self):
+        from tests.test_discovery import FEED
+        token=self.client.post('/api/login',json={'username':'admin','password':'LocalDemo2026!'},
+                               headers={'X-CSRF-Token':self.token}).json['csrf']
+        source=self.client.post('/api/sources',json={'name':'Synthetic LIIA','kind':'think_tank','website':'https://liia.lv/en/'},
+                                headers={'X-CSRF-Token':token}).json['id']
+        connections,dns,sockets,tls=self.external_network(question='liia.lv',document=FEED.encode(),mime='application/xml')
+        mixed=[(2,1,6,'',('198.18.1.50',443)),(23,1,6,'',('2001:2::50',443,0,0))]
+        with dns,sockets,tls,patch('socket.getaddrinfo',return_value=mixed), \
+             patch('platform_app.store.now',return_value='2026-10-27T12:00:00+00:00'):
+            result=self.client.post('/api/sources/'+source+'/discovery',json={},headers={'X-CSRF-Token':token})
+        self.assertEqual(result.status_code,200,result.json)
+        self.assertEqual(result.json['returned'],2)
         self.assertEqual(connections,['1.1.1.1','93.184.216.34'])
         self.assertEqual(self.client.get('/api/records').json['total'],0)
 

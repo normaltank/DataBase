@@ -316,13 +316,16 @@ def register(app, ctx):
                     for adopted in work.get("adoptions", []):
                         content += '<p><a href="../' + html.escape(adopted["path"]) + '">采用定稿 v' + str(adopted["version"]) + '：' + html.escape(adopted["name"]) + '</a></p>'
                 content += prose("当前阅读题名（" + {'human':'人工中文','machine':'机器中文，未人工校订','original':'原始信息'}.get(item.get('translation_origin'), '原始信息') + "）", item.get('display_title'))
-                content += prose("当前阅读摘要", item.get('display_abstract'))
+                preview = item.get('preview_excerpt', {})
+                content += prose('历史机器节选说明', preview.get('notice'))
+                suffix = '节选' if preview.get('abstract_mode') == 'excerpt' else ''
+                content += prose("当前阅读摘要" + (suffix if item.get('translation_origin') != 'human' else ''), item.get('display_abstract'))
                 content += prose("人工中文题名", item.get("chinese_title")) + prose("人工中文摘要", item.get("chinese_abstract"))
                 content += prose("机器译文版本、原文输入与出处（非核对结论）", json.dumps(item.get("translations", []), ensure_ascii=False, indent=2) if item.get("translations") else "")
                 content += prose("人工中文修订历史", json.dumps(item.get("translation_history", []), ensure_ascii=False, indent=2) if item.get("translation_history") else "")
                 content += prose('机器概述（非原摘要，未人工核对）', item.get('machine_summary',{}).get('summary','') if item.get('machine_summary') else '')
                 content += prose('机器概述原文与定位、分类及处理版本',json.dumps({k:item[k] for k in ['machine_summary_basis','machine_classification','automatic_tasks'] if item.get(k)},ensure_ascii=False,indent=2) if item.get('automatic_tasks') else '')
-                content += prose("摘要与说明", item["abstract"]) + "<section><h2>正文</h2>" + item["body_html"] + "</section>"
+                content += prose("原摘要节选" if suffix else "摘要与说明", item["abstract"]) + "<section><h2>正文</h2>" + item["body_html"] + "</section>"
                 if item.get("intake_evidence"):
                     content += prose("辅助录入取得依据（题录，非全文或核对结论）", json.dumps(item["intake_evidence"], ensure_ascii=False, indent=2))
                 if item.get("ris_evidence"):

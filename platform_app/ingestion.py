@@ -8,6 +8,7 @@ import logging
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -19,10 +20,49 @@ SCHEMA_VERSION = 17
 SYSTEM_ID = 'system-public-ingestion'
 LEASE_SECONDS = 120
 ADAPTER = 'liia-opinions-auto-v1'
+MAX_BACKOFF_SECONDS = 7 * 24 * 3600
 
 
 def later(seconds):
     return (datetime.fromisoformat(store.now()) + timedelta(seconds=seconds)).isoformat(timespec='seconds')
+
+
+def network_backoff(failure):
+    """Bound server delays without sleeping in a request or adding a scheduler."""
+    if not isinstance(failure, intake.AcquisitionError) or not (
+            failure.http_status == 429 or failure.http_status == 503 and failure.retry_after):
+        return None
+    stamp = datetime.fromisoformat(store.now())
+    value = failure.retry_after.strip()
+    seconds = 3600
+    try:
+        if value.isascii() and value.isdigit():
+            seconds = int(value)
+        elif value:
+            retry_date = parsedate_to_datetime(value)
+            if retry_date.tzinfo is None:
+                retry_date = retry_date.replace(tzinfo=timezone.utc)
+            seconds = (retry_date - stamp).total_seconds()
+        if seconds <= 0:
+            seconds = 3600
+    except (ValueError, TypeError, OverflowError):
+        seconds = 3600
+    bounded = seconds > MAX_BACKOFF_SECONDS
+    seconds = min(seconds, MAX_BACKOFF_SECONDS)
+    return dict(http_status=failure.http_status, host=failure.host,
+                retry_at=(stamp + timedelta(seconds=seconds)).isoformat(timespec='seconds'),
+                bounded=bounded)
+
+
+def pending_backoff(config):
+    backoff = json.loads(config['coverage_json']).get('network_backoff', {})
+    return backoff if backoff.get('retry_at', '') > store.now() else None
+
+
+def check_backoff(config):
+    backoff = pending_backoff(config)
+    if backoff:
+        abort(409, '原站要求退避，请等待至 ' + backoff['retry_at'] + ' 后重试。')
 
 
 def migrate(data_dir):
@@ -231,21 +271,34 @@ def validate_backup(db):
             raise ValueError('采集来源配置无效。')
 
 
+def _queue_run(db, sid, stamp):
+    active = db.execute("SELECT 1 FROM ingestion_runs WHERE source_id=? AND status IN ('queued','running')",(sid,)).fetchone()
+    if active:
+        return
+    deferred = db.execute("SELECT id FROM ingestion_runs WHERE source_id=? AND status='partial' AND stage='entries' ORDER BY created_at,rowid LIMIT 1",(sid,)).fetchone()
+    if deferred:
+        db.execute("UPDATE ingestion_runs SET status='queued',finished_at='' WHERE id=?",(deferred['id'],))
+    else:
+        db.execute('INSERT INTO ingestion_runs(id,source_id,created_at) VALUES (?,?,?)',(uuid.uuid4().hex,sid,stamp))
+
+
 def _claim(db):
     stamp = store.now()
     with db:
         db.execute('BEGIN IMMEDIATE')
         for config in db.execute('SELECT * FROM ingestion_sources WHERE enabled=1 AND next_run<=?',(stamp,)).fetchall():
+            if pending_backoff(config):
+                continue
             source = identity.resolve(db,'sources',config['source_id'])
             if source is None or not discovery.supported(source) or source['id'] != config['source_id']:
                 db.execute("UPDATE ingestion_sources SET last_error=?,enabled=0 WHERE source_id=?",('来源已变化或合并；请管理员重新确认启用。',config['source_id']))
                 continue
-            active = db.execute("SELECT 1 FROM ingestion_runs WHERE source_id=? AND status IN ('queued','running')",(config['source_id'],)).fetchone()
-            if not active:
-                db.execute('INSERT INTO ingestion_runs(id,source_id,created_at) VALUES (?,?,?)',(uuid.uuid4().hex,config['source_id'],stamp))
-        run = db.execute('''SELECT r.* FROM ingestion_runs r JOIN ingestion_sources s ON s.source_id=r.source_id
+            _queue_run(db,config['source_id'],stamp)
+        candidates = db.execute('''SELECT r.* FROM ingestion_runs r JOIN ingestion_sources s ON s.source_id=r.source_id
             WHERE s.enabled=1 AND (r.status='queued' OR (r.status='running' AND r.lease_until<=?))
-            ORDER BY r.created_at,r.rowid LIMIT 1''',(stamp,)).fetchone()
+            ORDER BY r.created_at,r.rowid''',(stamp,)).fetchall()
+        run = next((candidate for candidate in candidates if not pending_backoff(
+            db.execute('SELECT * FROM ingestion_sources WHERE source_id=?',(candidate['source_id'],)).fetchone())), None)
         if not run:
             return None
         token = uuid.uuid4().hex
@@ -315,6 +368,7 @@ def run_pending(data_dir, limit=1):
                 if run['stage'] == 'feed':
                     _feed(db,run)
                 entries = db.execute("SELECT * FROM ingestion_entries WHERE run_id=? AND stage IN ('queued','acquiring','failed') ORDER BY rowid",(run['id'],)).fetchall()
+                backoff = None
                 for entry in entries:
                     _renew(db,run)
                     with db:
@@ -326,6 +380,7 @@ def run_pending(data_dir, limit=1):
                         snapshot = page_snapshot(document)
                     except (intake.AcquisitionError,ValueError) as failure:
                         error = str(failure)
+                        backoff = network_backoff(failure)
                     try:
                         actor = dict(id=SYSTEM_ID,role='system',name='系统 · 公开来源采集')
                         outcome = RecordRevisions(db,actor,data_dir/'uploads').ingest_public(entry['id'],run['lease_token'],snapshot,error)
@@ -337,22 +392,40 @@ def run_pending(data_dir, limit=1):
                             if _owns(db,run):
                                 db.execute("UPDATE ingestion_entries SET stage='failed',error=? WHERE id=?",('正式保存失败：'+str(failure)[:500],entry['id']))
                         totals['failed'] += 1
+                    if backoff:
+                        break
                 with db:
                     db.execute('BEGIN IMMEDIATE')
                     if _owns(db,run):
                         counts = {r['stage']:r['n'] for r in db.execute('SELECT stage,COUNT(*) n FROM ingestion_entries WHERE run_id=? GROUP BY stage',(run['id'],))}
                         failed = counts.get('failed',0)
-                        error = str(failed)+' 条取得或保存失败，可重跑。' if failed else ''
-                        db.execute("UPDATE ingestion_runs SET status=?,stage='done',finished_at=?,error=?,lease_until='' WHERE id=?",('partial' if failed else 'succeeded',store.now(),error,run['id']))
+                        error = ('站点返回 HTTP '+str(backoff['http_status'])+'；已退避至 '+backoff['retry_at']+
+                                 ('（等待值已限定为最多七天）。' if backoff['bounded'] else '。')) if backoff else (
+                                     str(failed)+' 条取得或保存失败，可重跑。' if failed else '')
+                        db.execute("UPDATE ingestion_runs SET status=?,stage=?,finished_at=?,error=?,lease_until='' WHERE id=?",('partial' if failed or backoff else 'succeeded','entries' if backoff else 'done',store.now(),error,run['id']))
                         coverage = db.execute('SELECT coverage_json FROM ingestion_runs WHERE id=?',(run['id'],)).fetchone()[0]
+                        coverage_data = json.loads(coverage)
+                        if backoff:
+                            coverage_data['network_backoff'] = backoff
                         db.execute('''UPDATE ingestion_sources SET next_run=?,last_success=?,last_error=?,coverage_json=?,cursor=? WHERE source_id=?''',
-                            (later(configuration(db,run['source_id'])['frequency_hours']*3600),store.now(),error,coverage,json.dumps(json.loads(coverage).get('cursor',{})),run['source_id']))
+                            (backoff['retry_at'] if backoff else later(configuration(db,run['source_id'])['frequency_hours']*3600),
+                             configuration(db,run['source_id'])['last_success'] if backoff else store.now(),error,
+                             json.dumps(coverage_data,ensure_ascii=False),json.dumps(coverage_data.get('cursor',{})),run['source_id']))
             except Exception as failure:
                 db.rollback()
                 with db:
                     if _owns(db,run):
                         db.execute("UPDATE ingestion_runs SET status='failed',finished_at=?,error=?,lease_until='' WHERE id=?",(store.now(),str(failure)[:500],run['id']))
-                        db.execute('UPDATE ingestion_sources SET last_error=?,next_run=? WHERE source_id=?',(str(failure)[:500],later(3600),run['source_id']))
+                        backoff = network_backoff(failure)
+                        previous = db.execute('SELECT * FROM ingestion_sources WHERE source_id=?',(run['source_id'],)).fetchone()
+                        coverage = json.loads(previous['coverage_json'])
+                        coverage.pop('network_backoff', None)
+                        error = str(failure)[:500]
+                        if backoff:
+                            coverage['network_backoff'] = backoff
+                            error += ' 已退避至 '+backoff['retry_at']+('（最多七天）。' if backoff['bounded'] else '。')
+                        db.execute('UPDATE ingestion_sources SET last_error=?,next_run=?,coverage_json=? WHERE source_id=?',
+                            (error,backoff['retry_at'] if backoff else later(3600),json.dumps(coverage,ensure_ascii=False),run['source_id']))
                 totals['failed'] += 1
             finally:
                 intake._slots.release()
@@ -374,9 +447,8 @@ def register(app, ctx):
             config = db.execute('SELECT * FROM ingestion_sources WHERE source_id=? AND enabled=1',(source['id'],)).fetchone()
             if not config:
                 abort(409,'请先启用来源。')
-            active = db.execute("SELECT id FROM ingestion_runs WHERE source_id=? AND status IN ('queued','running')",(source['id'],)).fetchone()
-            if not active:
-                db.execute('INSERT INTO ingestion_runs(id,source_id,created_at) VALUES (?,?,?)',(uuid.uuid4().hex,source['id'],store.now()))
+            check_backoff(config)
+            _queue_run(db,source['id'],store.now())
             db.execute('UPDATE ingestion_sources SET next_run=? WHERE source_id=?',(store.now(),source['id']))
         return jsonify(configuration(db,source['id']))
 
@@ -394,6 +466,7 @@ def register(app, ctx):
             config = db.execute('SELECT * FROM ingestion_sources WHERE source_id=? AND enabled=1',(run['source_id'],)).fetchone()
             if not config:
                 abort(409,'来源已停用，请管理员重新启用。')
+            check_backoff(config)
             if run['status'] not in {'failed','partial'}:
                 abort(409,'仅失败或部分失败的任务可重跑；运行中任务将在租约到期后续作。')
             if db.execute("SELECT 1 FROM ingestion_runs WHERE source_id=? AND status IN ('queued','running')",(run['source_id'],)).fetchone():
@@ -448,12 +521,15 @@ def register(app, ctx):
         with db:
             db.execute('BEGIN IMMEDIATE')
             source = discovery.source_for(db, sid)
+            previous = db.execute('SELECT * FROM ingestion_sources WHERE source_id=?',(source['id'],)).fetchone()
+            backoff = pending_backoff(previous) if previous else None
             db.execute('''INSERT INTO ingestion_sources(source_id,enabled,frequency_hours,inclusion_rule,next_run,updated_at,updated_by)
                 VALUES (?,?,?,?,?,?,?) ON CONFLICT(source_id) DO UPDATE SET enabled=excluded.enabled,
                 frequency_hours=excluded.frequency_hours,inclusion_rule=excluded.inclusion_rule,
                 next_run=CASE WHEN ingestion_sources.enabled=0 THEN excluded.next_run ELSE ingestion_sources.next_run END,
                 version=ingestion_sources.version+1,updated_at=excluded.updated_at,updated_by=excluded.updated_by''',
-                (source['id'],int(data['enabled']),data.get('frequency_hours',24),data.get('inclusion_rule','research_only'),store.now(),store.now(),ctx.user()['id']))
+                (source['id'],int(data['enabled']),data.get('frequency_hours',24),data.get('inclusion_rule','research_only'),
+                 backoff['retry_at'] if backoff else store.now(),store.now(),ctx.user()['id']))
         return jsonify(configuration(db, source['id']))
 
 
