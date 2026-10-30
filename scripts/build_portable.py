@@ -22,7 +22,8 @@ SOURCE_DIRS = {'platform_app', 'static', 'templates'}
 SOURCE_FILES = {
     'app.py', 'requirements.txt', 'PRODUCT.md', 'GLOSSARY.md',
     'docs/portable-preview.md', 'portable/__init__.py', 'portable/launch.py',
-    'portable/demo_seed.py', 'portable/runtime-lock.json', 'portable/quick-start.html',
+    'portable/demo_seed.py', 'portable/public_batch.py', 'portable/runtime-lock.json', 'portable/quick-start.html',
+    'portable/samples/cee17-preview.json',
     'portable/samples/fictional-article.pdf',
     'scripts/build_portable.py', 'scripts/verify_portable.py', 'scripts/check_portable_preview.py',
     'scripts/verify_work_materials.py', 'portable/start.bat', 'portable/stop.bat',
@@ -87,10 +88,17 @@ def build(args):
     dirty = bool(subprocess.check_output(['git', 'status', '--porcelain'], cwd=ROOT))
     if dirty and not args.allow_dirty:
         raise ValueError('Commit reviewed source before release building; --allow-dirty is for pre-acceptance only.')
-    if not args.prepare_only and (not args.intro_pdf or not args.intro_pdf.is_file()):
-        raise ValueError('--intro-pdf must name the actual approved project introduction PDF.')
-    intro = args.intro_pdf.resolve() if args.intro_pdf else None
-    if intro and (intro.is_symlink() or not intro.read_bytes().startswith(b'%PDF-')):
+    if args.intro_html and args.intro_pdf:
+        raise ValueError('Choose one introduction: --intro-html or --intro-pdf.')
+    selected = args.intro_html or args.intro_pdf
+    if not args.prepare_only and (not selected or not selected.is_file()):
+        raise ValueError('--intro-html or --intro-pdf must name the actual approved project introduction.')
+    intro = selected.resolve() if selected else None
+    intro_name = '项目介绍.html' if args.intro_html else '项目介绍.pdf'
+    if intro and args.intro_html:
+        if intro.is_symlink() or not intro.is_file() or '<html' not in intro.read_text(encoding='utf-8').lower():
+            raise ValueError('Introduction must be a regular UTF-8 HTML document.')
+    elif intro and (intro.is_symlink() or not intro.read_bytes().startswith(b'%PDF-')):
         raise ValueError('Introduction must be a regular PDF file.')
     lock = json.loads(LOCK.read_text(encoding='utf-8'))
     runtime = dict(lock['python'])
@@ -107,7 +115,7 @@ def build(args):
         (staging / f'{action}.bat').write_bytes((ROOT / f'portable/{action}.bat').read_text(encoding='utf-8').replace('\r\n', '\n').replace('\n', '\r\n').encode('ascii'))
     shutil.copyfile(ROOT / 'portable/quick-start.html', staging / '使用说明.html')
     if intro:
-        shutil.copyfile(intro, staging / '项目介绍.pdf')
+        shutil.copyfile(intro, staging / intro_name)
     runtime_dir = staging / 'runtime'
     runtime_dir.mkdir()
     with zipfile.ZipFile(download(runtime, cache)) as z:
@@ -158,7 +166,7 @@ def build(args):
     (staging / 'THIRD-PARTY-NOTICES.txt').write_text('\n'.join(notices) + '\n', encoding='utf-8')
     version = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT).decode().strip()
     tree = subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], cwd=ROOT).decode().strip()
-    manifest = {'format': 1, 'purpose': 'synthetic local preview', 'source_commit': version,
+    manifest = {'format': 1, 'purpose': 'fictional collaboration and public historical machine excerpts', 'source_commit': version,
         'source_tree': tree, 'source_dirty': dirty, 'introduction_present': bool(intro),
         'python': runtime['version'], 'platform': 'Windows 10/11 x64',
         'files': {p.relative_to(staging).as_posix(): {'bytes': p.stat().st_size, 'sha256': digest(p.read_bytes())}
@@ -185,6 +193,7 @@ def main():
     parser.add_argument('--output', type=Path, default=ROOT / 'dist')
     parser.add_argument('--cache', type=Path, default=Path(tempfile.gettempdir()) / 'database-portable78-artifacts')
     parser.add_argument('--intro-pdf', type=Path)
+    parser.add_argument('--intro-html', type=Path)
     parser.add_argument('--prepare-only', action='store_true', help='Prepare runtime/source only; no shareable ZIP.')
     parser.add_argument('--allow-dirty', action='store_true', help='Record unreleased source for pre-acceptance only.')
     args = parser.parse_args()

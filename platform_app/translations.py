@@ -56,6 +56,48 @@ def digest(title, abstract):
     return hashlib.sha256(json.dumps([title, abstract], ensure_ascii=False).encode()).hexdigest()
 
 
+def preview_import(row, job, db=None):
+    """Recognize only the frozen preview's derived historical display versions.
+
+    The digest here binds published excerpts, never the undistributed full provider input.
+    A later edit retains this provenance but uses the ordinary stale-input test.
+    """
+    if not job['id'].startswith('PREVIEW-CEE86-'):
+        return None
+    try:
+        raw = json.loads(row['raw_json'] or '{}')
+        value = raw.get('portable_preview_import', {}).get(job['id'])
+        if value is None and db is not None:
+            # Restoring content predating the import does not erase immutable job provenance.
+            for revision in db.execute("SELECT snapshot_json FROM revisions WHERE target_type='record' AND target_id=? ORDER BY id DESC", (row['id'],)):
+                snapshot = json.loads(revision['snapshot_json'])
+                previous = json.loads(snapshot.get('raw_json') or '{}')
+                value = previous.get('portable_preview_import', {}).get(job['id'])
+                if value is not None:
+                    break
+        if not isinstance(value, dict):
+            return None
+        valid = (value['format'] == 'portable-historical-machine-v1' and value['batch'] == 'cee86-20261030-v1'
+                 and re.fullmatch(r'[a-f0-9]{32}', value['source_job_id'])
+                 and job['id'] == 'PREVIEW-CEE86-' + value['source_job_id'] and job['request_id'] == job['id']
+                 and job['status'] == 'succeeded' and job['attempts'] == 0 and not job['adopted_at']
+                 and job['provider'] == 'DeepSeek' and job['model'] == 'deepseek-flash'
+                 and isinstance(value['source_record_id'], str) and value['source_record_id'].startswith(('LOCAL-', 'LV-'))
+                 and type(value['source_version']) is int and value['source_version'] >= 1
+                 and re.fullmatch(r'[a-f0-9]{64}', value['source_input_hash'])
+                 and value['excerpt_input_hash'] == job['input_hash'] == digest(job['input_title'], job['input_abstract'])
+                 and value['excerpt_output_hash'] == digest(job['output_title'], job['output_abstract'])
+                 and value['alignment'] == 'independent_truncation' and type(value['local_calls']) is int and value['local_calls'] == 0
+                 and value['full_content_excluded'] is True
+                 and value['abstract_mode'] == ('excerpt' if job['input_abstract'] else 'missing')
+                 and value['original_truncated'] is bool(job['input_abstract'])
+                 and value['machine_truncated'] is bool(job['output_abstract'])
+                 and len(job['input_abstract'].split()) <= 20 and len(job['output_abstract']) <= 120)
+        return dict(value) if valid else None
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return None
+
+
 def items(db, row):
     result = []
     for job in db.execute('SELECT * FROM translation_jobs WHERE record_id=? ORDER BY created_at DESC,rowid DESC', (row['id'],)):
@@ -63,6 +105,10 @@ def items(db, row):
         item['stale'] = digest(*inputs(row)) != job['input_hash']
         item['version_changed'] = row['version'] != job['source_version']
         item['can_adopt'] = job['status'] == 'succeeded' and not job['adopted_at'] and not item['version_changed']
+        imported = preview_import(row, job, db)
+        if imported:
+            item['preview_import'] = imported
+            item['can_adopt'] = False  # Independent excerpts are not a full adoptable translation.
         if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='translation_calls'").fetchone():
             item['calls'] = calls(db, job['id'])
         result.append(item)
@@ -75,18 +121,27 @@ def projection(db, row):
     Selecting a machine version never changes the original or adopts it as human.
     Downstream automatic processing can use this same projection after saving jobs.
     """
-    job = next((j for j in items(db, row) if j['status'] == 'succeeded' and not j['stale']), None)
+    versions = items(db, row)
+    job = next((j for j in versions if j['status'] == 'succeeded' and not j['stale']), None)
     human = bool(row['chinese_title'] or row['chinese_abstract'])
     title = row['chinese_title'] if human else job['output_title'] if job else ''
     abstract = row['chinese_abstract'] if human else job['output_abstract'] if job else ''
     original_chinese = bool(re.search(r'(?:^|[;,|\s])(?:zh(?:-[a-z]+)*|zho|chi|中文)(?:$|[;,|\s])', row['language'], re.I))
-    return {'chinese_title': row['chinese_title'], 'chinese_abstract': row['chinese_abstract'],
+    result = {'chinese_title': row['chinese_title'], 'chinese_abstract': row['chinese_abstract'],
             'display_title': title or row['title'], 'display_abstract': abstract or row['abstract'],
             'translation_origin': 'human' if human else 'machine' if job else 'original',
             'reading_translation_id': row['adopted_translation_id'] if human else job['id'] if job else '',
             'has_chinese': bool(title or abstract or original_chinese),
             'abstract_is_chinese': bool(abstract or (original_chinese and row['abstract'])),
             'original_abstract_missing': not bool(row['abstract'])}
+    preview = next((j for j in versions if j.get('preview_import') and j['input_abstract'] == row['abstract']), None)
+    if preview:
+        imported = preview['preview_import']
+        result['preview_excerpt'] = {**imported, 'current_machine': bool(not human and job and job['id'] == preview['id']), 'notice': (
+            '原摘要与历史机器译文独立截取，未必逐句或逐段对齐；完整摘要和译文未随包。本包未调用翻译服务。'
+            if imported['abstract_mode'] == 'excerpt' else
+            '原始摘要未取得；历史机器版本仅译题名。本包未调用翻译服务。')}
+    return result
 
 
 def create_call_schema(db):
@@ -233,6 +288,8 @@ def register(app, ctx):
             job = load_job(jid)
             row = eligible(job['record_id'])
             check_version(data, row)
+            if preview_import(row, job, db):
+                abort(409, '历史演示节选不能作为完整机器译文人工采用；请另行核对完整原文。')
             if job['status'] != 'succeeded' or job['adopted_at'] or row['version'] != job['source_version']:
                 abort(409, '机器译文已采用、尚未完成或基于旧版资料；请重新生成并复核。')
             values = validate_text(data, ['chinese_title', 'chinese_abstract'],
@@ -281,6 +338,9 @@ def validate_backup(db):
             raise ValueError('采用的机器版本引用无效。')
         jobs = db.execute('SELECT * FROM translation_jobs').fetchall()
         for job in jobs:
+            row = db.execute('SELECT * FROM records WHERE id=?', (job['record_id'],)).fetchone()
+            if job['id'].startswith('PREVIEW-CEE86-') and not preview_import(row, job, db):
+                raise ValueError('历史演示译文依据无效。')
             if (job['status'] not in {'queued', 'running', 'succeeded', 'failed'} or not 0 <= job['attempts'] <= 3
                     or job['source_version'] < 1 or job['input_hash'] != digest(job['input_title'], job['input_abstract'])
                     or (not job['input_abstract'] and job['output_abstract'])):

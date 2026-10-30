@@ -5,6 +5,9 @@ import json
 from pathlib import Path, PurePosixPath, PureWindowsPath
 import stat
 import zipfile
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 SAMPLE_SHA256 = '8aed2928d8a757236ee73cfa20746c357c6b76b9caffcc4fa8f66473a56bef3e'
 PTH = b'python312.zip\n.\nLib/site-packages\n..\n'
@@ -35,10 +38,17 @@ def verify(read, names, require_intro=True):
     if set(names) != expected:
         raise ValueError('Package inventory differs from manifest')
     fixed = SOURCE_FILES | {'start.bat', 'stop.bat', '使用说明.html', 'THIRD-PARTY-NOTICES.txt', 'manifest.json'}
+    introductions = set(names) & {'项目介绍.pdf', '项目介绍.html'}
+    if len(introductions) > 1:
+        raise ValueError('Choose exactly one project introduction.')
+    fixed |= introductions
     if require_intro:
-        fixed |= {'项目介绍.pdf'}
-        if not manifest['introduction_present'] or not read('项目介绍.pdf').startswith(b'%PDF-'):
-            raise ValueError('Actual project introduction PDF is required')
+        if not manifest['introduction_present'] or not introductions:
+            raise ValueError('Actual project introduction HTML or PDF is required')
+    for name in introductions:
+        if ((name.endswith('.pdf') and not read(name).startswith(b'%PDF-')) or
+                (name.endswith('.html') and '<html' not in read(name).decode('utf-8').lower())):
+            raise ValueError('Invalid project introduction document')
     if not fixed <= expected:
         raise ValueError('Required source or entry missing: ' + str(fixed - expected))
     lock = json.loads(read('portable/runtime-lock.json'))
@@ -60,7 +70,7 @@ def verify(read, names, require_intro=True):
         elif first in SOURCE_DIRS:
             if Path(name).suffix not in {'.py', '.js', '.css', '.html', '.svg', '.png', '.ico', '.woff2'}:
                 raise ValueError('Unexpected source file: ' + name)
-        elif name not in fixed and name != '项目介绍.pdf':
+        elif name not in fixed:
             raise ValueError('File outside explicit distribution allowlist: ' + name)
         if name != 'manifest.json':
             raw = read(name)
@@ -68,10 +78,13 @@ def verify(read, names, require_intro=True):
                 raise ValueError('Manifest digest mismatch: ' + name)
     if sha(read('portable/samples/fictional-article.pdf')) != SAMPLE_SHA256:
         raise ValueError('Unexpected sample original')
+    from portable.public_batch import load_fixture
+    fixture = load_fixture(read)
     if not read('runtime/LICENSE.txt') or not read('THIRD-PARTY-NOTICES.txt'):
         raise ValueError('Missing third-party notices')
     return {'files': len(names), 'source_commit': manifest['source_commit'],
-            'source_dirty': manifest['source_dirty'], 'introduction_present': manifest['introduction_present']}
+            'source_dirty': manifest['source_dirty'], 'introduction_present': manifest['introduction_present'],
+            'public_articles': len(fixture['articles']), 'public_sources': len(fixture['sources'])}
 
 
 def verify_zip(path):

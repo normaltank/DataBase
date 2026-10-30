@@ -104,17 +104,17 @@ def docx():
 
 def verify_seed(root, client, admin):
     seed = json.loads((root / 'data/demo-seed.json').read_text(encoding='utf-8'))
-    assert seed['synthetic'] is True
+    assert seed['synthetic'] is False and seed['fictional_collaboration'] is True
     assert {x['username'] for x in admin.request('/api/members')['items']} == {'researcher', 'colleague', 'admin'}
     sources = client.request('/api/sources')['items']
-    assert {x['name'] for x in sources} == {'演示｜北岸公共研究所', '演示｜河港社会研究中心', '演示｜波罗的海协作评论'}
-    assert {x['id'] for x in sources} == set(seed['source_ids'])
+    assert {x['name'] for x in sources if x['id'] in seed['source_ids']} == {'演示｜北岸公共研究所', '演示｜河港社会研究中心', '演示｜波罗的海协作评论'}
+    assert {x['id'] for x in sources} == set(seed['source_ids'] + seed['public_batch']['source_ids'])
     people = client.request('/api/people')['items']
     assert {x['name'] for x in people} == {'演示｜安娜·河港', '演示｜马丁·北岸'}
     assert {x['id'] for x in people} == set(seed['person_ids'])
-    records = client.request('/api/records')['items']
-    assert len(records) == 6, len(records)
-    assert all('演示' in x['title'] for x in records), records
+    records = client.request('/api/records?size=100')['items']
+    assert len(records) == 62, len(records)
+    assert all('演示' in x['title'] for x in records if x['id'] not in seed['public_batch']['article_ids'])
     assert len(seed['files']) == 11
     for file in seed['files']:
         content = client.request(file['url'], raw=True)
@@ -157,12 +157,47 @@ def verify_seed(root, client, admin):
     assert not ingestion['worker_heartbeat']
     assert all(not s['enabled'] and not s['runs'] for s in ingestion['items'])
     ai = admin.request('/api/admin/ai')
-    assert ai['attempts'] == [] and not ai['worker_heartbeat'] and not ai['cap_units']
+    assert ai['attempts'] == [] and not ai['worker_heartbeat'] and not ai['cap_units'] and ai['paused']
     assert ai['task_counts'] == {} and ai['blocked_reasons']
     return seed, workflow, journal
 
 
-def browser_check(base, second_base, evidence):
+def verify_public_batch(client, admin, seed):
+    from portable.public_batch import load_fixture, FIXTURE_SHA256
+    fixture, batch = load_fixture(), seed['public_batch']
+    assert batch['fixture_sha256'] == FIXTURE_SHA256
+    assert len(batch['source_ids']) == 65 and len(batch['core_source_ids']) == 38
+    collection = next(c for c in client.request('/api/collections')['items'] if c['id'] == batch['collection_id'])
+    assert collection['name'] == '历史17国公开资料样本' and collection['visibility'] == 'shared'
+    assert client.request('/api/records?size=100&collection=' + batch['collection_id'])['total'] == 56
+    snapshots = {}
+    for article in fixture['articles']:
+        record = client.request('/api/records/' + batch['article_map'][article['id']])
+        job = record['translations'][0]
+        assert (record['original_title'], record['display_title']) == (article['original_title'], article['machine_title'])
+        assert (record['abstract'], record['display_abstract']) == (article['abstract_original_preview'], article['abstract_machine_preview'])
+        assert record['status'] == 'pending' and record['translation_origin'] == 'machine'
+        assert not record['chinese_title'] and not record['chinese_abstract'] and not record['adopted_translation_id']
+        assert not record['attachments'] and not record['linked_records'] and not record.get('collaboration_works')
+        assert not record['body_html'] and not record['reading_access']['has_body']
+        assert job['attempts'] == 0 and job['calls'] == [] and not job['can_adopt'] and not job['stale']
+        provenance = job['preview_import']
+        assert provenance['source_input_hash'] == article['translation_input_hash']
+        assert provenance['source_version'] == article['translation_source_version']
+        assert provenance['source_job_id'] == article['translation_id']
+        assert provenance['alignment'] == 'independent_truncation' and provenance['full_content_excluded'] is True
+        expected = sha(json.dumps([article['original_title'], article['abstract_original_preview']], ensure_ascii=False).encode())
+        assert job['input_hash'] == expected == provenance['excerpt_input_hash']
+        assert len(record['abstract'].split()) <= 20 and len(job['output_abstract']) <= 120
+        snapshots[record['id']] = {key: record[key] for key in ['original_title', 'abstract', 'display_title', 'display_abstract', 'translations', 'preview_excerpt']}
+    assert sum(bool(r['abstract']) for r in snapshots.values()) == 23
+    assert client.request('/api/records?q=' + urllib.parse.quote('平台工作者'))['total'] == 1
+    ai = admin.request('/api/admin/ai')
+    assert ai['attempts'] == [] and ai['task_counts'] == {} and ai['paused'] and not ai['cap_units']
+    return snapshots
+
+
+def browser_check(base, second_base, evidence, seed):
     from playwright.sync_api import sync_playwright, expect
     errors = []
     with sync_playwright() as p:
@@ -187,6 +222,26 @@ def browser_check(base, second_base, evidence):
         page.get_by_label('账号', exact=True).fill('researcher')
         page.get_by_label('密码', exact=True).fill('LocalDemo2026!')
         page.get_by_role('button', name='查看资料', exact=True).click()
+        expect(page.get_by_role('heading', name='编译协作', exact=True)).to_be_visible()
+        batch = seed['public_batch']
+        page.goto(base + '/#library?feed=all&collection=' + batch['collection_id'])
+        expect(page.locator('.record-title button').first).to_be_visible()
+        assert page.evaluate("async()=> (await(await fetch('/api/records?size=100&collection=' + " + json.dumps(batch['collection_id']) + ")).json()).total") == 56
+        page.goto(base + '/#library?feed=all&q=' + urllib.parse.quote('平台工作者'))
+        expect(page.locator('.record-title button')).to_have_count(1)
+        page.locator('.record-title button').click()
+        reader = page.locator('.library-reader')
+        expect(reader.get_by_text('机器中文 · 尚未人工校订', exact=True)).to_be_visible()
+        expect(reader.get_by_role('heading', name='中文摘要节选', exact=True)).to_be_visible()
+        expect(reader.get_by_text(re.compile('原摘要与历史机器译文独立截取'))).to_be_visible()
+        reader.get_by_role('button', name='原文', exact=True).click()
+        expect(reader.locator('[data-reading-abstract="original"] h3')).to_have_text('原文摘要节选')
+        for width in [1366, 390]:
+            page.set_viewport_size({'width': width, 'height': 900})
+            page.screenshot(path=str(evidence / f'public-preview-{width}.png'), full_page=True)
+            assert page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1')
+        page.set_viewport_size({'width': 1366, 'height': 900})
+        page.goto(base)
         expect(page.get_by_role('heading', name='编译协作', exact=True)).to_be_visible()
         peer = context.new_page()
         peer.on('pageerror', lambda error: errors.append(str(error)))
@@ -313,6 +368,8 @@ def main():
         lead.login('colleague')
         assert lead.request('/api/session')['user']['role'] == 'researcher'
         seed, workflow, journal = verify_seed(one, researcher, admin)
+        public_snapshots = verify_public_batch(researcher, admin, seed)
+        result['checks'].append('public preview: 65 sources / 38 core; shared collection with 56 machine titles, 23 independent abstract excerpts / 33 title-only; historical provenance and separate input hashes; zero local calls/tasks/fees')
         result['checks'].append('first start: exact synthetic account/source/person/record/original inventory; role login; avatar; PDF/TXT parser; exact topic v2 adoption; independent journal v2')
         active_workflow, journal = continue_work(researcher, lead, admin, seed)
         result['checks'].append('real HTTP continuation: member source contribution/admin metadata review; candidate v2/lead meeting/return/revision/exact final/summary; shared journal v3 explicitly adopted')
@@ -355,6 +412,9 @@ def main():
         assert restored_reader.request('/api/collaboration/topics/' + seed['complete_topic'] + '/workflow') == workflow
         assert restored_reader.request('/api/collaboration/topics/' + seed['active_topic'] + '/workflow') == active_workflow
         assert restored_reader.request('/api/collaboration/journals/' + seed['journal']) == journal
+        restored_admin = HTTP(second_base)
+        restored_admin.login('admin')
+        assert verify_public_batch(restored_reader, restored_admin, seed) == public_snapshots
         assert originals(two / 'data') == before
         result['checks'].append('materials/content export; standards-based DOCX indexing/search; full backup CLI restore; same-cookie-jar simultaneous instances')
         previous_state = json.loads((one / '.portable/server.json').read_text(encoding='utf-8'))
@@ -380,7 +440,7 @@ def main():
             assert HTTP('http://127.0.0.1:8848').request('/health') == baseline8848
         result['checks'].append('restart preserves database/original hashes and added upload; old port reused; stale state safe; stopping one leaves other and 8848 healthy')
         if args.browser:
-            browser_check(base, second_base, evidence)
+            browser_check(base, second_base, evidence, seed)
             result['checks'].append('real Chromium: all three responsibilities; same browser context authenticates both copies independently and logout stays isolated; no page errors')
         result['ok'] = True
     finally:

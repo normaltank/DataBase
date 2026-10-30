@@ -4,7 +4,7 @@
 <style>body{font:18px/1.7 system-ui,"Microsoft YaHei",sans-serif;max-width:850px;margin:3em auto;padding:0 1.2em;color:#213943}h1,h2{line-height:1.4}code{background:#edf2f2;padding:.1em .3em}aside{padding:1em;border-left:4px solid #407985;background:#f0f6f5}li{margin:.5em 0}a{color:#216577}</style>
 <h1>知汇 · 本机演示包</h1>
 <p>面向研究中心，保存来源、原始资料和中心成果，支持主题编译与独立期刊编译的文件交接、审稿、版本和采用追溯。</p>
-<aside>所有随包样例、机构、作者、观点与出处均从零合成，明确标有“演示”；不是研究结果，也不是实际研究中心的账号或资料。</aside>
+<aside>主题／期刊协作、演示人物和中心成果为明确标记的虚构样例。另含历史17国的38个核心来源、27个辅助机构与56篇真实公开资料题录：56个历史机器译题，23组原摘要及机译独立节选，33篇未取得原摘要。机器结果未人工校订，完整摘要、全文及内部资料未随包。</aside>
 <h2>开始和结束</h2>
 <ol><li>将整个 ZIP 解压到本机可写文件夹。支持中文和空格；建议使用较短路径，避免 Windows 长路径限制。</li>
 <li>双击根目录 <code>start.bat</code>，等待首次初始化并打开浏览器。不用安装 Python、pip、Git，也不用管理员权限。</li>
@@ -16,15 +16,16 @@
 <li><code>colleague</code>：研究员 · 周，已登记业务负责人资格，可开期、记录会议、退回与确认定稿；仍是研究员角色，没有系统管理权限。</li>
 <li><code>admin</code>：资料管理员，核对、账号与负责人资格、完整备份管理；不会因此取得个人成果的正文编辑权。</li></ul>
 <h2>建议体验顺序</h2>
+<p>先找真实资料：登录 researcher，进入“我的”→“资料夹”→“历史17国公开资料样本”，可查看全部56篇；也可进入“资料”搜索 <strong>平台工作者</strong>。打开文章后切换中文／原文，查看来源网址。摘要为节选，原文与机器译文分别截取，未必逐句或逐段对齐；历史版本保留来源与独立校验值，本包没有新发翻译调用。</p>
 <ol><li>用 researcher 登录“编译协作”，查看“演示｜公共空间与地方协作（已汇总）”。展开候选、会议、初稿 v1、退回意见、返修 v2 定稿和汇总采用，下载并核对实际原件。</li>
 <li>在“中心成果”查看各篇定稿与整期汇总，下载材料包。汇总固定采用 v2；之后上传新稿不会改写旧采用。</li>
 <li>切到“期刊编译”，查看“演示｜波罗的海协作评论 · 2026年第1—2期（虚构）”。它独立于主题，两版原件保留，v2 是明确采用的当前成品。</li>
-<li>在“资料”阅读三篇虚构原文、人工中文及出处，下载“演示原文.pdf”；在“档案”查看两家机构、期刊与两位虚构作者。</li>
+<li>在“资料”也可阅读三篇标记“演示”的虚构原文、合成中文及出处，下载“演示原文.pdf”；在“档案”区分真实公开来源与虚构演示机构、期刊及作者。</li>
 <li>在“演示｜青年阅读与社区（进行中）”继续上传自己的合成选题报告。退出后用 colleague 登录，可接手记录会议、分工与审稿。请勿上传真实敏感材料。</li>
 <li>用 admin 进入“维护界面”，体验核对、负责人资格及完整备份。备份包含当前演示库与账号，加入自己的内容后请自行判断分享范围。恢复方法见随包 <a href="docs/portable-preview.md">构建与恢复说明</a>。</li></ol>
 <h2>运行范围和文件</h2>
-<p>核心阅读、录入、上传、下载、协作和导出可离线使用。联网题录、外部采集及翻译需要网络与另行配置，本包默认不启用采集、AI 或后台处理，也不携带开发机凭据。</p>
+<p>核心阅读、录入、上传、下载、协作和导出可离线使用。真实样本来自既有批次的辅助RIS整理和历史DeepSeek结果，不能据此认为38站持续接通。本包不启动采集、AI 或后台处理，AI保持暂停且无调用／费用，不携带开发机凭据。访问外部原站仍需网络；此次历史平台取得曾因保留地址解析而受阻。</p>
 <p><code>data</code> 首启才创建，是本包的持续资料；<code>.portable</code> 保存本实例控制状态与启动日志。移动或重新解压到新路径会改变本机登录身份；请先停止。转发原始 ZIP 可得到全新的独立演示，不要直接压缩使用后的文件夹。</p>
-<p>根目录“项目介绍.pdf”适合首次了解项目；<code>platform_app</code>、<code>templates</code>、<code>static</code> 与 <code>portable</code> 保存运行源码。源码与长期规则另见 <a href="PRODUCT.md">产品宪章</a>、<a href="GLOSSARY.md">术语表</a>及<a href="https://github.com/normaltank/DataBase">公开仓库</a>。<code>app.py</code> 是开发入口，便携使用始终双击根目录 BAT。</p>
+<p>根目录“项目介绍.html”（旧版也支持PDF）适合首次了解项目；<code>platform_app</code>、<code>templates</code>、<code>static</code> 与 <code>portable</code> 保存运行源码。源码与长期规则另见 <a href="PRODUCT.md">产品宪章</a>、<a href="GLOSSARY.md">术语表</a>及<a href="https://github.com/normaltank/DataBase">公开仓库</a>。<code>app.py</code> 是开发入口，便携使用始终双击根目录 BAT。</p>
 <p>内嵌 CPython 3.12.10 x64 与固定依赖供本轮兼容验证。该 Python 版本已有后续安全修订；运行时升级需要重新构建和验证。当前是本机演示，未证明所有 Windows 10/11 配置或正式生产环境均已适配。第三方许可与文件摘要分别见 <code>THIRD-PARTY-NOTICES.txt</code>、<code>manifest.json</code> 与 <code>portable/runtime-lock.json</code>。</p>
 </html>

@@ -20,7 +20,7 @@ def record_projection(db, item, visible):
     fields = {*RECORD_FIELDS, "id", "version", "created_at", "updated_at", "status", "author_name",
               "owner_name", "last_modifier", "related_source_ids", "attachments", "evidence_citations", "collaboration_works",
               "evidence_snapshot", "evidence_version", "linked_records", "cited_by", "excerpts", "previous_ids", "research_subjects", "intake_evidence", "ris_evidence", "discovery_evidence", "last_verified", "review_history", "translations", "translation_history", "adopted_translation_id",
-              "display_title", "display_abstract", "translation_origin", "reading_translation_id", "has_chinese", "abstract_is_chinese",
+              "display_title", "display_abstract", "translation_origin", "reading_translation_id", "has_chinese", "abstract_is_chinese", "preview_excerpt",
               "automatic_tasks", "machine_summary", "machine_summary_basis", "machine_classification", "subject_countries", "subject_topics", "classified_kind"}
     result = identity.readable_record(db, {key: value for key, value in item.items() if key in fields}, visible)
     raw = json.loads(db.execute('SELECT raw_json FROM records WHERE id=?',(item['id'],)).fetchone()[0] or '{}')
