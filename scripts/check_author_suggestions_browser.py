@@ -4,6 +4,7 @@ import json
 import logging
 import re
 import sys
+import subprocess
 import threading
 from contextlib import suppress
 from pathlib import Path
@@ -205,7 +206,7 @@ def main():
             assert response.value.status==200
             results.append({'paused_record_exception_target_and_retry':True})
             assert not errors,errors
-            (root/'results.json').write_text(json.dumps({'browser':executable,'results':results,'pageerrors':errors},ensure_ascii=False,indent=2),encoding='utf-8')
+            (root/'results.json').write_text(json.dumps({'git_sha':subprocess.check_output(['git','rev-parse','HEAD'],cwd=Path(__file__).resolve().parents[1],text=True).strip(),'schema':fixture.app.test_client().get('/health').json['schema'],'browser':executable,'results':results,'pageerrors':errors},ensure_ascii=False,indent=2),encoding='utf-8')
     except Exception:
         with suppress(Exception):
             page.screenshot(path=str(root/'failure.png'))

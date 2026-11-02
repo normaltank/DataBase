@@ -185,7 +185,6 @@ def create_app(data_dir=None, testing=False):
         from .automatic_processing import projection as automatic_projection
         obj.update(automatic_projection(db(),r))
         obj['created_at'] = r['created_at']
-        obj['author_suggestions_available'] = r['kind'] not in workflow.CONTENT_KINDS and bool(intake.normalize_doi(r['doi']) or intake.normalize_url(r['url']))
         if 'record_search' in g:
             source = g.record_search.sources.get(r['source_id'])
             obj['source_name'] = source['name'] if source else ''
@@ -225,6 +224,8 @@ def create_app(data_dir=None, testing=False):
         access = records()
         access.prefetched_records = {r['id']: r for r in all_rows}
         rows = [r for r in all_rows if not r['merged_into'] and visible(r)]
+        if args.get('author_suggestions') == '1':
+            rows = [r for r in rows if r['kind'] not in workflow.CONTENT_KINDS and (intake.normalize_doi(r['doi']) or intake.normalize_url(r['url']))]
         batch_ids = reading_feed.scope_ids(db(), user()['id'], args)
         if batch_ids is not None:
             batch_order = {rid: index for index, rid in enumerate(batch_ids)}

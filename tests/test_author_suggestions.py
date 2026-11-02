@@ -424,6 +424,14 @@ class AuthorSuggestionsTests(unittest.TestCase):
         self.assertEqual(second['coverage']['remaining'],0)
         self.assertEqual(self.get('/api/people')['total'],0)
 
+    def test_batch_records_filter_lists_only_readable_external_records_with_a_public_entry(self):
+        eligible=self.record(title='SYNTHETIC64 eligibility DOI',doi='10.5555/eligible')
+        self.record(title='SYNTHETIC64 eligibility no entry')
+        self.call('/api/records',{'kind':'research_note','title':'SYNTHETIC64 eligibility internal','doi':'10.5555/internal'})
+        rows=self.get('/api/records?author_suggestions=1&q=SYNTHETIC64%20eligibility')
+        self.assertEqual([r['id'] for r in rows['items']],[eligible])
+        self.assertEqual(rows['total'],1)
+
     def crossref(self, name='Private Alias', doi='10.5555/identity'):
         return json.dumps({'message': {'title': ['Public article'], 'DOI': doi,
             'author': [{'given': name, 'family': '', 'ORCID': 'https://orcid.org/0000-0002-1825-0097'}]}})

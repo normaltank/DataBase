@@ -120,9 +120,9 @@ async function authorBatchResults(page=1){
   rememberAuthorBatch();
   const q=document.querySelector('[data-form=author-search] input').value,epoch=++authorBatchEpoch,root=document.querySelector('[data-author-results]');
   root.innerHTML='<p role="status">正在查找资料…</p>';
-  const data=await api('/api/records?size=20&page='+page+'&q='+encodeURIComponent(q));
+  const data=await api('/api/records?author_suggestions=1&size=20&page='+page+'&q='+encodeURIComponent(q));
   if(epoch!==authorBatchEpoch||!root.isConnected)return;
-  const rows=data.items.filter(r=>r.author_suggestions_available);
+  const rows=data.items;
   for(const r of rows)authorBatchTitles.set(r.id,r.title);
   root.innerHTML=`<div class="archive-batch-list">${rows.map(r=>`<label><input type="checkbox" name="author_record" value="${esc(r.id)}" ${authorBatchSelection.has(r.id)?'checked':''}>${esc(r.title)}</label>`).join('')||'<p>当前页没有含公开网址或 DOI 的外部资料。</p>'}</div><div class="row wrap section-gap">${page>1?`<button class="button" type="button" data-author-page="${page-1}">上一页</button>`:''}<span>第 ${page} 页</span>${page*20<data.total?`<button class="button" type="button" data-author-page="${page+1}">下一页</button>`:''}</div>`;
 }
