@@ -271,6 +271,7 @@ class TopicFinalTests(unittest.TestCase):
         self.assertEqual(self.final(tid, aid, sid, note="different content").status_code, 409)
         self.assertEqual(self.returned(tid, aid, sid).status_code, 409)
         other = self.topic(["colleague"], "另一独立期次")
+        self.assertEqual(self.meeting(other).status_code, 201)
         self.assertEqual(self.final(other, aid, sid).status_code, 404)
         self.assertEqual(self.summary(other, [final["id"]]).status_code, 400)
         self.assertEqual(self.summary(tid, [], file=None).status_code, 400)

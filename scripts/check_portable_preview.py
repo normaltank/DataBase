@@ -286,6 +286,7 @@ def continue_work(researcher, lead, admin, seed):
             'candidate_item': '第1项', 'record_id': seed['article_ids'][1],
             'author_id': 'researcher', 'country': '拉脱维亚'}]},
         file=('验收会议.txt', b'DEMO HTTP meeting adopts candidate v2'))
+    lead.request(prefix + '/enter-compilation', {'request_id': 'http-enter-compilation', 'stage_version': 1, 'topic_version': 1, 'meeting_version': 1})
     assignment = prefix + '/assignments/' + researcher.request(prefix + '/workflow')['assignments'][0]['id']
     first = researcher.request(assignment + '/submissions', {'request_id': 'http-draft-1',
         'version': 0, 'topic_version': 1, 'meeting_version': 1},

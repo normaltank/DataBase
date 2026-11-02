@@ -77,8 +77,8 @@ def main():
             conflict = meeting_form.locator('[data-topic-review-conflict]')
             expect(conflict.get_by_role('heading', name='请核对最新交接', exact=True)).to_be_visible()
             # A meeting conflict must expose current adoptions, not only its note.
-            conflict.get_by_text('采用文章与分工 1 项', exact=True).click()
-            expect(conflict.get_by_text('另一页新增的采用文章', exact=True)).to_be_visible()
+            expect(conflict.get_by_text('采用文章与分工 1 项', exact=True)).to_be_visible()
+            expect(conflict.get_by_text('另一页新增的采用文章', exact=False)).to_be_visible()
             expect(meeting_form.get_by_label('简短会议决定', exact=False)).to_have_value('保留的会议表单意见')
             assert meeting_form.get_by_label('会议材料文件', exact=False).evaluate('el=>el.files[0].name') == '保留会议.txt'
             conflict.get_by_role('button', name='已核对，保留输入继续交接', exact=True).click()
@@ -116,10 +116,13 @@ def main():
                 row.get_by_label("国家或范围分工", exact=True).fill("拉脱维亚、波兰")
                 no_overflow(page)
                 page.get_by_role("button", name="保存会议决定 v1", exact=True).click()
+                expect(page.get_by_text("第一阶段：选题", exact=True)).to_be_visible()
+                page.get_by_role("button", name="确认分工，进入编译阶段", exact=True).click()
+                page.get_by_role("button", name="确认以上分工，进入编译", exact=True).click()
                 expect(page.get_by_role("heading", name="编译稿与返修", exact=True)).to_be_visible()
                 expect(page.get_by_text("待交稿", exact=True)).to_be_visible()
                 # The top action must reveal the form inside folded candidate history.
-                page.get_by_role("button", name="提交我的选题报告", exact=True).click()
+                page.get_by_role("button", name="补充选题材料", exact=True).click()
                 expect(page.get_by_label("选题报告文件", exact=False)).to_be_visible(timeout=3000)
                 signout(page)
                 login(page, base, "colleague")

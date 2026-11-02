@@ -23,7 +23,7 @@ def work_items(db, actor, access):
         work = collaboration.projection(db, actor, row)
         workflow = topic_review.workflow_projection(db, actor, row)
         activity = [row['updated_at']]
-        for table in ('topic_candidates', 'topic_meetings', 'topic_manuscripts', 'topic_returns', 'topic_finals', 'topic_summaries'):
+        for table in ('topic_candidates', 'topic_meetings', 'topic_manuscripts', 'topic_returns', 'topic_finals', 'topic_summaries', 'topic_stage_events'):
             stamp = db.execute(f'SELECT MAX(created_at) FROM {table} WHERE topic_id=?', (row['id'],)).fetchone()[0]
             if stamp:
                 activity.append(stamp)
@@ -33,7 +33,7 @@ def work_items(db, actor, access):
         products += [dict(max(a['finals'], key=lambda f: f['version']), product_kind='final') for a in workflow['assignments'] if a['finals']]
         yield {**work, 'business': 'topic', 'title': row['theme'], 'products': products,
                'countries': sorted({a['country'] for a in workflow['assignments'] if a['country']}),
-               'participating': work['can_submit'], 'leading': work['can_manage'],
+               'participating': work['is_participant'], 'leading': work['is_lead'],
                'participant_ids': [p['id'] for p in work['participants']],
                'participant_names': [p['name'] for p in work['participants']]}
     service = journal.JournalWorks(db, access)
@@ -113,6 +113,7 @@ def material_payload(ctx, business, wid, scope):
     if business == 'topic':
         topic = collaboration.topic_for(db, actor, wid)
         payload['topic'] = collaboration.projection(db, actor, topic)
+        payload['stage_coverage'] = '阶段为导出时当前状态；迁移来源与人工转换单独列明，不代表各份旧材料提交时已有该阶段。'
         workflow = topic_review.workflow_projection(db, actor, topic)
         candidates = collaboration.candidate_projection(db, wid) if scope != 'products' else []
         if scope == 'products':

@@ -111,7 +111,8 @@ def restore_backup(archive_path, target_dir):
             if db.execute("PRAGMA integrity_check").fetchone()[0] != "ok" or db.execute("PRAGMA foreign_key_check").fetchall():
                 raise ValueError("数据库完整性检查失败。")
             version = db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0]
-            if version not in {str(v) for v in range(1, 25)}:
+            from .store import CURRENT_SCHEMA_VERSION
+            if version not in {str(v) for v in range(1, CURRENT_SCHEMA_VERSION + 1)}:
                 raise ValueError("数据库版本不匹配。")
             if int(version) >= 24:
                 from .archive_suggestions import validate_backup as validate_archive_suggestions
@@ -165,6 +166,9 @@ def restore_backup(archive_path, target_dir):
                     referenced_ids.update(journal_files)
                 handoff_files.validate_backup(db, manifest, referenced_ids)
                 collaboration.validate_backup(db)
+                from . import topic_stages
+                if int(version) >= topic_stages.SCHEMA_VERSION:
+                    topic_stages.validate_backup(db)
             for row in db.execute("SELECT stored_name,sha256 FROM attachments"):
                 name = "uploads/" + row["stored_name"]
                 if name not in manifest["files"] or manifest["files"][name]["sha256"] != row["sha256"]:

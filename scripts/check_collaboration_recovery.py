@@ -154,6 +154,7 @@ def main():
     result = call(author, f'/api/collaboration/topics/{topic}/meetings', {'request_id': 'recovery-meeting', 'version': 0, 'topic_version': 1, 'note': '实际会议决定', 'assignments': [{'title': '站外文章', 'author_id': 'colleague', 'source': 'https://example.invalid/external', 'candidate_id': candidates[1]['id'], 'candidate_item': '第2项'}]}, meeting_original)
     assert result.status_code == 201
     workflow_url = f'/api/collaboration/topics/{topic}/workflow'
+    assert call(author, f'/api/collaboration/topics/{topic}/enter-compilation', {'request_id': 'recovery-enter-stage', 'stage_version': 1, 'topic_version': 1, 'meeting_version': 1}).status_code == 201
     aid = peer.get(workflow_url).json['assignments'][0]['id']
     result = call(peer, f'/api/collaboration/topics/{topic}/assignments/{aid}/submissions', {'request_id': 'recovery-draft-1', 'version': 0, 'meeting_version': 1, 'topic_version': 1, 'note': '首稿'}, draft_original)
     assert result.status_code == 201

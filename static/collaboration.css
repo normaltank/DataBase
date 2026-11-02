@@ -328,3 +328,9 @@
     flex-wrap: nowrap;
   }
 }
+
+.meeting-assignments { padding-left: 1.25rem; overflow-wrap: anywhere; }
+.meeting-assignments li { margin-block: .8rem; }
+.meeting-assignments p { margin-block: .35rem; }
+
+.meeting-assignment-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
