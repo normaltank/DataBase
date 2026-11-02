@@ -224,6 +224,8 @@ def create_app(data_dir=None, testing=False):
         access = records()
         access.prefetched_records = {r['id']: r for r in all_rows}
         rows = [r for r in all_rows if not r['merged_into'] and visible(r)]
+        if args.get('author_suggestions') == '1':
+            rows = [r for r in rows if r['kind'] not in workflow.CONTENT_KINDS and (intake.normalize_doi(r['doi']) or intake.normalize_url(r['url']))]
         batch_ids = reading_feed.scope_ids(db(), user()['id'], args)
         if batch_ids is not None:
             batch_order = {rid: index for index, rid in enumerate(batch_ids)}
@@ -869,6 +871,9 @@ def create_app(data_dir=None, testing=False):
     from . import archive_suggestions
     archive_suggestions.register(app, SimpleNamespace(db=db, user=user, body=body, admin=admin,
                                                      get_source=get_source, save_source=save_source))
+    from . import author_suggestions
+    author_suggestions.register(app, SimpleNamespace(db=db, user=user, body=body, admin=admin,
+                                                    records=records, data_dir=data_dir))
     if not testing:
         archive_suggestions.start_worker(data_dir)
     translations.register(app, SimpleNamespace(db=db, user=user, body=body, records=records))

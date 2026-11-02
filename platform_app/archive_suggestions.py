@@ -82,6 +82,9 @@ def source(db, sid):
 
 
 def current_authority(db, job):
+    if job['target_type'] == 'record':
+        from .author_suggestions import current_authority as record_authority
+        return record_authority(db, job)
     actor = db.execute('SELECT * FROM users WHERE id=? AND active=1', (job['actor_id'],)).fetchone()
     target = source(db, job['target_id']) if job['target_type'] == 'source' else None
     return bool(actor and actor['role'] in {'researcher', 'admin'}
@@ -370,6 +373,9 @@ def candidate_patch(db, base, item, document):
 
 
 def execute(db, job):
+    if job['target_type'] == 'record':
+        from .author_suggestions import execute as execute_authors
+        return execute_authors(db, job)
     evidence, state, reason = {}, 'failed', ''
     try:
         if not current_authority(db, job):
@@ -534,7 +540,7 @@ def projection(db, sid):
     return {'target_type': 'source', 'target_id': sid, 'name': row['name'], 'version': row['version'], 'jobs': jobs, 'candidates': candidates, 'events': events}
 
 
-def export_projection(db, source_ids):
+def export_projection(db, source_ids, record_ids=(), actor=None):
     """Caller supplies already-authorized source identities; never infer record/person access."""
     items, materials = [], {}
     for sid in source_ids:
@@ -544,6 +550,11 @@ def export_projection(db, source_ids):
             raw = item.pop('raw')
             item['raw_base64'] = base64.b64encode(raw).decode('ascii')
             materials[item['id']] = item
+    if record_ids:
+        from .author_suggestions import export_projection as export_authors
+        authors = export_authors(db, actor, record_ids)
+        items.extend(authors['targets'])
+        materials.update({m['id']: m for m in authors['materials']})
     return {'format': 'archive-suggestions-v1', 'targets': items, 'materials': list(materials.values())}
 
 
@@ -551,6 +562,10 @@ def validate_backup(db):
     """Validate actual bytes, target/version binding and decision history, not only SQL FKs."""
     try:
         for row in db.execute('SELECT * FROM archive_evidence'):
+            if row['target_type'] == 'record':
+                from .author_suggestions import validate_evidence
+                validate_evidence(db, row)
+                continue
             if (row['target_type'] != 'source' or not db.execute('SELECT 1 FROM sources WHERE id=?', (row['target_id'],)).fetchone()
                     or not intake.normalize_url(row['url']) or not 0 < len(row['raw']) <= intake.MAX_BYTES
                     or row['sha256'] != hashlib.sha256(row['raw']).hexdigest()
@@ -559,6 +574,10 @@ def validate_backup(db):
                 raise ValueError('实际响应或可读片段校验失败。')
             datetime.fromisoformat(row['fetched_at'])
         for row in db.execute('SELECT * FROM archive_jobs'):
+            if row['target_type'] == 'record':
+                from .author_suggestions import validate_job
+                validate_job(db, row)
+                continue
             base, value, ai = json.loads(row['base_json']), json.loads(row['input_json']), json.loads(row['ai_json'])
             target = db.execute('SELECT * FROM sources WHERE id=?', (row['target_id'],)).fetchone()
             if (row['target_type'] != 'source' or not target or row['status'] not in STATES
@@ -588,9 +607,13 @@ def validate_backup(db):
             for key in ['created_at','next_run','finished_at','lease_until']:
                 if row[key]: datetime.fromisoformat(row[key])
         for row in db.execute('SELECT * FROM archive_candidates'):
-            job, unused = check_candidate(db, row)
+            if row['target_type'] == 'record':
+                from .author_suggestions import check_candidate as check_author_candidate
+                job, unused = check_author_candidate(db, row)
+            else:
+                job, unused = check_candidate(db, row)
             if (row['status'] not in {'pending','unmatched','adopted','rejected','invalidated'}
-                    or json.loads(row['before_json']) != field_before(json.loads(job['base_json']), row['field'])):
+                    or (row['target_type'] != 'record' and json.loads(row['before_json']) != field_before(json.loads(job['base_json']), row['field']))):
                 raise ValueError('候选原值或处理状态无效。')
             if row['status'] in {'adopted','rejected'} and (not row['decided_at'] or not row['decided_by']
                     or not db.execute('SELECT 1 FROM archive_events WHERE candidate_id=? AND action=? AND actor_id=? AND created_at=?',
@@ -612,6 +635,9 @@ def register(app, ctx):
     @app.post('/api/archive-jobs')
     def queue():
         data, actor = ctx.body(), ctx.user()
+        if 'record_ids' in data:
+            from .author_suggestions import queue as queue_authors
+            return queue_authors(ctx, data)
         ids, request_id = data.get('source_ids'), data.get('request_id')
         if (not isinstance(ids, list) or not 1 <= len(ids) <= 20
                 or any(not isinstance(sid, str) for sid in ids) or len(set(ids)) != len(ids)

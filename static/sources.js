@@ -35,7 +35,7 @@ async function systemPage(){
   const page=state.page,title=maintenanceNavs.find(n=>n[0]===page)?.[2]||'维护总览';
   let content='';
   if(page==='maintenance-ingestion')content=await ingestionSystemCard();
-  else if(page==='maintenance-ai')content=await aiBudgetCard();
+  else if(page==='maintenance-ai')content='<section class="system-card"><h2>作者关联建议</h2><button type="button" class="button" data-author-batch>批量整理作者建议</button></section>'+await aiBudgetCard();
   else if(page==='maintenance-members')content='<section class="system-card"><h2>账号与业务资格</h2><p>业务负责人资格单独登记，不随系统管理员角色授予。</p><div class="row wrap">'+linkButton('管理本机成员','manage-members')+linkButton('负责人资格','collaboration-qualifications')+'</div></section>';
   else if(page==='maintenance-backup')content='<section class="system-card"><h2>完整数据备份</h2><p>包含所有账号的个人与受限资料、附件及修订历史，请由资料管理员妥善保管。</p>'+linkButton('下载完整备份','backup','','button primary')+'</section>';
   else content='<div class="reading-personal-links">'+maintenanceNavs.filter(n=>n[0]!=='system').map(n=>linkButton(esc(n[2]),'nav',n[0],'panel reading-personal-link')).join('')+'</div>'+await baseSystemPage();

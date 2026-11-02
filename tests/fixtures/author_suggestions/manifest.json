@@ -1,0 +1,49 @@
+{
+  "crossref": {
+    "raw_file": "06-crossref-online.raw",
+    "retrieved_utc": "2026-10-27T15:27:14.363710+00:00",
+    "status": 200,
+    "response_url": "https://api.crossref.org/journals/1406-099X/works?filter=from-online-pub-date:2026-09-27,until-online-pub-date:2026-10-27&rows=3&cursor=*",
+    "bytes": 9632,
+    "sha256": "d0979af7849f0326d7b522fd16b83be9551448444a92e83d5ec18a273efd05a9",
+    "truncated": false
+  },
+  "orcid": [
+    {
+      "file": "01-0009-0000-8922-637X-person.raw",
+      "retrieved_utc": "2026-10-27T15:36:00.464948+00:00",
+      "status": 200,
+      "response_url": "https://pub.orcid.org/v3.0/0009-0000-8922-637X/person",
+      "bytes": 930,
+      "sha256": "8570940fc3277e30d30599ef149c4d845df91f1546940144a27c7301c6124670",
+      "truncated": false
+    },
+    {
+      "file": "01-0009-0000-8922-637X-works.raw",
+      "retrieved_utc": "2026-10-27T15:36:06.582671+00:00",
+      "status": 200,
+      "response_url": "https://pub.orcid.org/v3.0/0009-0000-8922-637X/works",
+      "bytes": 74,
+      "sha256": "b8e312f69259ec7308e77cf8e91b6a43eed5967dd0c31333e2c9147dfd3871eb",
+      "truncated": false
+    },
+    {
+      "file": "02-0000-0002-6340-4753-person.raw",
+      "retrieved_utc": "2026-10-27T15:36:12.665397+00:00",
+      "status": 200,
+      "response_url": "https://pub.orcid.org/v3.0/0000-0002-6340-4753/person",
+      "bytes": 2513,
+      "sha256": "e8cfea80381caa679183ce614d55a5c2922dce5614c5555685e7299d80700e52",
+      "truncated": false
+    },
+    {
+      "file": "02-0000-0002-6340-4753-works.raw",
+      "retrieved_utc": "2026-10-27T15:36:18.829779+00:00",
+      "status": 200,
+      "response_url": "https://pub.orcid.org/v3.0/0000-0002-6340-4753/works",
+      "bytes": 116864,
+      "sha256": "07adb25a84fc8687e274925eb91e99824d7b5465ea2ac86748ac305a0b084f65",
+      "truncated": false
+    }
+  ]
+}

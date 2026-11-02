@@ -421,15 +421,18 @@ def _orcid(author):
 
 
 def candidates(db, access, fields, authors, identifiers):
+    from .bylines import Bylines
     def label(row, kind, basis):
         return {"id": row["id"], "name": row["name"], "type": kind, "basis": basis}
     verified_ids = {}
-    for relation in db.execute("""SELECT b.raw_name,b.target_type,b.target_id,r.* FROM record_bylines b
+    byline_access = Bylines(db, access.actor, access)
+    for relation in db.execute("""SELECT b.raw_name,b.target_type,b.target_id,b.origin_record_id,r.* FROM record_bylines b
                                  JOIN records r ON r.id=b.record_id WHERE b.status='confirmed'
                                  AND b.removed_at IS NULL AND r.merged_into IS NULL"""):
-        if not access.visible(relation):
+        if not access.visible(relation) or not byline_access.readable(relation):
             continue
-        for acquired in json.loads(relation["raw_json"] or "{}").get("intake_evidence", []):
+        origin = db.execute('SELECT raw_json FROM records WHERE id=?', (relation['origin_record_id'],)).fetchone()
+        for acquired in json.loads(origin['raw_json'] or "{}").get("intake_evidence", []):
             for author in acquired.get("authors", []):
                 if author.get("raw_name") == relation["raw_name"] and _orcid(author):
                     verified_ids.setdefault(_orcid(author), set()).add((relation["target_type"], relation["target_id"]))
