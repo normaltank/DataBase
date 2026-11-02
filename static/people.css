@@ -1,4 +1,6 @@
 .people-page,.person-page{min-width:0}
+.people-country-filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:10px;margin:10px 0}
+.people-search .toolbar{flex-wrap:wrap}
 .people-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,340px),1fr));gap:16px}
 .person-card{display:grid;grid-template-columns:64px minmax(0,1fr);gap:16px;padding:18px 20px;align-items:start;transition:border-color .15s,box-shadow .15s}
 .person-card:hover{border-color:var(--control-border);box-shadow:var(--shadow-hover)}

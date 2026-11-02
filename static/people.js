@@ -19,9 +19,11 @@ function personHint(person, limit=160) {
 async function peoplePage() {
   if(state.params.get('id')){const id=state.params.get('id');return personPage(await api('/api/people/'+encodeURIComponent(id)),await bylineWorksSection('person',id));}
   const result=await api('/api/people?'+state.params),query=state.params.get('q')||'';
+  const filterNames={q:'关键词',employment_country:'任职机构国别',subject_country:'作品研究对象国'};
+  const applied=Object.entries(filterNames).filter(([key])=>state.params.get(key));
   return `<section class="people-page"><div class="page-heading between wrap"><div><h1>作者目录</h1></div>${linkButton(icon('plus')+' 建立人物档案','new-person','','button primary')}</div>
-    <form data-form="people-search" class="toolbar"><div class="search-input">${icon('search')}<input name="q" type="search" aria-label="搜索作者" placeholder="原名、中文名或别名" value="${esc(query)}"></div><button class="button primary" type="submit">搜索</button></form>${query?`<div class="person-applied" aria-label="已应用的作者搜索"><span>已用条件</span><button class="ux-filter-chip" data-action="people-clear" aria-label="移除作者搜索：${esc(query)}">关键词：${esc(query)} <span aria-hidden="true">×</span></button></div>`:''}
-    <div class="results-head"><p>共 ${result.total} 位人物</p></div><div class="people-grid">${result.items.map(p=>`<article class="panel person-card">${personAvatar(p,true)}<div><h2><a href="#people?${esc(parameters({id:p.id}))}">${esc(p.name)}</a></h2>${personNames(p).length?`<p class="person-names">${esc(personNames(p).join(' · '))}</p>`:''}<p class="person-summary">${esc(personHint(p)||'介绍待补充')}</p><p class="small muted">版本 ${p.version} · ${dateTime(p.updated_at)}</p></div></article>`).join('')||empty(query?'未找到人物':'还没有人物档案','','person')+(query?linkButton('清除作者搜索','people-clear'):linkButton('建立人物档案','new-person'))}</div>
+    <form data-form="people-search" class="people-search"><div class="toolbar"><div class="search-input">${icon('search')}<input name="q" type="search" aria-label="搜索作者" placeholder="原名、中文名或别名" value="${esc(query)}"></div><button class="button primary" type="submit">查找</button>${linkButton('清除筛选','people-clear')}</div><div class="people-country-filters">${readingFacet(result,'employment_country','任职机构国别')}${readingFacet(result,'subject_country','作品研究对象国')}</div></form>${applied.length?`<div class="person-applied" aria-label="已应用的作者搜索"><span>已用条件</span>${applied.map(([key,label])=>`<button class="ux-filter-chip" data-action="people-clear-filter" data-id="${key}" aria-label="移除${label}">${esc(label)}：${esc(key==='q'?query:state.params.get(key).split('|').map(value=>value==='__unknown__'?(key==='employment_country'?'任职国别待补充':'无可见已确认作品研究对象'):countryLabel(value)).join('、'))} <span aria-hidden="true">×</span></button>`).join('')}</div>`:''}
+    <div class="results-head"><p>共 ${result.total} 位人物</p></div><div class="people-grid">${result.items.map(p=>`<article class="panel person-card">${personAvatar(p,true)}<div><h2><a href="#people?${esc(parameters({id:p.id}))}">${esc(p.name)}</a></h2>${personNames(p).length?`<p class="person-names">${esc(personNames(p).join(' · '))}</p>`:''}<p class="person-summary">${esc(personHint(p)||'介绍待补充')}</p></div></article>`).join('')||empty(applied.length?'未找到符合条件的人物':'还没有人物档案','','person')+(applied.length?linkButton('清除筛选','people-clear'):linkButton('建立人物档案','new-person'))}</div>
     ${result.total>result.page_size?`<div class="pagination">${result.page>1?linkButton('上一页','page',String(result.page-1)):''}<span>第 ${result.page} / ${Math.ceil(result.total/result.page_size)} 页</span>${result.page*result.page_size<result.total?linkButton('下一页','page',String(result.page+1)):''}</div>`:''}</section>`;
 }
 
@@ -111,6 +113,7 @@ document.addEventListener('click',async event=>{
     else if(button.dataset.action==='edit-person')await personForm(button.dataset.id);
     else if(button.dataset.action==='person-history')await personHistory(button.dataset.id);
     else if(button.dataset.action==='people-clear')go('people');
+    else if(button.dataset.action==='people-clear-filter')go('people',parameters({[button.dataset.id]:'',page:''}));
     else if(button.dataset.action==='person-accept-latest'){
       const panel=button.closest('[data-conflict-panel]'),form=panel.closest('form'),latest=panel._latest;
       form._editing.version=latest.version;form._editing.original=latest;form._conflictPending=false;

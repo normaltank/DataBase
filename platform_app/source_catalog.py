@@ -3,6 +3,7 @@ import json
 import re
 from datetime import date
 from pathlib import Path
+from . import countries as country_names
 
 INSTITUTIONS = {"institution", "think_tank"}
 PUBLICATIONS = {"journal", "serial", "registry_publication"}
@@ -157,6 +158,8 @@ def catalog(db):
         # One projection for source selection and record scope queries. Institution
         # registration and publication host evidence retain their distinct rules.
         s["filter_countries"] = ids(s["country"]) if s["kind"] in INSTITUTIONS else s["national_countries"] if s["kind"] in PUBLICATIONS else []
+        s['country_labels'] = country_names.labels(ids(s['country']))
+        s['national_country_labels'] = country_names.labels(s['national_countries'])
         publishers = [rows[i] for i in ids(s["publisher_id"]) if i in rows]
         s["publisher_countries"] = sorted({c for p in publishers for c in ids(p["country"])})
         for parent_id in ids(s["host_id"]) + ids(s["publisher_id"]):
@@ -177,7 +180,7 @@ def catalog(db):
 
 def matches_scope(source, group="", country="", international=""):
     return (not group or source["group"] == group) and (
-        not country or (not source["filter_countries"] if country == "__pending__" else country in source["filter_countries"])) and (
+        not country or bool(country_names.keys(ids(country)).intersection(country_names.keys(source['filter_countries']) or {'__pending__'}))) and (
         not international or source["kind"] == "journal" and source["international_status"] == international)
 
 

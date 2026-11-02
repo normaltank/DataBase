@@ -52,7 +52,8 @@ class SourceCatalogTests(unittest.TestCase):
         for country in ['拉脱维亚', '爱沙尼亚']:
             r = self.client.get('/api/sources', query_string={'group':'journal','country':country,'international':'yes'}).json
             self.assertEqual([s['id'] for s in r['items']], [j])
-        self.assertEqual(self.client.get('/api/sources?country=英国').json['total'], 0)
+        self.assertEqual(self.client.get('/api/sources?group=journal&country=英国').json['total'], 0)
+        self.assertEqual([s['id'] for s in self.client.get('/api/sources?group=institution&country=英国').json['items']], [uk])
 
     def test_unknown_is_not_no_and_missing_or_conflicting_hosts_stay_pending(self):
         host = self.source('国家缺少依据', country='拉脱维亚')

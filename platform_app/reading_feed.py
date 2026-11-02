@@ -42,9 +42,10 @@ def available(row, projection):
 
 def facets(rows, db):
     from collections import Counter
-    from . import translations, source_catalog, workflow
+    from . import translations, source_catalog, workflow, countries
     counts = {key: Counter() for key in ['country', 'kind', 'language', 'topic', 'source', 'source_country', 'source_group', 'availability']}
     catalog = source_catalog.catalog(db)
+    country_groups = {'country': [], 'source_country': []}
     for row in rows:
         from .automatic_processing import projection as automatic_projection
         automatic = automatic_projection(db,row)
@@ -56,8 +57,13 @@ def facets(rows, db):
                   'source_group': {catalog[s]['group'] for s in source_ids if s in catalog},
                   'source_country': {c for s in source_ids if s in catalog for c in catalog[s].get('filter_countries', []) or ['__pending__']}}
         for key, values in fields.items():
-            counts[key].update(set(values))
-    return {key: [{'value': value, 'count': count} for value, count in sorted(counter.items())] for key, counter in counts.items()}
+            if key in country_groups:
+                country_groups[key].append(values)
+            else:
+                counts[key].update(set(values))
+    result = {key: [{'value': value, 'count': count} for value, count in sorted(counter.items())] for key, counter in counts.items()}
+    result.update({key:countries.facet(groups) for key,groups in country_groups.items()})
+    return result
 
 
 def migrate(data_dir):
