@@ -79,7 +79,8 @@
 .reading-facet summary{padding:8px 10px;min-height:40px;border:1px solid var(--control-border);border-radius:6px;cursor:pointer;background:var(--surface);line-height:1.5;overflow-wrap:anywhere;color:var(--text)}
 .reading-facet summary:hover{border-color:var(--primary);background:var(--surface-muted)}
 .reading-facet-options{padding:10px 12px;border:1px solid var(--border);background:var(--surface);max-height:220px;overflow:auto;border-radius:6px}
-.reading-quick>.reading-facet .reading-facet-options{position:absolute;z-index:8;width:270px;max-width:85vw;box-shadow:0 5px 20px #15385720}
+.reading-quick>.reading-facet[open]{flex-basis:100%;order:2}
+.reading-quick>.reading-facet .reading-facet-options{width:100%;max-width:100%;display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:0 16px}
 .reading-facet-options label{display:flex;align-items:start;gap:8px;padding:5px 0;font-size:15px;line-height:1.5;cursor:pointer}
 .reading-facet-options label span{flex:1;overflow-wrap:anywhere}
 .reading-facet-options small{font-size:14px;color:var(--text-muted);font-variant-numeric:tabular-nums}

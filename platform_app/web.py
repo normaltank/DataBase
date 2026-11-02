@@ -16,6 +16,7 @@ from werkzeug.security import check_password_hash
 from .search import normalize, RecordSearch
 from .attachment_search import AttachmentIndex, original_path
 from .publication_dates import interval as publication_interval, query_range as publication_query_range
+from . import countries as country_names
 from .store import connect, decoded, initialize, now, save_revision
 from .record_revisions import RecordRevisions, validate_text, check_version
 from . import source_catalog, workflow, evidence, identity, operations, reading, people, note_subjects, bylines, affiliations, person_identity, bulk, intake, saved_searches, collection_scope, reviews, translations, ris, discovery, reading_feed
@@ -113,6 +114,11 @@ def create_app(data_dir=None, testing=False):
             account = {k: row[k] for k in ["id", "username", "name", "role"]} if row and row["credential_version"] == session.get("credential_version", 0) else None
         return jsonify(user=account, csrf=session["csrf"])
 
+    @app.get('/api/country-names')
+    def country_names_list():
+        return jsonify(version=country_names.DATA['version'], aliases=country_names.ALIASES,
+                       labels={code:entry['label'] for code,entry in country_names.ENTRIES.items()})
+
     @app.post("/api/login")
     def login():
         payload = body()
@@ -206,10 +212,10 @@ def create_app(data_dir=None, testing=False):
         obj["reading_access"] = reading.access(r, g.reading_attachments, data_dir)
         return obj
 
-    def filtered_records(args):
+    def filtered_records(args, freeze=True):
         args = saved_searches.resolve(db(), user()['id'], args)
         from . import reading_queries
-        frozen = reading_queries.get(db(), args)
+        frozen = reading_queries.get(db(), args) if freeze else None
         date_from, date_to = publication_query_range(args)
         date_field = args.get('date_field', 'published')
         if date_field not in {'published', 'collected', 'updated'}:
@@ -231,7 +237,7 @@ def create_app(data_dir=None, testing=False):
         g.reading_attachments = {a["id"]: a for group in attachments.values() for a in group}
         favorites = {r[0] for r in db().execute("SELECT record_id FROM favorites WHERE user_id=?", (user()["id"],))}
         q = normalize(args.get("q", "").strip())
-        countries = {country.casefold() for country in reading_feed.choices(args.get('country'))}
+        countries = country_names.keys(reading_feed.choices(args.get('country')))
         source_names = {sid: g.record_search.source_text(sid) for sid in g.record_search.sources}
         collection_ids = None
         if args.get("collection"):
@@ -298,7 +304,7 @@ def create_app(data_dir=None, testing=False):
                 continue
             if args.get('language') and not set(reading_feed.choices(args['language'])).intersection(re.split(r'[;,|\s]+', r['language']) if r['language'] else ['__unknown__']):
                 continue
-            subject_countries = {country.casefold() for country in reading_feed.terms(automatic['subject_countries'])} or {'__unknown__'}
+            subject_countries = country_names.keys(reading_feed.terms(automatic['subject_countries'])) or {'__unknown__'}
             if countries and not countries.intersection(subject_countries):
                 continue
             if args.get('topic') and not any((not automatic['subject_topics'].strip()) if t == '__unknown__' else t.casefold() in automatic['subject_topics'].casefold() for t in reading_feed.choices(args['topic'])):
@@ -338,7 +344,7 @@ def create_app(data_dir=None, testing=False):
             results.sort(key=lambda r: r["updated_at"], reverse=True)
         elif args.get("sort") == "title":
             results.sort(key=lambda r: r["title"].casefold())
-        frozen = reading_queries.freeze(db(), args, results)
+        frozen = reading_queries.freeze(db(), args, results) if freeze else None
         if frozen is not None:
             order = {rid: i for i, rid in enumerate(json.loads(frozen['ids_json']))}
             results = sorted((r for r in rows if r['id'] in order), key=lambda r: order[r['id']])
@@ -348,13 +354,23 @@ def create_app(data_dir=None, testing=False):
     @app.get("/api/records")
     def records_list():
         rows, favorites = filtered_records(request.args)
+        facets = reading_feed.facets(rows, db())
+        options = {}
+        args = dict(saved_searches.resolve(db(), user()['id'], request.args))
+        for dimension in ['country', 'source_country']:
+            if args.get(dimension):
+                option_args = {k:v for k,v in args.items() if k not in {dimension, 'saved_search'}}
+                option_rows, _ = filtered_records(option_args, freeze=False)
+                options[dimension] = reading_feed.facets(option_rows, db())[dimension]
+            else:
+                options[dimension] = facets[dimension]
         try:
             page = max(1, int(request.args.get("page", 1)))
             size = min(100, max(1, int(request.args.get("size", 12))))
         except ValueError:
             abort(400, "页码不正确。")
         return jsonify(items=[record_summary(r, favorites) for r in rows[(page - 1)*size:page*size]], total=len(rows), page=page, size=size,
-                       facets=reading_feed.facets(rows, db()), reading_confirmation=g.get('reading_confirmation'))
+                       facets=facets, facet_options=options, reading_confirmation=g.get('reading_confirmation'))
 
     @app.get("/api/record-candidates")
     def record_candidates():
@@ -539,7 +555,6 @@ def create_app(data_dir=None, testing=False):
     @app.get("/api/sources")
     def sources_list():
         rows = list(source_catalog.catalog(db()).values())
-        countries = sorted({c for r in rows if r["kind"] == "journal" for c in r["national_countries"]})
         q = request.args.get("q", "").casefold().strip()
         if q:
             rows = [r for r in rows if all(w in (r["name"] + " " + r["original_name"] + " " + r["classification"] + " " + r["aliases"] + " " + r["introduction_text"]).casefold() for w in q.split())]
@@ -553,19 +568,20 @@ def create_app(data_dir=None, testing=False):
             rows = [r for r in rows if r["group"] == request.args["group"]]
         if request.args.get("institution_type"):
             rows = [r for r in rows if request.args["institution_type"] in r["institution_types"]]
-        country = request.args.get("country")
-        if country:
-            rows = [r for r in rows if r["kind"] == "journal" and (
-                r["national_status"] == "pending" if country == "__pending__" else country in r["national_countries"])]
         if request.args.get("international"):
             rows = [r for r in rows if r["kind"] == "journal" and r["international_status"] == request.args["international"]]
         if request.args.get("status"):
             rows = [r for r in rows if r["status"] == request.args["status"]]
         if request.args.get("scope") == "active":
             rows = [r for r in rows if not any(x in r["scope_status"] for x in ["out_of_scope", "historical", "discovery", "candidate"]) and r["kind"] not in ["portal", "registry_publication"]]
+        country_options = country_names.facet([r['filter_countries'] or ['__pending__'] for r in rows])
+        if request.args.get('country'):
+            rows = [r for r in rows if source_catalog.matches_scope(r, country=request.args['country'])]
+        country_facets = country_names.facet([r['filter_countries'] or ['__pending__'] for r in rows])
         for source in rows:
             source["previous_ids"] = [sid for sid in identity.origins(db(), "sources", source["id"]) if sid != source["id"]]
-        return jsonify(items=[{k: v for k, v in r.items() if k != "raw_json"} for r in rows], total=len(rows), countries=countries)
+        return jsonify(items=[{k: v for k, v in r.items() if k != "raw_json"} for r in rows], total=len(rows),
+                       countries=[r['value'] for r in country_options], facets={'country':country_facets}, facet_options={'country':country_options})
 
     @app.get("/api/sources/<sid>")
     def source_detail(sid):
@@ -849,7 +865,7 @@ def create_app(data_dir=None, testing=False):
     translations.register(app, SimpleNamespace(db=db, user=user, body=body, records=records))
     bulk.register(app, SimpleNamespace(db=db, user=user, body=body, visible=visible, get_collection=get_collection, export_csv=export_csv))
     identity.register(app, db=db, body=body, records=records, validate_source=source_values)
-    people.register(app, SimpleNamespace(db=db, user=user, body=body, data_dir=data_dir))
+    people.register(app, SimpleNamespace(db=db, user=user, body=body, data_dir=data_dir, records=records))
     person_identity.register(app, SimpleNamespace(db=db, user=user, body=body, data_dir=data_dir, records=records, record_summary=record_summary))
     bylines.register(app, SimpleNamespace(db=db, user=user, body=body, records=records, record_summary=record_summary))
     affiliations.register(app, SimpleNamespace(db=db, user=user, body=body, records=records, record_summary=record_summary))

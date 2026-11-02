@@ -244,6 +244,9 @@ def register(app, ctx):
 
     @app.get("/api/people")
     def people_list():
+        from . import people_filters
+        if request.args.get('country'):
+            abort(400, '请选择任职机构国别或作品研究对象国。')
         service = profiles()
         words = request.args.get("q", "").strip().casefold().split()
         try:
@@ -254,7 +257,10 @@ def register(app, ctx):
         rows = [r for r in ctx.db().execute("SELECT * FROM people WHERE merged_into IS NULL ORDER BY updated_at DESC,id")
                 if all(w in " ".join([r[k] for k in ["name", "original_name", "chinese_name", "aliases"]] +
                                      identity.origins(ctx.db(), "people", r["id"])).casefold() for w in words)]
-        return jsonify(items=[service.detail(r["id"]) for r in rows[(page-1)*size:page*size]], total=len(rows), page=page, page_size=size)
+        values = people_filters.country_sets(ctx.db(), ctx.records(), rows)
+        rows, facets, options = people_filters.filter_people(rows, values, request.args)
+        return jsonify(items=[service.detail(r["id"]) for r in rows[(page-1)*size:page*size]], total=len(rows), page=page, page_size=size,
+                       facets=facets, facet_options=options)
 
     @app.get("/api/people/<pid>")
     def person_detail(pid):

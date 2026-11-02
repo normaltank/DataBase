@@ -6,18 +6,18 @@ const inverseRelationLabels={part_of:'下属机构',established_by:'参与设立
 const isInstitution=s=>['institution','think_tank'].includes(s.kind);
 const isPublication=s=>['journal','serial','registry_publication'].includes(s.kind);
 const sourceLabel=s=>isInstitution(s)?'机构':s.kind==='journal'?'期刊':s.kind==='portal'?'资料发现网站':'其他出版物';
-const countryText=s=>s.national_status==='recorded'?s.national_countries.join(' / '):'待确认';
+const countryText=s=>s.national_status==='recorded'?(s.national_country_labels||s.national_countries).join(' / '):'待确认';
 function evidenceHtml(text){
   if(!text)return '<p class="small muted">依据待补充；不据此作肯定或否定判断。</p>';
   const urls=[...new Set((text.match(/https?:\/\/[^\s|<>]+/g)||[]).map(u=>u.replace(/[。；），,)]+$/,'')))];
   return `<p class="prose evidence-text">${esc(text)}</p><div class="row wrap">${urls.map((u,i)=>externalLink(u,'依据链接 '+(i+1),'link-button')).join('')}</div>`;
 }
 function sourceCard(s){
-  const meta=isInstitution(s)?`${esc(s.country||'国家待确认')} · ${esc(s.location||'所在地待补充')}`:s.kind==='journal'?`主办国别：${esc(countryText(s))}`:esc(serialTypes[s.classification]||'');
+  const meta=isInstitution(s)?`${esc((s.country_labels||[]).join(' / ')||s.country||'国家待确认')} · ${esc(s.location||'所在地待补充')}`:s.kind==='journal'?`主办国别：${esc(countryText(s))}`:esc(serialTypes[s.classification]||'');
   return `<article class="source-card"><div class="row wrap source-status"><span class="badge blue">${sourceLabel(s)}</span>${badge(s.status)}</div><div><h2>${s.kind==='portal'?linkButton(esc(s.name),'source-preview',s.id,'title-button'):`<a class="title-button" href="${sourceHref(s.id)}">${esc(s.name)}</a>`}</h2>${s.original_name?.trim()&&s.original_name.trim()!==s.name.trim()?`<p class="source-english">${esc(s.original_name)}</p>`:''}</div>${meta?`<p class="small muted">${meta}</p>`:''}<div class="row wrap">${isInstitution(s)?s.institution_types.map(t=>`<span class="badge neutral">${esc(institutionTypes[t])}</span>`).join(''):s.kind==='journal'?`<span class="badge neutral">国际定位：${esc(internationalLabels[s.international_status])}</span>`:''}</div>${s.search_snippet?`<p class="search-snippet">${esc(s.search_snippet)}</p>`:''}<div class="source-foot"><span class="small muted">${scopeLabel(s.scope_status)}</span>${linkButton('快速预览','source-preview',s.id,'link-button')}</div></article>`;
 }
 function sourceAppliedFilters(p){
-  const entries=[['q','关键词',p.get('q')],['institution_type','机构类型',institutionTypes[p.get('institution_type')]],['country','期刊主办国别',p.get('country')==='__pending__'?'待确认':p.get('country')],['international','国际定位',internationalLabels[p.get('international')]],['scope','收录范围',p.get('scope')==='active'?'当前收录范围':p.get('scope')]];
+  const entries=[['q','关键词',p.get('q')],['institution_type','机构类型',institutionTypes[p.get('institution_type')]],['country',p.get('group')==='journal'?'主办国别':p.get('group')==='institution'?'机构国家':'国家／地区',p.get('country')==='__pending__'?'待确认':countryLabel(p.get('country'))],['international','国际定位',internationalLabels[p.get('international')]],['scope','收录范围',p.get('scope')==='active'?'当前收录范围':p.get('scope')]];
   const active=entries.filter(([key,,value])=>p.get(key)&&value);
   return active.length?`<div class="source-applied" aria-label="已应用的来源筛选"><span>已用条件</span>${active.map(([key,label,value])=>`<button type="button" class="ux-filter-chip" data-action="source-clear-filter" data-id="${key}" aria-label="移除筛选：${esc(label+'：'+value)}">${esc(label+'：'+value)} <span aria-hidden="true">×</span></button>`).join('')}</div>`:'';
 }
@@ -28,7 +28,7 @@ async function sourcesPage(){
   if(!maintenance)query.set('directory','1');
   const d=await api('/api/sources?'+query),g=p.get('group')||'';
   const groups=[['','全部'],['institution','机构'],['journal','期刊'],['publication','其他出版物']];
-  return `<section class="sources-page"><div class="page-heading between wrap"><div><h1>${maintenance?'资料发现网站':'来源目录'}</h1>${maintenance?'<p>登记用于发现资料的门户与检索网站，当前不自动采集。机构与期刊官网保存在原档案，无需重复登记。</p>':''}</div><div class="row wrap">${linkButton(icon('plus')+' '+'提供采集来源',maintenance?'new-portal':'new-source','','button primary')}</div></div>${maintenance?linkButton('返回数据与维护','nav','system'): `<div class="tabs" aria-label="来源类型">${groups.map(([key,name])=>`<button class="tab ${g===key?'active':''}" data-action="source-group" data-id="${key}" aria-pressed="${g===key}">${name}</button>`).join('')}</div>`}<form data-form="source-search" class="source-search"><div class="toolbar"><div class="search-input">${icon('search')}<input type="search" name="q" value="${esc(p.get('q'))}" placeholder="名称、介绍或别名 (按 / 聚焦)" aria-label="来源关键词"></div><button class="button primary" type="submit">搜索</button></div><details class="source-filter-options"><summary>筛选条件</summary><div class="source-filters">${!maintenance&&['','institution'].includes(g)?`<label>机构类型<select name="institution_type" aria-label="机构类型">${selectOptions(institutionTypes,p.get('institution_type'),'全部机构类型')}</select></label>`:''}${!maintenance&&['','journal'].includes(g)?`<label>期刊主办国别<select name="country" aria-label="期刊主办国别">${selectOptions({...Object.fromEntries(d.countries.map(c=>[c,c])),__pending__:'待确认'},p.get('country'),'全部国别')}</select></label><label>国际定位<select name="international" aria-label="国际定位">${selectOptions(internationalLabels,p.get('international'),'全部国际定位')}</select></label>`:''}<label>收录范围<select name="scope" aria-label="收录范围">${selectOptions({active:'当前收录范围'},p.get('scope'),'全部范围')}</select></label><button class="button primary" type="submit">应用筛选</button>${linkButton('清除筛选','source-group',g)}</div>${!maintenance&&['','journal'].includes(g)?'<p class="small muted">期刊按主办国别筛选，出版方国家另记；国际定位独立登记。</p>':''}</details></form>${sourceAppliedFilters(p)}<div class="results-head"><span>找到 <strong>${d.total}</strong> 条${maintenance?'资料发现网站':'来源'}</span></div><div class="source-grid">${d.items.map(sourceCard).join('')||empty('没有匹配的来源','','source')+linkButton('清除筛选','source-group',g)}</div></section>`;
+  return `<section class="sources-page"><div class="page-heading between wrap"><div><h1>${maintenance?'资料发现网站':'来源目录'}</h1>${maintenance?'<p>登记用于发现资料的门户与检索网站，当前不自动采集。机构与期刊官网保存在原档案，无需重复登记。</p>':''}</div><div class="row wrap">${linkButton(icon('plus')+' '+'提供采集来源',maintenance?'new-portal':'new-source','','button primary')}</div></div>${maintenance?linkButton('返回数据与维护','nav','system'): `<div class="tabs" aria-label="来源类型">${groups.map(([key,name])=>`<button class="tab ${g===key?'active':''}" data-action="source-group" data-id="${key}" aria-pressed="${g===key}">${name}</button>`).join('')}</div>`}<form data-form="source-search" class="source-search"><div class="toolbar"><div class="search-input">${icon('search')}<input type="search" name="q" value="${esc(p.get('q'))}" placeholder="名称、介绍或别名 (按 / 聚焦)" aria-label="来源关键词"></div><button class="button primary" type="submit">搜索</button></div><div class="source-filters">${!maintenance&&['','institution'].includes(g)?`<label>机构类型<select name="institution_type" aria-label="机构类型">${selectOptions(institutionTypes,p.get('institution_type'),'全部机构类型')}</select></label>`:''}${!maintenance?`<label>${g==='journal'?'主办国别':g==='institution'?'机构国家':'国家／地区'}<select name="country" aria-label="${g==='journal'?'主办国别':g==='institution'?'机构国家':'国家／地区'}">${selectOptions(countryOptions(d,'country',p.get('country')),p.get('country')?countryKey(p.get('country')):'','全部国家／地区')}</select></label>`:''}${!maintenance&&['','journal'].includes(g)?`<label>国际定位<select name="international" aria-label="国际定位">${selectOptions(internationalLabels,p.get('international'),'全部国际定位')}</select></label>`:''}<label>收录范围<select name="scope" aria-label="收录范围">${selectOptions({active:'当前收录范围'},p.get('scope'),'全部范围')}</select></label><button class="button primary" type="submit">应用筛选</button>${linkButton('清除筛选','source-reset',g)}</div></form>${sourceAppliedFilters(p)}<div class="results-head"><span>找到 <strong>${d.total}</strong> 条${maintenance?'资料发现网站':'来源'}</span></div><div class="source-grid">${d.items.map(sourceCard).join('')||empty('没有匹配的来源','','source')+linkButton('清除筛选','source-reset',g)}</div></section>`;
 }
 async function systemPage(){
   if(state.me.role!=='admin')throw new Error('此入口供资料管理员使用。');
@@ -101,7 +101,7 @@ async function sourceProfile(s,preview=false,requested=s.id){
   const common=detailPair('来源研究覆盖范围',esc(s.research_scope))+detailPair('稳定编号',esc(s.id));
   let fields='',relations='',evidence='';
   if(isInstitution(s)){
-    fields=detailPair('机构类型',s.institution_types.map(t=>esc(institutionTypes[t])).join(' / '))+detailPair('机构所在地',esc(s.location))+detailPair('机构国家',esc(s.country));
+    fields=detailPair('机构类型',s.institution_types.map(t=>esc(institutionTypes[t])).join(' / '))+detailPair('机构所在地',esc(s.location))+detailPair('机构国家',esc((s.country_labels||[]).join(' / ')));
     evidence=`<section class="detail-section"><h4>机构国家依据</h4>${evidenceHtml(s.country_evidence)}</section>`;
     relations=relationDetails(s)+await bylineWorksSection('institution',s.id)+await employmentSection(s.id,true)+await institutionAffiliationsSection(s.id);
   }else if(isPublication(s)){
@@ -177,7 +177,8 @@ document.addEventListener('click',event=>{
     if(b.closest('.source-preview'))sourceContentSection(state.detail.data,b.dataset.key,section.dataset.label,Number(b.dataset.id)).then(html=>{if(section.isConnected)section.outerHTML=html;}).catch(e=>toast(e.message));
     else go(state.page,parameters({['content_'+b.dataset.key]:b.dataset.id}));
   }
-  if(b.dataset.action==='source-group')go(state.page==='maintenance-sources'?'maintenance-sources':'sources',b.dataset.id?{group:b.dataset.id}:{});
+  if(b.dataset.action==='source-reset')go(state.page==='maintenance-sources'?'maintenance-sources':'sources',b.dataset.id?{group:b.dataset.id}:{});
+  if(b.dataset.action==='source-group'){const p=new URLSearchParams(state.params);p.delete('id');p.delete('page');p.set('group',b.dataset.id||'');if(b.dataset.id&&!['institution',''].includes(b.dataset.id))p.delete('institution_type');if(b.dataset.id&&!['journal',''].includes(b.dataset.id))p.delete('international');go(state.page==='maintenance-sources'?'maintenance-sources':'sources',p);}
   if(b.dataset.action==='source-clear-filter')go(state.page,parameters({[b.dataset.id]:''}));
   if(b.dataset.action==='source-maintenance-reset')go('maintenance-sources',{status:'all'});
   if(b.dataset.action==='source-existing'&&closeModal(false)!==false)go('sources',{id:b.dataset.id});
@@ -186,11 +187,6 @@ document.addEventListener('click',event=>{
   if(b.dataset.action==='source-remove-relation')b.closest('[data-relation-row]').remove();
 });
 document.addEventListener('change',event=>{
-  const filter=event.target.closest('[data-form="source-search"]');
-  if(filter&&event.target.value){
-    const clear=event.target.name==='institution_type'?['country','international']:['country','international'].includes(event.target.name)?['institution_type']:[];
-    clear.forEach(name=>{const el=filter.elements.namedItem(name);if(el)el.value='';});
-  }
   const sourceFormElement=event.target.closest('[data-form="source"]');
   if(sourceFormElement&&['country','host_id'].includes(event.target.name)){
     const original=state.editing.original,key=event.target.name,evidenceKey=key==='country'?'country_evidence':'host_evidence';

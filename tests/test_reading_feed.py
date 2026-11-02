@@ -270,7 +270,7 @@ class ReadingFeedTests(unittest.TestCase):
         selected = self.client.get('/api/records', query_string={'country':'几内亚'}).json
         self.assertEqual(selected['total'], 1)
         self.assertEqual([row['id'] for row in selected['items']], [guinea['id']])
-        self.assertEqual(selected['facets']['country'], [{'value':'几内亚','count':1}])
+        self.assertEqual(selected['facets']['country'], [{'value':'GN','label':'几内亚','count':1}])
         batch = self.call('/api/reading-batches')
         query = {'batch':batch['id'], 'batch_scope':'all', 'country':'几内亚'}
         self.assertEqual([row['id'] for row in self.client.get('/api/records', query_string=query).json['items']], [guinea['id']])
@@ -302,7 +302,7 @@ class ReadingFeedTests(unittest.TestCase):
         self.assertEqual({row['id'] for row in rows['items']}, {multiple['id'],unknown['id']})
         rows = self.client.get('/api/records', query_string={'country':'__unknown__'}).json
         self.assertEqual([row['id'] for row in rows['items']], [unknown['id']])
-        self.assertEqual(rows['facets']['country'], [{'value':'__unknown__','count':1}])
+        self.assertEqual(rows['facets']['country'], [{'value':'__unknown__','label':'__unknown__','count':1}])
         self.assertEqual(self.client.get('/api/records', query_string={'country':'Fin'}).json['total'], 0)
 
     def test_source_multi_selection_includes_unknown_without_expanding_to_other_sources(self):

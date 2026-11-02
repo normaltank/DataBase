@@ -28,7 +28,7 @@ def check_name(name):
 
 
 def verify(read, names, require_intro=True):
-    from build_portable import SOURCE_DIRS, SOURCE_FILES
+    from build_portable import SOURCE_DIRS, SOURCE_FILES, COUNTRY_DATA_FILES
     if len({name.casefold() for name in names}) != len(names):
         raise ValueError('Duplicate case-insensitive package name')
     for name in names:
@@ -68,7 +68,7 @@ def verify(read, names, require_intro=True):
             if sha(read(name)) != runtime_files[name]:
                 raise ValueError('Runtime bytes differ from locked official artifact: ' + name)
         elif first in SOURCE_DIRS:
-            if Path(name).suffix not in {'.py', '.js', '.css', '.html', '.svg', '.png', '.ico', '.woff2'}:
+            if name not in COUNTRY_DATA_FILES and Path(name).suffix not in {'.py', '.js', '.css', '.html', '.svg', '.png', '.ico', '.woff2'}:
                 raise ValueError('Unexpected source file: ' + name)
         elif name not in fixed:
             raise ValueError('File outside explicit distribution allowlist: ' + name)
