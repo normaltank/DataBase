@@ -11,7 +11,7 @@ from pathlib import Path
 
 from flask import abort, jsonify, request, send_file
 
-from . import collaboration, handoff_files, topic_stages
+from . import collaboration, handoff_files, topic_stages, topic_closure
 from .store import connect, now
 
 SCHEMA_VERSION = 21
@@ -96,7 +96,7 @@ def meeting_projection(db, tid):
 
 
 def workflow_projection(db, actor, topic):
-    compilation = topic_stages.state(db, topic["id"])["stage"] == "compilation"
+    compilation = topic_stages.state(db, topic["id"])["stage"] == "compilation" and topic_closure.is_open(db, topic["id"])
     meetings = meeting_projection(db, topic["id"])
     assignments = [dict(a, active=True) for a in meetings[0]["assignments"]] if meetings else []
     known = {a["id"] for a in assignments}
@@ -122,6 +122,7 @@ def workflow_projection(db, actor, topic):
         latest = current_manuscript(db, topic["id"], a) if a["active"] else None
         a["current_submission_id"] = latest["id"] if latest else None
         a["status"] = ("returned" if any(r["submission_id"] == latest["id"] for r in a["returns"]) else "pending") if latest else "awaiting_submission"
+        a["is_mine"] = a["active"] and a["author_id"] == actor["id"]
         a["can_submit"] = compilation and a["active"] and a["author_id"] == actor["id"] and collaboration.can_read(db, actor, topic) and bool(db.execute("SELECT 1 FROM topic_participants WHERE topic_id=? AND member_id=? AND active=1", (topic["id"], actor["id"])).fetchone())
     from .topic_finals import enrich_workflow
     workflow = enrich_workflow(db, actor, topic, {"meeting_version": meetings[0]["version"] if meetings else 0, "meetings": meetings, "assignments": assignments})
@@ -301,6 +302,7 @@ def register(app, ctx):
         with handoff_files.transaction(db()) as created:
             actor = user()
             topic = collaboration.topic_for(db(), actor, tid, manage=True)
+            topic_closure.require_open(db(), tid)
             previous = db().execute("SELECT id,request_hash FROM topic_meetings WHERE topic_id=? AND actor_id=? AND request_id=?", (tid, actor["id"], key)).fetchone()
             if previous:
                 if previous["request_hash"] != request_hash:

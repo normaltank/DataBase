@@ -23,7 +23,7 @@ def work_items(db, actor, access):
         work = collaboration.projection(db, actor, row)
         workflow = topic_review.workflow_projection(db, actor, row)
         activity = [row['updated_at']]
-        for table in ('topic_candidates', 'topic_meetings', 'topic_manuscripts', 'topic_returns', 'topic_finals', 'topic_summaries', 'topic_stage_events'):
+        for table in ('topic_candidates', 'topic_meetings', 'topic_manuscripts', 'topic_returns', 'topic_finals', 'topic_summaries', 'topic_stage_events', 'topic_closure_events'):
             stamp = db.execute(f'SELECT MAX(created_at) FROM {table} WHERE topic_id=?', (row['id'],)).fetchone()[0]
             if stamp:
                 activity.append(stamp)
@@ -113,7 +113,7 @@ def material_payload(ctx, business, wid, scope):
     if business == 'topic':
         topic = collaboration.topic_for(db, actor, wid)
         payload['topic'] = collaboration.projection(db, actor, topic)
-        payload['stage_coverage'] = '阶段为导出时当前状态；迁移来源与人工转换单独列明，不代表各份旧材料提交时已有该阶段。'
+        payload['stage_coverage'] = '阶段与结束状态为导出时当前状态；升级、人工转换、结束／重开及确认缺项依据单独列明，不代表各份旧材料提交时已有该状态。'
         workflow = topic_review.workflow_projection(db, actor, topic)
         candidates = collaboration.candidate_projection(db, wid) if scope != 'products' else []
         if scope == 'products':

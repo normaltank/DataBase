@@ -169,6 +169,9 @@ def restore_backup(archive_path, target_dir):
                 from . import topic_stages
                 if int(version) >= topic_stages.SCHEMA_VERSION:
                     topic_stages.validate_backup(db)
+                from . import topic_closure
+                if int(version) >= topic_closure.SCHEMA_VERSION:
+                    topic_closure.validate_backup(db)
             for row in db.execute("SELECT stored_name,sha256 FROM attachments"):
                 name = "uploads/" + row["stored_name"]
                 if name not in manifest["files"] or manifest["files"][name]["sha256"] != row["sha256"]:

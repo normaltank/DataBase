@@ -52,6 +52,8 @@ def state(db, tid):
 
 
 def require_compilation(db, topic):
+    from . import topic_closure
+    topic_closure.require_open(db, topic["id"])
     if state(db, topic["id"])["stage"] != "compilation":
         abort(409, "本期仍在选题阶段，请等待负责人确认分工进入编译。文件和说明仍保留。")
 
@@ -130,6 +132,8 @@ def register(app, ctx):
             ctx.db().execute("BEGIN IMMEDIATE")
             db, actor = ctx.db(), ctx.user()
             topic = collaboration.topic_for(db, actor, tid, manage=True)
+            from . import topic_closure
+            topic_closure.require_open(db, tid)
             previous = db.execute("SELECT * FROM topic_stage_events WHERE topic_id=? AND actor_id=? AND request_id=?", (tid, actor["id"], key)).fetchone()
             if previous:
                 if previous["request_hash"] != digest:

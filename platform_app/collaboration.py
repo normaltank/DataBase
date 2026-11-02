@@ -94,10 +94,16 @@ def projection(db, actor, row):
     result["can_manage"] = row["lead_id"] == actor["id"] and qualified(db, actor["id"])
     result["is_lead"] = row["lead_id"] == actor["id"]
     result["is_participant"] = any(p["id"] == actor["id"] for p in result["participants"])
-    result["can_submit"] = result["is_participant"]
+    from . import topic_closure
+    result.update(topic_closure.projection(db, row["id"]))
+    open_work = result["lifecycle_state"] == "open"
+    result["can_end"] = result["can_manage"] and open_work
+    result["can_reopen"] = result["can_manage"] and not open_work
+    result["can_manage"] = result["can_manage"] and open_work
+    result["can_submit"] = result["is_participant"] and open_work
     from . import topic_stages
     result.update(topic_stages.projection(db, actor, row, result["can_manage"]))
-    result["can_submit_summary"] = result["is_participant"] and result["stage"] == "compilation"
+    result["can_submit_summary"] = result["is_participant"] and open_work and result["stage"] == "compilation"
     return result
 
 
@@ -218,6 +224,8 @@ def register(app, ctx):
             db().executemany("INSERT INTO topic_participants VALUES (?,?,1)", [(tid, uid) for uid in set(ids) | {actor["id"]}])
             from . import topic_stages
             topic_stages.create(db(), tid)
+            from . import topic_closure
+            topic_closure.create(db(), tid)
             save_topic_event(db(), tid, actor["id"])
         return jsonify(id=tid), 201
 
@@ -241,6 +249,8 @@ def register(app, ctx):
         with db():
             db().execute("BEGIN IMMEDIATE")
             row = topic_for(db(), user(), tid, manage=True)
+            from . import topic_closure
+            topic_closure.require_open(db(), tid)
             check_version(data, row)
             theme, due, ids = topic_values(db(), data)
             db().execute("UPDATE collaboration_topics SET theme=?,due_on=?,version=version+1,updated_at=? WHERE id=?", (theme, due, now(), tid))
@@ -268,6 +278,8 @@ def register(app, ctx):
         with handoff_files.transaction(db()) as created:
             actor = user()
             topic = topic_for(db(), actor, tid)
+            from . import topic_closure
+            topic_closure.require_open(db(), tid)
             if not db().execute("SELECT 1 FROM topic_participants WHERE topic_id=? AND member_id=? AND active=1", (tid, actor["id"])).fetchone():
                 abort(403, "只有本期参与者可提交自己的选题报告。")
             previous = db().execute("SELECT id,request_hash FROM topic_candidates WHERE topic_id=? AND uploader_id=? AND request_id=?", (tid, actor["id"], request_id)).fetchone()
