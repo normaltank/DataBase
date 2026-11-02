@@ -14,6 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from platform_app.web import create_app
+from platform_app.store import CURRENT_SCHEMA_VERSION
 from platform_app.maintenance import create_backup, restore_backup
 from scripts.check_collaboration_recovery import login, stored_record, corrupt_archive
 from scripts.check_journal_collaboration_recovery import SEED as TOPIC_SEED
@@ -57,10 +58,10 @@ def main():
         assert db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0] == '22'
         assert not db.execute("SELECT 1 FROM sqlite_master WHERE name='topic_finals'").fetchone()
         db.execute('DROP TRIGGER synthetic_final_migration')
-    assert login(create_app(failed, testing=True), 'researcher').get('/health').json['schema'] == 23
+    assert login(create_app(failed, testing=True), 'researcher').get('/health').json['schema'] == CURRENT_SCHEMA_VERSION
     app = create_app(data, testing=True)
     lead, author, admin = [login(app, name) for name in ('researcher', 'colleague', 'admin')]
-    assert lead.get('/health').json['schema'] == 23
+    assert lead.get('/health').json['schema'] == CURRENT_SCHEMA_VERSION
     record = lead.get('/api/records/' + before['record']['id']).json
     # The new optional backlink field does not alter an old independent record.
     assert record.pop('collaboration_works', []) == []
@@ -72,9 +73,10 @@ def main():
     previous = restore_backup(prebackup, evidence / 'preupgrade-restored')
     with closing(sqlite3.connect(previous / 'platform.sqlite3')) as db:
         assert db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0] == '22'
-    assert login(create_app(previous, testing=True), 'researcher').get('/health').json['schema'] == 23
+    assert login(create_app(previous, testing=True), 'researcher').get('/health').json['schema'] == CURRENT_SCHEMA_VERSION
     tid = call(lead, '/api/collaboration/topics', {'theme': '定稿与汇总恢复', 'participant_ids': ['colleague']})['id']
     call(lead, f'/api/collaboration/topics/{tid}/meetings', {'version': 0, 'topic_version': 1, 'request_id': 'recovery-meeting', 'assignments': [{'title': '独立甲', 'author_id': 'colleague', 'country': '拉脱维亚、波兰'}, {'title': '独立乙', 'author_id': 'colleague', 'country': '拉脱维亚'}]})
+    call(lead, f'/api/collaboration/topics/{tid}/enter-compilation', {'request_id': 'recovery-enter-compilation', 'stage_version': 1, 'topic_version': 1, 'meeting_version': 1})
     assignments = lead.get(f'/api/collaboration/topics/{tid}/workflow').json['assignments']
     finals, expected = [], [b'exact independent final A', b'exact independent final B']
     for index, a in enumerate(assignments):
@@ -122,7 +124,7 @@ def main():
             rejected.append(index)
         else:
             raise AssertionError(mutation)
-    result = {'baseline': baseline, 'schema_before': 22, 'schema_after': 23, 'preupgrade_backup_restored': True, 'migration_failure_rolled_back_and_retry_ok': True, 'journal_and_topic_history_retained': True, 'independent_legacy_body_and_attachment_unchanged': True, 'final_and_summary_identities_and_adoptions_restored': True, 'later_manuscript_does_not_replace_adoption': True, 'tampered_archive_rejections': len(rejected), 'final_original_sha256': [hashlib.sha256(raw).hexdigest() for raw in expected], 'summary_record_id': summary['record_id'], 'new_target_directory': str(restored)}
+    result = {'baseline': baseline, 'schema_before': 22, 'schema_after': CURRENT_SCHEMA_VERSION, 'preupgrade_backup_restored': True, 'migration_failure_rolled_back_and_retry_ok': True, 'journal_and_topic_history_retained': True, 'independent_legacy_body_and_attachment_unchanged': True, 'final_and_summary_identities_and_adoptions_restored': True, 'later_manuscript_does_not_replace_adoption': True, 'tampered_archive_rejections': len(rejected), 'final_original_sha256': [hashlib.sha256(raw).hexdigest() for raw in expected], 'summary_record_id': summary['record_id'], 'new_target_directory': str(restored)}
     (evidence / 'results.json').write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
     print(json.dumps({'evidence': str(evidence), **result}, ensure_ascii=False))
 

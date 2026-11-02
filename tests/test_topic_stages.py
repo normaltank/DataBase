@@ -42,6 +42,11 @@ class TopicStageTests(unittest.TestCase):
         self.assertFalse(any(a["can_submit"] for a in w["assignments"]))
         aid = w["assignments"][0]["id"]
         self.assertEqual(self.draft(tid, aid).status_code, 409)
+        for who in ("colleague", "admin"):
+            self.assertEqual(self.call(f"/api/collaboration/topics/{tid}/enter-compilation", {
+                "request_id": "stage-forbidden-confirm", "stage_version": 1,
+                "topic_version": 1, "meeting_version": 1,
+            }, who).status_code, 403)
         entered = self.enter(tid)
         self.assertEqual(entered.status_code, 201, entered.json)
         self.assertEqual(self.enter(tid).status_code, 200)
@@ -55,6 +60,8 @@ class TopicStageTests(unittest.TestCase):
         self.assertEqual(self.draft(tid, aid).status_code, 201)
         self.assertEqual(self.save(tid, [], version=1).status_code, 201)
         self.assertEqual(self.clients["colleague"].get(f"/api/collaboration/topics/{tid}").json["stage"], "compilation")
+        self.assertEqual(self.call("/api/collaboration/qualifications/researcher", {"version": 1, "enabled": False}, "admin", "PUT").status_code, 200)
+        self.assertEqual(self.enter(tid).status_code, 403)
 
     def test_empty_stale_and_revoked_confirmations_do_not_change_stage(self):
         tid = self.topic()
