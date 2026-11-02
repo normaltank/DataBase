@@ -33,12 +33,19 @@ class TopicReviewTests(unittest.TestCase):
 
     def meeting(self, tid, assignments=None, version=0, **extra):
         file = extra.pop("file", None)
-        return self.call(f"/api/collaboration/topics/{tid}/meetings", {
+        result = self.call(f"/api/collaboration/topics/{tid}/meetings", {
             "request_id": f"meeting-request-{version}", "version": version,
             "topic_version": 1, "note": "采用站外文章，由研究员本机编译",
             "assignments": assignments if assignments is not None else [
                 {"title": "未入库文章", "source": "https://example.invalid/article", "author_id": "colleague", "country": "拉脱维亚"}
             ], **extra}, file=file)
+        topic = self.clients["researcher"].get(f"/api/collaboration/topics/{tid}").json
+        if result.status_code == 201 and topic["can_enter_compilation"]:
+            entered = self.call(f"/api/collaboration/topics/{tid}/enter-compilation", {
+                "request_id": f"fixture-enter-{version}", "stage_version": topic["stage_version"],
+                "topic_version": topic["version"], "meeting_version": version + 1})
+            self.assertEqual(entered.status_code, 201, entered.json)
+        return result
 
     def workflow(self, tid, who="colleague"):
         result = self.clients[who].get(f"/api/collaboration/topics/{tid}/workflow")

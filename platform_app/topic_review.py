@@ -11,7 +11,7 @@ from pathlib import Path
 
 from flask import abort, jsonify, request, send_file
 
-from . import collaboration, handoff_files
+from . import collaboration, handoff_files, topic_stages
 from .store import connect, now
 
 SCHEMA_VERSION = 21
@@ -84,6 +84,10 @@ def meeting_projection(db, tid):
     for row in db.execute("SELECT m.*,u.name AS actor_name FROM topic_meetings m JOIN users u ON u.id=m.actor_id WHERE topic_id=? ORDER BY version DESC", (tid,)):
         item = dict(row)
         item["assignments"] = json.loads(item.pop("assignments_json"))
+        for assignment in item["assignments"]:
+            assignment["author_name"] = db.execute("SELECT name FROM users WHERE id=?", (assignment["author_id"],)).fetchone()[0]
+            candidate = db.execute("SELECT version FROM topic_candidates WHERE id=? AND topic_id=?", (assignment.get("candidate_id"), tid)).fetchone()
+            assignment["candidate_version"] = candidate[0] if candidate else None
         item.pop("request_id")
         item.pop("request_hash")
         item.pop("request_json")
@@ -92,6 +96,7 @@ def meeting_projection(db, tid):
 
 
 def workflow_projection(db, actor, topic):
+    compilation = topic_stages.state(db, topic["id"])["stage"] == "compilation"
     meetings = meeting_projection(db, topic["id"])
     assignments = [dict(a, active=True) for a in meetings[0]["assignments"]] if meetings else []
     known = {a["id"] for a in assignments}
@@ -117,9 +122,14 @@ def workflow_projection(db, actor, topic):
         latest = current_manuscript(db, topic["id"], a) if a["active"] else None
         a["current_submission_id"] = latest["id"] if latest else None
         a["status"] = ("returned" if any(r["submission_id"] == latest["id"] for r in a["returns"]) else "pending") if latest else "awaiting_submission"
-        a["can_submit"] = a["active"] and a["author_id"] == actor["id"] and collaboration.can_read(db, actor, topic) and bool(db.execute("SELECT 1 FROM topic_participants WHERE topic_id=? AND member_id=? AND active=1", (topic["id"], actor["id"])).fetchone())
+        a["can_submit"] = compilation and a["active"] and a["author_id"] == actor["id"] and collaboration.can_read(db, actor, topic) and bool(db.execute("SELECT 1 FROM topic_participants WHERE topic_id=? AND member_id=? AND active=1", (topic["id"], actor["id"])).fetchone())
     from .topic_finals import enrich_workflow
-    return enrich_workflow(db, actor, topic, {"meeting_version": meetings[0]["version"] if meetings else 0, "meetings": meetings, "assignments": assignments})
+    workflow = enrich_workflow(db, actor, topic, {"meeting_version": meetings[0]["version"] if meetings else 0, "meetings": meetings, "assignments": assignments})
+    valid = {a["id"] for a in topic_stages.effective_assignments(db, topic["id"], latest_meeting(db, topic["id"]))}
+    lead_can_review = compilation and topic["lead_id"] == actor["id"] and collaboration.qualified(db, actor["id"])
+    for assignment in assignments:
+        assignment["can_review"] = bool(lead_can_review and assignment["active"] and assignment["id"] in valid and assignment["status"] == "pending")
+    return workflow
 
 
 def current_assignment(db, tid, aid):
@@ -127,6 +137,8 @@ def current_assignment(db, tid, aid):
     assignment = next((a for a in json.loads(meeting["assignments_json"]) if a["id"] == aid), None) if meeting else None
     if not assignment:
         abort(404, "文章分工不存在或已不在本期当前采用决定中，历史稿件仍保留。")
+    if not db.execute("SELECT 1 FROM topic_participants p JOIN users u ON u.id=p.member_id WHERE p.topic_id=? AND p.member_id=? AND p.active=1 AND u.active=1", (tid, assignment["author_id"])).fetchone():
+        abort(409, "当前文章分工的研究员已停用或不再参与，请负责人核对分工。")
     return meeting, assignment
 
 
@@ -326,6 +338,7 @@ def register(app, ctx):
             actor = user()
             topic = collaboration.topic_for(db(), actor, tid)
             meeting, assignment = current_assignment(db(), tid, aid)
+            topic_stages.require_compilation(db(), topic)
             if assignment["author_id"] != actor["id"] or not db().execute("SELECT 1 FROM topic_participants WHERE topic_id=? AND member_id=? AND active=1", (tid, actor["id"])).fetchone():
                 abort(403, "只有该文章当前分工的编译者可提交自己的稿件。")
             previous = reused(db(), "topic_manuscripts", tid, aid, actor, key, digest)
@@ -354,6 +367,7 @@ def register(app, ctx):
             actor = user()
             topic = collaboration.topic_for(db(), actor, tid, manage=True)
             meeting, assignment = current_assignment(db(), tid, aid)
+            topic_stages.require_compilation(db(), topic)
             previous = reused(db(), "topic_returns", tid, aid, actor, key, digest)
             if previous:
                 return jsonify(id=previous["id"], reused=True)

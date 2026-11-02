@@ -92,7 +92,12 @@ def projection(db, actor, row):
     result["lead_name"] = db.execute("SELECT name FROM users WHERE id=?", (row["lead_id"],)).fetchone()[0]
     result["participants"] = [dict(r) for r in db.execute("SELECT u.id,u.name,u.active FROM topic_participants p JOIN users u ON u.id=p.member_id WHERE p.topic_id=? AND p.active=1 ORDER BY u.name,u.id", (row["id"],))]
     result["can_manage"] = row["lead_id"] == actor["id"] and qualified(db, actor["id"])
-    result["can_submit"] = any(p["id"] == actor["id"] for p in result["participants"])
+    result["is_lead"] = row["lead_id"] == actor["id"]
+    result["is_participant"] = any(p["id"] == actor["id"] for p in result["participants"])
+    result["can_submit"] = result["is_participant"]
+    from . import topic_stages
+    result.update(topic_stages.projection(db, actor, row, result["can_manage"]))
+    result["can_submit_summary"] = result["is_participant"] and result["stage"] == "compilation"
     return result
 
 
@@ -192,9 +197,9 @@ def register(app, ctx):
             if not can_read(db(), actor, row):
                 continue
             item = projection(db(), actor, row)
-            if scope == "leading" and not item['can_manage']:
+            if scope == "leading" and not item['is_lead']:
                 continue
-            if scope == "participating" and not item["can_submit"]:
+            if scope == "participating" and not item["is_participant"]:
                 continue
             items.append(item)
         return jsonify(items=items, can_create=qualified(db(), actor["id"]))
@@ -211,6 +216,8 @@ def register(app, ctx):
             tid, stamp = uuid.uuid4().hex, now()
             db().execute("INSERT INTO collaboration_topics VALUES (?,?,?,?,1,?,?)", (tid, theme, actor["id"], due, stamp, stamp))
             db().executemany("INSERT INTO topic_participants VALUES (?,?,1)", [(tid, uid) for uid in set(ids) | {actor["id"]}])
+            from . import topic_stages
+            topic_stages.create(db(), tid)
             save_topic_event(db(), tid, actor["id"])
         return jsonify(id=tid), 201
 

@@ -5,7 +5,7 @@ from pathlib import Path
 
 from flask import abort, jsonify, request, send_file
 
-from . import collaboration, handoff_files, topic_review as review
+from . import collaboration, handoff_files, topic_stages, topic_review as review
 from .record_revisions import RecordRevisions
 from .store import connect, now
 
@@ -199,11 +199,12 @@ def register(app, ctx):
         with handoff_files.transaction(db()):
             actor = user()
             topic = collaboration.topic_for(db(), actor, tid, manage=True)
+            meeting, assignment = review.current_assignment(db(), tid, aid)
+            topic_stages.require_compilation(db(), topic)
             old = review.reused(db(), "topic_finals", tid, aid, actor, key, digest)
             if old:
                 rid = db().execute("SELECT record_id FROM topic_finals WHERE id=?", (old["id"],)).fetchone()[0]
                 return jsonify(id=old["id"], record_id=rid, reused=True)
-            meeting, assignment = review.current_assignment(db(), tid, aid)
             review.expect_version(data, "topic_version", topic["version"])
             review.expect_version(data, "meeting_version", meeting["version"])
             latest = review.current_manuscript(db(), tid, assignment)
@@ -230,6 +231,7 @@ def register(app, ctx):
         with handoff_files.transaction(db()) as created:
             actor = user()
             topic = collaboration.topic_for(db(), actor, tid)
+            topic_stages.require_compilation(db(), topic)
             if not db().execute("SELECT 1 FROM topic_participants WHERE topic_id=? AND member_id=? AND active=1", (tid, actor["id"])).fetchone():
                 abort(403, "只有本期参与者可以提交实际整期汇总。")
             old = db().execute("SELECT id,request_hash,record_id FROM topic_summaries WHERE topic_id=? AND uploader_id=? AND request_id=?", (tid, actor["id"], key)).fetchone()

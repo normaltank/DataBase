@@ -151,8 +151,8 @@ class CollaborationLibraryTests(unittest.TestCase):
             self.assertEqual(result.json['total'], len(result.json['items']))
         self.assertEqual(self.clients['colleague'].get(f'/api/collaboration/materials/topic/{tid}').status_code, 404)
         self.assertEqual(self.call('/api/collaboration/qualifications/researcher', {'version': 1, 'enabled': False}, 'admin', 'PUT').status_code, 200)
-        self.assertEqual(self.clients['researcher'].get('/api/collaboration/works?scope=leading&business=topic').json['total'], 0)
-        self.assertEqual(self.clients['researcher'].get('/api/collaboration/topics?scope=leading').json['items'], [])
+        self.assertEqual(self.clients['researcher'].get('/api/collaboration/works?scope=leading&business=topic').json['total'], 1)
+        self.assertEqual([t['id'] for t in self.clients['researcher'].get('/api/collaboration/topics?scope=leading').json['items']], [tid])
         self.assertEqual(self.clients['admin'].get('/api/collaboration/works?scope=maintenance').json['total'], 2)
         self.assertEqual(self.clients['colleague'].get('/api/collaboration/works?scope=maintenance').status_code, 403)
         for path in ['/api/collaboration/works?from=bad', '/api/collaboration/works?from=2026-11-01&to=2026-01-01', f'/api/collaboration/materials/topic/{tid}?scope=unknown']:

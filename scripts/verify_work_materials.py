@@ -104,6 +104,20 @@ def verify(path, expected_sha256=None):
             for meeting in meetings.values():
                 require(meeting['topic_id'] == wid, 'Cross-topic meeting')
                 original(meeting, ('meeting', meeting['id']))
+            topic = m['topic']
+            if 'stage' in topic:  # Earlier portable packages remain readable.
+                origin = topic['stage_origin']
+                stage, version = origin['initial_stage'], 1
+                require(origin['kind'] in ('created', 'legacy_migration') and stage in ('selection', 'compilation'), 'Invalid stage origin')
+                require(bool(m.get('stage_coverage')), 'Missing current-stage coverage')
+                for event in topic['stage_events']:
+                    require(event['topic_id'] == wid and stage == 'selection' and event['from_stage'] == stage and event['to_stage'] == 'compilation' and event['version'] == version + 1, 'Inconsistent stage event chain')
+                    require(event['actor_id'] == topic['lead_id'] and bool(event['created_at']), 'Invalid stage actor')
+                    if scope != 'products':
+                        basis = meetings.get(event['meeting_id'])
+                        require(basis and basis['version'] == event['meeting_version'] and bool(basis['assignments']), 'Missing stage meeting basis')
+                    stage, version = event['to_stage'], event['version']
+                require(topic['stage'] == stage and topic['stage_version'] == version, 'Current stage differs from history')
             all_finals = {}
             identities(workflow['assignments'])
             for a in workflow['assignments']:
