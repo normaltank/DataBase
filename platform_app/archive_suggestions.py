@@ -70,10 +70,10 @@ def migrate(data_dir):
         db.close()
 
 
-def event(db, job, action, actor, details=None, candidate_id=''):
+def event(db, job, action, actor, details=None, candidate_id='', created_at=None):
     db.execute('INSERT INTO archive_events VALUES(?,?,?,?,?,?,?,?,?)',
                (uuid.uuid4().hex, job['target_type'], job['target_id'], job['id'], candidate_id,
-                actor, action, json.dumps(details or {}, ensure_ascii=False), store.now()))
+                actor, action, json.dumps(details or {}, ensure_ascii=False), created_at or store.now()))
 
 
 def source(db, sid):
@@ -718,8 +718,9 @@ def register(app, ctx):
                     ctx.save_source(sid, {'version': row['version'], **patch}, '采用有据AI建议')
                 for candidate, job in selected:
                     action = 'adopted' if candidate['id'] in adopt else 'rejected'
-                    db.execute('UPDATE archive_candidates SET status=?,decided_at=?,decided_by=? WHERE id=?', (action, store.now(), actor['id'], candidate['id']))
-                    event(db, job, action, actor['id'], {'source_version_before': row['version'], 'source_version_after': row['version'] + bool(patch)}, candidate['id'])
+                    decided_at = store.now()
+                    db.execute('UPDATE archive_candidates SET status=?,decided_at=?,decided_by=? WHERE id=?', (action, decided_at, actor['id'], candidate['id']))
+                    event(db, job, action, actor['id'], {'source_version_before': row['version'], 'source_version_after': row['version'] + bool(patch)}, candidate['id'], created_at=decided_at)
         except ValueError as failure:
             abort(409, str(failure))
         return jsonify(id=sid, version=row['version'] + bool(patch))

@@ -430,3 +430,22 @@ class ArchiveSuggestionsTests(unittest.TestCase):
         self.assertEqual(state['jobs'][0]['status'], 'failed')
         self.assertEqual(state['candidates'], [])
         self.assertEqual(self.clients['researcher'].get('/api/sources/' + sid).json['country'], '')
+
+    def test_decision_crossing_clock_second_still_restores_with_exact_actor_history(self):
+        from datetime import datetime, timezone, timedelta
+        from itertools import count
+        from platform_app.maintenance import restore_backup
+        self.synthetic()
+        sid = self.source('Clock boundary', kind='institution', website='https://source.example/')
+        candidate = self.queue_run(sid)['candidates'][0]
+        tick, start = count(), datetime.now(timezone.utc)
+        with patch('platform_app.store.now', side_effect=lambda: (start + timedelta(seconds=next(tick))).isoformat(timespec='seconds')):
+            response = self.call(f'/api/sources/{sid}/suggestions/decide', {'reject': [candidate['id']]})
+        self.assertEqual(response.status_code, 200)
+        backup = self.call('/api/backup', user='admin')
+        path = self.data_dir.parent / 'clock.zip'
+        path.write_bytes(backup.data)
+        backup.close()
+        target = self.data_dir.parent / 'clock-restored'
+        restore_backup(path, target)
+        self.assertTrue(target.is_dir())
