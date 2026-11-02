@@ -77,13 +77,33 @@ def profile_roles(text, name):
     return result[:5]
 
 
+def institution_names(source):
+    return {name.strip().casefold() for name in [source['name'], source['original_name'],
+            *re.split(r'[|;；\n]', source['aliases'] or '')] if name and name.strip()}
+
+
+def institution_at_version(db, source_id, version):
+    """Keep old candidates readable after human edits; adoption checks current version."""
+    current = db.execute('SELECT * FROM sources WHERE id=?', (source_id,)).fetchone()
+    if not current or type(version) is not int or not 1 <= version <= current['version']:
+        raise ValueError('候选机构版本无效。')
+    if version == current['version']:
+        source = dict(current)
+    else:
+        snapshots = [json.loads(row['snapshot_json']) for row in db.execute(
+            "SELECT snapshot_json FROM revisions WHERE target_type='source' AND target_id=? ORDER BY id DESC", (source_id,))]
+        source = next((row for row in snapshots if row.get('id') == source_id and row.get('version') == version), None)
+    if not source or source['kind'] not in {'institution', 'think_tank'} or source.get('merged_into'):
+        raise ValueError('缺少候选所据版本的机构身份。')
+    return source
+
+
 def relation_patch(db, job, fact):
     units, employments = [], []
     def institution(name):
         matches = []
         for row in db.execute("SELECT * FROM sources WHERE kind IN ('institution','think_tank') AND merged_into IS NULL"):
-            names = [row['name'], row['original_name'], *re.split(r'[|;；\n]', row['aliases'] or '')]
-            if name.casefold() in [n.strip().casefold() for n in names if n]:
+            if name.casefold() in institution_names(row):
                 matches.append(row)
         if len(matches) == 1:
             row = matches[0]
@@ -556,16 +576,27 @@ def check_candidate(db, candidate):
     if patch.get('action') not in shapes or set(patch) != shapes[patch['action']] | {'article_units', 'employments', 'affiliation_version', 'employment_versions'} or patch['kind'] != fact['kind']:
         raise ValueError('作者操作类型或字段无效。')
     for key in ['article_units', 'employments']:
+        if not isinstance(patch[key], list) or (fact['kind'] != 'person' and patch[key]):
+            raise ValueError('关系类型不适用于该署名对象。')
         for relation in patch[key]:
+            fields = {'institution_id', 'institution_name', 'institution_version', 'evidence_id', 'quote'}
+            if key == 'employments':
+                fields |= {'role', 'start_date', 'end_date'}
+            if not isinstance(relation, dict) or set(relation) != fields:
+                raise ValueError('作者关系字段无效。')
             material = db.execute('SELECT * FROM archive_evidence WHERE id=?', (relation['evidence_id'],)).fetchone()
             if not material or relation['quote'] not in material['text'] or relation['evidence_id'] not in {fact['evidence_id'], fact.get('profile_evidence_id')}:
                 raise ValueError('关系依据不属于本文具体作者材料。')
-            source = db.execute('SELECT * FROM sources WHERE id=?', (relation['institution_id'],)).fetchone()
-            if not source or not 1 <= relation['institution_version'] <= source['version']:
-                raise ValueError('关系机构版本无效。')
-            if key == 'article_units' and relation['quote'] not in fact['affiliations']:
-                raise ValueError('文章单位不属于该作者题录。')
-            if key == 'employments' and not any(r['quote'] == relation['quote'] and r['role'] == relation['role'] and not relation['start_date'] and not relation['end_date'] for r in fact.get('employments', [])):
+            source = institution_at_version(db, relation['institution_id'], relation['institution_version'])
+            if relation['institution_name'] != source['name']:
+                raise ValueError('关系机构名称与所据版本不一致。')
+            if key == 'article_units' and (relation['evidence_id'] != fact['evidence_id']
+                    or relation['quote'] not in fact['affiliations'] or relation['quote'].casefold() not in institution_names(source)):
+                raise ValueError('文章单位与该作者题录中的具体机构不一致。')
+            if key == 'employments' and (relation['evidence_id'] != fact.get('profile_evidence_id') or not any(
+                    r['quote'] == relation['quote'] and r['role'] == relation['role']
+                    and r['institution'].casefold() in institution_names(source)
+                    and not relation['start_date'] and not relation['end_date'] for r in fact.get('employments', []))):
                 raise ValueError('任职缺少明确的作者及角色依据。')
     if patch['action'] != 'unmatched' and not supported(fact):
         raise ValueError('身份依据不足，不能采用。')
@@ -576,6 +607,10 @@ def check_candidate(db, candidate):
         target = db.execute(f'SELECT * FROM {table} WHERE id=?', (patch['target_id'],)).fetchone()
         if not target or not 1 <= patch['target_version'] <= target['version'] or (table == 'sources' and target['kind'] not in {'institution', 'think_tank'}):
             raise ValueError('候选身份档案或版本无效。')
+        if table == 'sources' and fact['raw_name'].casefold() not in institution_names(institution_at_version(db, patch['target_id'], patch['target_version'])):
+            raise ValueError('机构署名与候选所据机构身份不一致。')
+    if fact['kind'] == 'institution' and patch['action'] not in {'link_existing', 'unmatched'}:
+        raise ValueError('机构署名不能采用为个人身份。')
     return job, document
 
 
