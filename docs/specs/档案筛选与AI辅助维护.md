@@ -1,6 +1,6 @@
 # 档案筛选与 AI 辅助维护
 
-版本：1.0；日期：2026-11-02。状态：业务边界、验证边界及三项任务图已获用户确认，待施工；本版不是实现、测试通过或部署记录。父任务沿用 [#46](https://github.com/normaltank/DataBase/issues/46)，作者建议复用 [#64](https://github.com/normaltank/DataBase/issues/64)，另外两项任务编号待发布，以父任务记录为准。
+版本：1.0；日期：2026-11-02。状态：三项实现已集成，待整体验收及 [PR #94](https://github.com/normaltank/DataBase/pull/94) 交付，尚未正式部署。父任务沿用 [#46](https://github.com/normaltank/DataBase/issues/46)，已发布任务为国名与筛选 [#92](https://github.com/normaltank/DataBase/issues/92)、来源建议 [#93](https://github.com/normaltank/DataBase/issues/93)、作者建议 [#64](https://github.com/normaltank/DataBase/issues/64)。业务与验证边界沿用 [1.0 固定稿 ed4d1fc](https://github.com/normaltank/DataBase/blob/ed4d1fc5a617f48040fc015e4e7c396f221fa1b0/docs/specs/档案筛选与AI辅助维护.md)；本文问题描述保留冻结时的缺口身份，当前实现及验证见[施工说明](../施工说明.md)。本次仅更新状态与导航，不升业务版本。
 
 决定出处见 [R025](../需求讨论记录.md#r025档案筛选与ai辅助维护) 及 [#46 维护确认](https://github.com/normaltank/DataBase/issues/46#issuecomment-6569437904)。长期规则见 [PRODUCT](../../PRODUCT.md)，词义见 [GLOSSARY](../../GLOSSARY.md)。本版收紧旧版“明确身份依据可自动正式关联”的许可；[原自采集规格 1.0](自采集资料库与阅读前端重构.md)、R021 与旧任务讨论保留历史身份，本轮新增建议经人工确认才正式采用。三项完整后统一交付，再进入完整交付包与服务器部署安排；此处共识不等于研究中心签署的验收合同。
 
@@ -128,10 +128,10 @@
 - 全库自动补齐、未授权来源扩张、通用搜索引擎／爬虫／AI 框架，无依据填满档案或凭候选自动合并人物。
 - 年度影响指标、完整期刊卷期与模板生成（[#54](https://github.com/normaltank/DataBase/issues/54)）；按需原文件／全文翻译（[#65](https://github.com/normaltank/DataBase/issues/65)）；持续期刊更新及上游维护（[#66](https://github.com/normaltank/DataBase/issues/66)）。
 - 本轮真实付费调用、凭据操作、解除暂停或月额度，向第三方发送内部研究报告，修改真实研究库及 ThinkTank 材料。
-- 完整交付包制作与服务器实际部署；它们在三项统一验收后另行落实，目标操作系统与运行安排尚待确认，现有 Windows 试用包不代替正式服务器包。
+- 完整交付包制作与服务器实际部署；它们在三项统一验收后另行落实，用户已将目标操作系统交由使用方运维决定，运行安排由部署交接落实，现有 Windows 试用包不代替正式服务器包。
 
 ## Further Notes
 
-用户已确认三个完整流程：①国名与筛选可独立开始；②官网取证 → 来源档案候选 → 人工采用；③接续 #64，复用②候选／证据层，作者身份候选及作品关联由人确认。按此顺序接续，两个新任务由指挥发布，避免另建同义作者任务。任务状态与后续提交、同步 SHA、merger、验证及审查证据统一维护于 Issues／PR，不另建长期台账。
+用户已确认三个完整流程：①国名与筛选；②官网取证 → 来源档案候选 → 人工采用；③接续 #64，复用②候选／证据层，作者身份候选及作品关联由人确认。任务已按 #92、#93、#64 发布并集成，待统一验收与交付；提交、同步 SHA、merger、验证及审查证据统一维护于 Issues／PR，不另建长期台账。
 
-本版现状依据固定提交 `9032fed1800aab5b9e531a6d06f14437b89595ed` 的代码只读核查及既有隔离诊断，指挥已复现同别名、计数和默认值问题。两份长报告仅原环境可查：`C:/Users/27451/AppData/Local/Temp/database-archive92-ux-20261102/report.txt`；`C:/Users/27451/AppData/Local/Temp/database-archive92-ai-20261102/report.md`。它们不是仓库内 Temp，也不是本版已施工／已通过验收的证据；公开文档只保留范围与脱敏结论。
+本版冻结前的缺口依据固定提交 `9032fed1800aab5b9e531a6d06f14437b89595ed` 的代码只读核查及既有隔离诊断，指挥当时已复现同别名、计数和默认值问题。两份长报告仅原环境可查：`C:/Users/27451/AppData/Local/Temp/database-archive92-ux-20261102/report.txt`；`C:/Users/27451/AppData/Local/Temp/database-archive92-ai-20261102/report.md`。它们不是仓库内 Temp，也不是本版施工或验收通过的证据；公开文档只保留范围与脱敏结论。
