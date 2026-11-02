@@ -19,6 +19,9 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 LOCK = ROOT / 'portable/runtime-lock.json'
 SOURCE_DIRS = {'platform_app', 'static', 'templates'}
+COUNTRY_DATA_FILES = {'platform_app/country_data/territories.json',
+                      'platform_app/country_data/LICENSE-UNICODE.txt',
+                      'platform_app/country_data/README.md'}
 SOURCE_FILES = {
     'app.py', 'requirements.txt', 'PRODUCT.md', 'GLOSSARY.md',
     'docs/portable-preview.md', 'portable/__init__.py', 'portable/launch.py',
@@ -27,7 +30,7 @@ SOURCE_FILES = {
     'portable/samples/fictional-article.pdf',
     'scripts/build_portable.py', 'scripts/verify_portable.py', 'scripts/check_portable_preview.py',
     'scripts/verify_work_materials.py', 'portable/start.bat', 'portable/stop.bat',
-}
+} | COUNTRY_DATA_FILES
 
 
 def digest(content):
@@ -75,7 +78,7 @@ def source_paths():
         path = ROOT / name
         if path.is_symlink() or not path.is_file() or ROOT not in path.resolve().parents:
             raise ValueError('Source must be a regular file inside checkout: ' + name)
-        if PurePosixPath(name).parts[0] in SOURCE_DIRS and path.suffix not in {'.py', '.js', '.css', '.html', '.svg', '.png', '.ico', '.woff2'}:
+        if name not in COUNTRY_DATA_FILES and PurePosixPath(name).parts[0] in SOURCE_DIRS and path.suffix not in {'.py', '.js', '.css', '.html', '.svg', '.png', '.ico', '.woff2'}:
             raise ValueError('Unexpected application source suffix: ' + name)
         yield name, path
 

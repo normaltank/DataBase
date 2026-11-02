@@ -183,16 +183,23 @@ class PersonProfiles:
         current["avatar_id"] = aid
 
     def create(self, data, upload=None):
+        with self.mutation() as created_files:
+            pid = self.create_in_transaction(data, upload, created_files)
+        return self.detail(pid)
+
+    def create_in_transaction(self, data, upload=None, created_files=None):
+        """Create a profile and revision atomically with an owning domain operation."""
+        if not self.db.in_transaction:
+            raise RuntimeError("Person creation requires an owning transaction.")
         current = values(data)
         pid = "person-" + uuid.uuid4().hex
-        with self.mutation() as created_files:
-            current.update(id=pid, version=1, created_at=now(), updated_at=now())
-            self.db.execute(f"INSERT INTO people ({','.join(current)}) VALUES ({','.join('?' for _ in current)})", list(current.values()))
-            if upload:
-                self.upload_avatar(pid, current, upload, created_files)
-                self.db.execute("UPDATE people SET avatar_id=? WHERE id=?", (current["avatar_id"], pid))
-            save_revision(self.db, "person", pid, "建立人物档案", self.actor["id"])
-        return self.detail(pid)
+        current.update(id=pid, version=1, created_at=now(), updated_at=now())
+        self.db.execute(f"INSERT INTO people ({','.join(current)}) VALUES ({','.join('?' for _ in current)})", list(current.values()))
+        if upload:
+            self.upload_avatar(pid, current, upload, created_files)
+            self.db.execute("UPDATE people SET avatar_id=? WHERE id=?", (current["avatar_id"], pid))
+        save_revision(self.db, "person", pid, "建立人物档案", self.actor["id"])
+        return pid
 
     def update(self, pid, data, revision_id=None, upload=None):
         with self.mutation() as created_files:
@@ -244,6 +251,9 @@ def register(app, ctx):
 
     @app.get("/api/people")
     def people_list():
+        from . import people_filters
+        if request.args.get('country'):
+            abort(400, '请选择任职机构国别或作品研究对象国。')
         service = profiles()
         words = request.args.get("q", "").strip().casefold().split()
         try:
@@ -254,7 +264,10 @@ def register(app, ctx):
         rows = [r for r in ctx.db().execute("SELECT * FROM people WHERE merged_into IS NULL ORDER BY updated_at DESC,id")
                 if all(w in " ".join([r[k] for k in ["name", "original_name", "chinese_name", "aliases"]] +
                                      identity.origins(ctx.db(), "people", r["id"])).casefold() for w in words)]
-        return jsonify(items=[service.detail(r["id"]) for r in rows[(page-1)*size:page*size]], total=len(rows), page=page, page_size=size)
+        values = people_filters.country_sets(ctx.db(), ctx.records(), rows)
+        rows, facets, options = people_filters.filter_people(rows, values, request.args)
+        return jsonify(items=[service.detail(r["id"]) for r in rows[(page-1)*size:page*size]], total=len(rows), page=page, page_size=size,
+                       facets=facets, facet_options=options)
 
     @app.get("/api/people/<pid>")
     def person_detail(pid):

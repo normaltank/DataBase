@@ -553,6 +553,8 @@ def main():
         result = run_pending(args.data_dir,limit=5)
         from .automatic_processing import run_pending as process_pending
         result['chinese_processing'] = process_pending(args.data_dir,limit=5)
+        from .archive_suggestions import run_pending as archive_pending
+        result['archive_suggestions'] = archive_pending(args.data_dir,limit=2)
         if result['runs']:
             logging.info('public_ingestion %s',json.dumps(result))
         if args.once:

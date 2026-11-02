@@ -255,6 +255,12 @@ def register(app, ctx):
         payload = {"format": "research-content-v1", "exported_at": now(), "selected_ids": [r["id"] for r in selected],
                    "records": list(records.values()), "sources": sources, "collections": collections, "attachments": list(attachments.values()),
                    "people": people, "avatars": list(avatars.values()), "journal_works": journal_works}
+        from .archive_suggestions import export_projection as archive_export
+        try:
+            payload['archive_suggestions'] = archive_export(db(), [source['id'] for source in sources],
+                [r['id'] for r in records.values() if r['kind'] not in workflow.CONTENT_KINDS], user())
+        except ValueError as error:
+            abort(409, str(error))
         coverage = content_export.evidence_coverage(records, attachments, sources)
         output = io.BytesIO()
         style = "body{font:16px/1.7 system-ui,sans-serif;max-width:960px;margin:32px auto;padding:0 20px;color:#202f42}a{color:#234e78}pre{font:inherit;white-space:pre-wrap}section{margin:28px 0}"

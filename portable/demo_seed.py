@@ -120,6 +120,7 @@ def seed(app):
             'record_id': articles[0], 'candidate_id': candidate, 'candidate_item': '第1项，第1页',
             'author_id': 'researcher', 'country': '拉脱维亚'}]},
         file=txt('演示会议决定.txt', '采用候选报告第1项；仅演示版本追溯。'))
+    call(lead, prefix + '/enter-compilation', {'request_id': 'demo-enter-compilation', 'stage_version': 1, 'topic_version': 1, 'meeting_version': 1})
     aid = researcher.get(prefix + '/workflow').json['assignments'][0]['id']
     assignment = prefix + '/assignments/' + aid
     first = call(researcher, assignment + '/submissions', {'request_id': 'demo-draft-1', 'version': 0,

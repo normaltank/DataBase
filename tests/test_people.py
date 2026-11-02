@@ -263,6 +263,7 @@ class PeopleTests(unittest.TestCase):
         # projection is empty; every pre-existing source field must stay exact.
         # This frozen synthetic institution has no supported collector or enabled job.
         expected_source = {**expected["source"], "filter_countries": [], "last_verified": None, "review_history": [],
+                           "country_labels": [], "national_country_labels": [],
                            "automatic_collection": {"supported": False, "enabled": False}}
         self.assertEqual(self.clients["researcher"].get("/api/sources/" + expected["source"]["id"]).json, expected_source)
         expected_collection = {**expected["collection"], "scope_log_json": "[]", "scope_log": [], "excluded_items": [], "items": [

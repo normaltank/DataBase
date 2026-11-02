@@ -104,6 +104,20 @@ def verify(path, expected_sha256=None):
             for meeting in meetings.values():
                 require(meeting['topic_id'] == wid, 'Cross-topic meeting')
                 original(meeting, ('meeting', meeting['id']))
+            topic = m['topic']
+            if 'stage' in topic:  # Earlier portable packages remain readable.
+                origin = topic['stage_origin']
+                stage, version = origin['initial_stage'], 1
+                require(origin['kind'] in ('created', 'legacy_migration') and stage in ('selection', 'compilation'), 'Invalid stage origin')
+                require(bool(m.get('stage_coverage')), 'Missing current-stage coverage')
+                for event in topic['stage_events']:
+                    require(event['topic_id'] == wid and stage == 'selection' and event['from_stage'] == stage and event['to_stage'] == 'compilation' and event['version'] == version + 1, 'Inconsistent stage event chain')
+                    require(event['actor_id'] == topic['lead_id'] and bool(event['created_at']), 'Invalid stage actor')
+                    if scope != 'products':
+                        basis = meetings.get(event['meeting_id'])
+                        require(basis and basis['version'] == event['meeting_version'] and bool(basis['assignments']), 'Missing stage meeting basis')
+                    stage, version = event['to_stage'], event['version']
+                require(topic['stage'] == stage and topic['stage_version'] == version, 'Current stage differs from history')
             all_finals = {}
             identities(workflow['assignments'])
             for a in workflow['assignments']:
@@ -147,6 +161,40 @@ def verify(path, expected_sha256=None):
                 for fid, f in adopted.items():
                     require(fid in all_finals and f == all_finals[fid], 'Summary adoption differs from exact final')
                     original(f)
+            if 'lifecycle_state' in topic:
+                lifecycle, version, closed_stage = 'open', 1, None
+                origin = topic['lifecycle_origin']
+                require(origin['kind'] in ('created', 'legacy_migration') and origin['initial_state'] == 'open', 'Invalid end-state origin')
+                covered = {'topic_candidates': {x['id'] for x in candidates}, 'topic_meetings': set(meetings),
+                           'topic_manuscripts': {s['id'] for a in workflow['assignments'] for s in a['submissions']},
+                           'topic_returns': {r['id'] for a in workflow['assignments'] for r in a['returns']},
+                           'topic_finals': set(all_finals), 'topic_summaries': {s['id'] for s in summaries}}
+                identities(topic['lifecycle_events'])
+                for event in topic['lifecycle_events']:
+                    expected_action, target = ('end', 'closed') if lifecycle == 'open' else ('reopen', 'open')
+                    saved = event['basis']
+                    require(event['topic_id'] == wid and event['version'] == version + 1 and event['action'] == expected_action and event['from_state'] == lifecycle and event['to_state'] == target, 'Inconsistent end/reopen event chain')
+                    require(saved['topic_id'] == wid and saved['lifecycle_version'] == version and event['stage'] == saved['stage'] and event['stage'] in ('selection', 'compilation'), 'Invalid end/reopen work basis')
+                    require(event['actor_id'] == topic['lead_id'] and bool(event['created_at']), 'Invalid end/reopen actor')
+                    require(set(saved['materials']) == set(covered), 'Invalid end/reopen material basis')
+                    for table, ids in saved['materials'].items():
+                        require(isinstance(ids, list) and len(ids) == len(set(ids)) and all(isinstance(x, str) for x in ids), 'Invalid end/reopen identities')
+                        included = scope == 'all' or (scope == 'process' and table in ('topic_candidates', 'topic_meetings', 'topic_manuscripts', 'topic_returns')) or (scope == 'products' and table in ('topic_finals', 'topic_summaries'))
+                        if included:
+                            require(set(ids) <= covered[table], 'Missing declared end/reopen basis')
+                    if event['action'] == 'end':
+                        closed_stage = event['stage']
+                        for gap in event['incomplete']:
+                            require(gap['status'] in ('awaiting_submission', 'pending', 'returned') and gap['missing_current_final'] is True and gap['author_id'] in saved['active_member_ids'], 'Invalid declared incomplete work')
+                            if gap['submission_id']:
+                                require(gap['submission_id'] in saved['materials']['topic_manuscripts'], 'Missing incomplete submission basis')
+                    else:
+                        require(closed_stage == event['stage'] and not event['incomplete'], 'Reopen changed original stage')
+                        closed_stage = None
+                    lifecycle, version = target, event['version']
+                require(topic['lifecycle_state'] == lifecycle and topic['lifecycle_version'] == version and topic['closed_stage'] == closed_stage, 'Current end-state differs from history')
+                if lifecycle == 'closed':
+                    require(topic['stage'] == closed_stage, 'Closed stage differs from saved phase')
         else:
             work = m['journal']
             require(work['id'] == wid, 'Wrong journal work identity')

@@ -58,8 +58,25 @@ def conditions(args):
 def get(db, args):
     if not args.get('batch'):
         return None
-    return db.execute('SELECT * FROM reading_queries WHERE batch_id=? AND conditions_json=?',
-                      (args['batch'], conditions(args))).fetchone()
+    query = conditions(args)
+    exact = db.execute('SELECT * FROM reading_queries WHERE batch_id=? AND conditions_json=?',
+                       (args['batch'], query)).fetchone()
+    if exact:
+        return exact
+    # Keep every old stored condition and its frozen IDs intact. New spellings
+    # reuse an already viewed equivalent query instead of recomputing membership.
+    from . import countries
+
+    def equivalent(value):
+        value = json.loads(value)
+        for key in ['country', 'source_country']:
+            if key in value:
+                value[key] = sorted(countries.keys(value[key].split('|')))
+        return value
+
+    wanted = equivalent(query)
+    return next((row for row in db.execute('SELECT * FROM reading_queries WHERE batch_id=? ORDER BY created_at,id', (args['batch'],))
+                 if equivalent(row['conditions_json']) == wanted), None)
 
 
 def freeze(db, args, rows):

@@ -151,7 +151,8 @@ class TopicFinalTests(unittest.TestCase):
         restore_backup(backup_path, target)
         app = create_app(target, testing=True)
         restored = self.login("researcher", app)
-        self.assertEqual(restored.get('/health').json['schema'], 23)
+        from platform_app.store import CURRENT_SCHEMA_VERSION
+        self.assertEqual(restored.get('/health').json['schema'], CURRENT_SCHEMA_VERSION)
         self.assertEqual(restored.get(f"/api/collaboration/topics/{tid}/workflow").json, before)
         self.assertEqual(restored.get(f"/api/collaboration/topics/{returned_tid}/workflow").json, returned_history)
         with restored.get(returned_history["assignments"][0]["returns"][0]["file_url"]) as response:
@@ -270,6 +271,7 @@ class TopicFinalTests(unittest.TestCase):
         self.assertEqual(self.final(tid, aid, sid, note="different content").status_code, 409)
         self.assertEqual(self.returned(tid, aid, sid).status_code, 409)
         other = self.topic(["colleague"], "另一独立期次")
+        self.assertEqual(self.meeting(other).status_code, 201)
         self.assertEqual(self.final(other, aid, sid).status_code, 404)
         self.assertEqual(self.summary(other, [final["id"]]).status_code, 400)
         self.assertEqual(self.summary(tid, [], file=None).status_code, 400)

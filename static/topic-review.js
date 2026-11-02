@@ -6,7 +6,11 @@ function topicReviewFile(item,label){
 }
 
 function topicReviewDecision(m){
-  return '<article><h3>会议决定 v'+m.version+' · '+esc(m.actor_name)+'</h3><p class="small muted">'+dateTime(m.created_at)+'</p>'+(m.note?'<p class="collaboration-note">'+esc(m.note)+'</p>':'')+topicReviewFile(m,'下载会议材料')+(m.assignments.length?'<details><summary>采用文章与分工 '+m.assignments.length+' 项</summary><ul>'+m.assignments.map(a=>'<li>'+esc(a.title)+(a.country?' · '+esc(a.country):'')+'</li>').join('')+'</ul></details>':'')+'</article>';
+  const assignments=m.assignments.map(a=>{
+    const longTitle=a.title.length>60,title=longTitle?a.title.slice(0,48)+'…':a.title;
+    return '<li><strong class="meeting-assignment-title">'+esc(a.author_name)+' — '+esc(title)+'</strong>'+(longTitle?'<details><summary>完整题名</summary><p>'+esc(a.title)+'</p></details>':'')+(a.country?'<p>国家分工：'+esc(a.country)+'</p>':'')+(a.source||a.candidate_id?'<details><summary>出处与报告位置</summary>'+(a.source?'<p class="collaboration-note">'+esc(a.source)+'</p>':'')+(a.candidate_id?'<p>选题报告 v'+a.candidate_version+' · '+esc(a.candidate_item||'未注明项目位置')+'</p><a class="button tiny" href="/api/collaboration/topics/'+esc(m.topic_id)+'/candidates/'+esc(a.candidate_id)+'/file" download>下载所据选题报告</a>':'')+'</details>':'')+'</li>';
+  }).join('');
+  return '<article><h3>会议决定 v'+m.version+' · '+esc(m.actor_name)+'</h3><p class="small muted">'+dateTime(m.created_at)+'</p>'+(m.note?'<p class="collaboration-note">'+esc(m.note)+'</p>':'')+topicReviewFile(m,'下载会议材料')+(m.assignments.length?'<h4>采用文章与分工 '+m.assignments.length+' 项</h4><ul class="meeting-assignments">'+assignments+'</ul>':'')+'</article>';
 }
 
 function topicReviewReturn(r,s){
@@ -25,14 +29,16 @@ function topicReviewForm(t,w,a,review=false){
 }
 
 function topicReviewSections(t,w){
-  const sorted=[...w.assignments].sort((a,b)=>Number(b.can_submit)-Number(a.can_submit)||Number(b.active)-Number(a.active)||Number(!!b.submissions.length)-Number(!!a.submissions.length));
+  const sorted=[...w.assignments].sort((a,b)=>Number(b.is_mine)-Number(a.is_mine)||Number(b.can_review)-Number(a.can_review)||Number(b.active)-Number(a.active)||Number(!!b.submissions.length)-Number(!!a.submissions.length));
   const manuscripts=sorted.length?'<section class="panel" data-topic-manuscripts><h2>编译稿与返修</h2>'+sorted.map(a=>{
     const latest=topicCurrentSubmission(a),history=a.submissions.filter(s=>s.id!==latest?.id),longTitle=a.title.length>60,title=longTitle?a.title.slice(0,48)+'…':a.title,status=!a.active?'已调整分工':({awaiting_submission:'待交稿',pending:'待审',returned:'返修',final:'已定稿'}[a.status]||a.status);
     const badgeCls=a.status==='final'?'verified':a.status==='returned'||a.status==='pending'?'pending':'neutral';
-    return '<article class="topic-assignment" data-assignment-card="'+esc(a.id)+'" data-mine="'+a.can_submit+'"><h3>'+esc(title)+' <span class="badge '+badgeCls+'">'+esc(status)+'</span></h3>'+(longTitle?'<details><summary>完整题名</summary><p>'+esc(a.title)+'</p></details>':'')+'<p class="small muted">编译者：'+esc(a.author_name)+(a.country?' · 分工：'+esc(a.country):'')+'</p>'+(a.source||a.candidate_id?'<details><summary>采用出处与报告依据</summary>'+(a.source?'<p class="collaboration-note">'+esc(a.source)+'</p>':'')+(a.candidate_id?'<p>所据选题报告版本：'+esc(a.candidate_item||'未注明项目位置')+'</p><a class="button tiny" href="/api/collaboration/topics/'+esc(t.id)+'/candidates/'+esc(a.candidate_id)+'/file" download>下载所据选题报告</a>':'')+'</details>':'')+(latest?topicReviewManuscript(latest,a):'<p class="muted">当前编译者尚未提交编译稿。</p>')+(history.length?'<details><summary>此前 '+history.length+' 版稿件及退回意见</summary>'+history.map(s=>topicReviewManuscript(s,a)).join('')+'</details>':'')+(a.can_submit?topicReviewForm(t,w,a):'')+(a.active&&t.can_manage&&latest&&a.status==='pending'?'<div class="row wrap section-gap"><button class="button primary" data-action="topic-finals-confirm" data-topic="'+esc(t.id)+'" data-id="'+esc(a.id)+'">确认当前稿件定稿</button></div>'+topicReviewForm(t,w,a,true):'')+'</article>';
+    return '<article class="topic-assignment" data-assignment-card="'+esc(a.id)+'" data-mine="'+a.is_mine+'"><h3>'+esc(title)+' <span class="badge '+badgeCls+'">'+esc(status)+'</span></h3>'+(longTitle?'<details><summary>完整题名</summary><p>'+esc(a.title)+'</p></details>':'')+'<p class="small muted">编译者：'+esc(a.author_name)+(a.country?' · 分工：'+esc(a.country):'')+'</p>'+(a.source||a.candidate_id?'<details><summary>采用出处与报告依据</summary>'+(a.source?'<p class="collaboration-note">'+esc(a.source)+'</p>':'')+(a.candidate_id?'<p>所据选题报告版本：'+esc(a.candidate_item||'未注明项目位置')+'</p><a class="button tiny" href="/api/collaboration/topics/'+esc(t.id)+'/candidates/'+esc(a.candidate_id)+'/file" download>下载所据选题报告</a>':'')+'</details>':'')+(latest?topicReviewManuscript(latest,a):'<p class="muted">当前编译者尚未提交编译稿。</p>')+(history.length?'<details><summary>此前 '+history.length+' 版稿件及退回意见</summary>'+history.map(s=>topicReviewManuscript(s,a)).join('')+'</details>':'')+(a.can_submit?topicReviewForm(t,w,a):'')+(a.can_review&&latest?'<div class="row wrap section-gap"><button class="button primary" data-action="topic-finals-confirm" data-topic="'+esc(t.id)+'" data-id="'+esc(a.id)+'">确认当前稿件定稿</button></div>'+topicReviewForm(t,w,a,true):'')+'</article>';
   }).join('')+'</section>':'';
   const meetings='<section class="panel"><div class="between wrap"><h2>选题会决定</h2>'+(w.meeting_version?'<a class="button tiny" href="/api/collaboration/topics/'+esc(t.id)+'/materials/export" download>下载本期过程材料</a>':'')+'</div>'+(w.meetings.length?topicReviewDecision(w.meetings[0])+(w.meetings.length>1?'<details><summary>此前 '+(w.meetings.length-1)+' 版会议决定</summary>'+w.meetings.slice(1).map(topicReviewDecision).join('')+'</details>':''):'<p class="muted">尚未记录会议决定。</p>')+'</section>';
-  return manuscripts+topicFinalSections(t,w)+meetings;
+  const unassigned=t.lifecycle_state==='open'&&t.stage==='compilation'&&t.is_participant&&!t.can_manage&&!w.assignments.some(a=>a.can_submit);
+  const process=manuscripts+topicFinalSections(t,w)+meetings;
+  return t.stage==='compilation'?(unassigned?'<p class="notice">当前尚无文章分工，请联系负责人。</p><details class="panel"><summary>查阅本期文章、会议与成果</summary>'+process+'</details>':process):meetings;
 }
 
 function topicReviewAssignmentRow(a,t,candidates){
@@ -50,20 +56,22 @@ async function topicReviewMeeting(tid){
 
 function topicReviewConflictContent(t,w,a,review){
   const latest=topicCurrentSubmission(a);
-  return '<section class="notice"><h3>请核对最新交接</h3><p>'+esc(t.theme)+' · 本期信息 v'+t.version+' · 会议决定 v'+w.meeting_version+'</p>'+(w.meetings[0]?topicReviewDecision(w.meetings[0]):'')+(a?'<p>当前分工：'+esc(a.title)+' · '+esc(a.author_name)+' · '+esc({returned:'返修',pending:'待审',final:'已定稿'}[a.status]||'待交稿')+'</p>':'')+(latest?topicReviewFile(latest,'下载最新编译稿核对'):'')+'<p>当前文件与说明已保留。核对最新决定和原件后继续。</p><button type="button" class="button" data-action="topic-review-rebase">'+(review?'已核对，保留意见审阅最新稿':'已核对，保留输入继续交接')+'</button></section>';
+  return '<section class="notice">'+topicClosedNotice(t)+'<h3>请核对最新交接</h3><p>'+esc(t.theme)+' · 本期信息 v'+t.version+' · 会议决定 v'+w.meeting_version+'</p>'+(w.meetings[0]?topicReviewDecision(w.meetings[0]):'')+(a?'<p>当前分工：'+esc(a.title)+' · '+esc(a.author_name)+' · '+esc({returned:'返修',pending:'待审',final:'已定稿'}[a.status]||'待交稿')+'</p>':'')+(latest?topicReviewFile(latest,'下载最新编译稿核对'):'')+'<p>当前文件与说明已保留。核对最新决定和原件后继续。</p><button type="button" class="button" data-action="topic-review-rebase">'+(review?'已核对，保留意见审阅最新稿':'已核对，保留输入继续交接')+'</button></section>';
 }
 
 document.addEventListener('click',async event=>{
   const button=event.target.closest('[data-action]');if(!button?.dataset.action.startsWith('topic-review-'))return;
   try{
     const action=button.dataset.action,form=button.closest('form');
-    if(action==='topic-review-meeting')await topicReviewMeeting(button.dataset.id);
+    if(action==='topic-review-enter')await topicStageConfirm(button.dataset.id);
+    else if(action==='topic-review-meeting')await topicReviewMeeting(button.dataset.id);
     else if(action==='topic-review-mine'){const card=document.querySelector('[data-assignment-card][data-mine="true"]');card?.scrollIntoView({block:'start'});const panel=card?.querySelector('[data-topic-handoff]');if(panel){panel.open=true;panel.querySelector('textarea').focus({preventScroll:true});}}
     else if(action==='topic-review-add')form.querySelector('[data-assignment-rows]').insertAdjacentHTML('beforeend',topicReviewAssignmentRow({},form._topic,form._candidates));
     else if(action==='topic-review-remove')button.closest('[data-assignment-row]').remove();
     else if(action==='topic-review-rebase'){
       const base='/api/collaboration/topics/'+encodeURIComponent(form.dataset.topic),[t,w]=await Promise.all([api(base),api(base+'/workflow')]),a=w.assignments.find(a=>a.id===form.dataset.assignment),latest=form.dataset.form==='topic-review-return'?topicCurrentSubmission(a):a?.submissions[0];
-      if(form.dataset.form!=='topic-review-meeting'&&(!a?.active||(form.dataset.form==='topic-review-draft'&&!a.can_submit)||(form.dataset.form==='topic-review-return'&&(!t.can_manage||!latest||a.status!=='pending'))))throw new Error('当前分工或权限已经变化，原文件和说明仍在表单中，请联系负责人核对。');
+      if(form.dataset.form==='topic-review-meeting'&&!t.can_manage)throw new Error('本期已结束或权限已变化，文件和说明仍保留。');
+      if(form.dataset.form!=='topic-review-meeting'&&(!a?.active||(form.dataset.form==='topic-review-draft'&&!a.can_submit)||(form.dataset.form==='topic-review-return'&&(!a.can_review||!latest))))throw new Error('当前分工或权限已经变化，原文件和说明仍在表单中，请联系负责人核对。');
       form.dataset.topicVersion=t.version;form.dataset.meetingVersion=w.meeting_version;form.dataset.version=latest?.version||0;form.dataset.submission=latest?.id||'';form.dataset.request=crypto.randomUUID();form._conflict=false;
       const type=form.dataset.form;form.querySelector('[type=submit]').textContent=type==='topic-review-meeting'?'保存会议决定 v'+(w.meeting_version+1):type==='topic-review-draft'?'提交编译稿 v'+((latest?.version||0)+1):'退回版本 '+latest?.version;
       form.querySelector('[data-topic-review-conflict]').innerHTML='';form.querySelector('.form-error').textContent='已按最新交接继续，当前文件和输入已保留。';
@@ -88,4 +96,18 @@ document.addEventListener('submit',async event=>{
     closeModal();await route();toast(type==='topic-review-meeting'?'会议决定已留档':type==='topic-review-draft'?'编译稿已提交，等待负责人审阅':'退回意见已保存到具体版本');
     if(type!=='topic-review-meeting')document.querySelector('[data-assignment-card="'+form.dataset.assignment+'"]')?.scrollIntoView({block:'start'});
   }catch(e){if(!form.isConnected)return;error.textContent=e.message;if(e.status===409){form._conflict=true;try{const [t,w]=await Promise.all([api(base),api(base+'/workflow')]);form.querySelector('[data-topic-review-conflict]').innerHTML=topicReviewConflictContent(t,w,w.assignments.find(a=>a.id===form.dataset.assignment),type==='topic-review-return');}catch(check){error.textContent=check.message;}}}finally{if(form.isConnected)button.disabled=false;}
+});
+
+async function topicStageConfirm(tid){
+  const base='/api/collaboration/topics/'+encodeURIComponent(tid),[t,w]=await Promise.all([api(base),api(base+'/workflow')]);
+  if(!t.can_enter_compilation)throw new Error('请先核对有效分工和当前负责人资格。');
+  modal('确认分工，进入编译阶段','<form data-form="topic-stage-enter" data-topic="'+esc(tid)+'" data-topic-version="'+t.version+'" data-stage-version="'+t.stage_version+'" data-meeting-version="'+w.meeting_version+'" data-request="'+crypto.randomUUID()+'">'+topicReviewDecision(w.meetings[0])+'<div class="form-error" role="alert"></div><div class="form-actions"><button class="button primary" type="submit">确认以上分工，进入编译</button></div></form>',true);
+}
+document.addEventListener('submit',async event=>{
+  const form=event.target;if(form.dataset.form!=='topic-stage-enter')return;
+  event.preventDefault();const button=form.querySelector('[type=submit]'),error=form.querySelector('.form-error');button.disabled=true;
+  try{
+    await api('/api/collaboration/topics/'+encodeURIComponent(form.dataset.topic)+'/enter-compilation',{method:'POST',body:{request_id:form.dataset.request,topic_version:Number(form.dataset.topicVersion),stage_version:Number(form.dataset.stageVersion),meeting_version:Number(form.dataset.meetingVersion)}});
+    closeModal();await route();toast('已确认分工，进入编译阶段');
+  }catch(e){if(form.isConnected){error.textContent=e.message;button.disabled=false;}}
 });

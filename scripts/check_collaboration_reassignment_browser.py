@@ -44,6 +44,7 @@ def main():
                 tid = call(lead, '/api/collaboration/topics', {'theme': f'改派稿件核对 {width}/{zoom}', 'participant_ids': ['colleague']})['id']
                 root = f'/api/collaboration/topics/{tid}'
                 call(lead, root + '/meetings', {'topic_version': 1, 'version': 0, 'request_id': f'initial-meeting-{width}-{zoom}', 'assignments': [{'title': '保持文章身份的改派演示', 'author_id': 'colleague'}]})
+                call(lead, root + '/enter-compilation', {'topic_version': 1, 'stage_version': 1, 'meeting_version': 1, 'request_id': f'enter-stage-{width}-{zoom}'})
                 a = lead.get(root + '/workflow').json['assignments'][0]
                 aid = a['id']
                 sid = call(author, root + f'/assignments/{aid}/submissions', {'topic_version': 1, 'meeting_version': 1, 'version': 0, 'request_id': f'initial-draft-{width}-{zoom}'}, b'previous author exact original')['id']
@@ -100,6 +101,7 @@ def main():
                     conflict_tid = call(lead, '/api/collaboration/topics', {'theme': '改派后旧表单保留输入', 'participant_ids': ['colleague']})['id']
                     conflict_root = f'/api/collaboration/topics/{conflict_tid}'
                     call(lead, conflict_root + '/meetings', {'topic_version': 1, 'version': 0, 'request_id': 'conflict-first-meeting', 'assignments': [{'title': '待审原作者稿件', 'author_id': 'colleague'}]})
+                    call(lead, conflict_root + '/enter-compilation', {'topic_version': 1, 'stage_version': 1, 'meeting_version': 1, 'request_id': 'conflict-enter-stage'})
                     old_assignment = lead.get(conflict_root + '/workflow').json['assignments'][0]
                     call(author, conflict_root + f'/assignments/{old_assignment["id"]}/submissions', {'topic_version': 1, 'meeting_version': 1, 'version': 0, 'request_id': 'conflict-first-draft'}, b'old author pending original')
                     page.goto(base + '/#collaboration?id=' + conflict_tid)

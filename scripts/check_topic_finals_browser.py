@@ -72,6 +72,7 @@ def main():
                 call(lead, f'/api/collaboration/topics/{tid}/meetings', {'version': 0, 'topic_version': 1, 'request_id': f'meeting-{width}-{zoom}', 'note': '本期采用', 'assignments': [
                     {'title': '跨国独立文章甲_' + '长题名与研究原件' * 9, 'author_id': 'colleague', 'country': '拉脱维亚、波兰'},
                     {'title': '同一作者另一篇文章乙', 'author_id': 'colleague', 'country': '拉脱维亚'}]})
+                call(lead, f'/api/collaboration/topics/{tid}/enter-compilation', {'topic_version': 1, 'stage_version': 1, 'meeting_version': 1, 'request_id': f'enter-stage-{width}-{zoom}'})
                 assignments = author.get(f'/api/collaboration/topics/{tid}/workflow').json['assignments']
                 for index, a in enumerate(assignments):
                     call(author, f'/api/collaboration/topics/{tid}/assignments/{a["id"]}/submissions', {'version': 0, 'topic_version': 1, 'meeting_version': 1, 'request_id': f'draft-{index}-{width}-{zoom}'}, b'independently authored draft ' + str(index).encode())

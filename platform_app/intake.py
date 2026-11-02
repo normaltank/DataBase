@@ -156,8 +156,9 @@ def fetch_document(url, deadline, *, fixed_feed=None):
             try:
                 text = content.decode(charset, errors="replace")
             except LookupError:
+                charset = "utf-8"
                 text = content.decode("utf-8", errors="replace")
-            return {"url": canonical, "content_type": mime, "text": text, "bytes": content}
+            return {"url": canonical, "content_type": mime, "text": text, "bytes": content, "encoding": charset}
         except (OSError, http.client.HTTPException, UnicodeError, ValueError) as error:
             if isinstance(error, AcquisitionError):
                 raise
@@ -419,19 +420,45 @@ def _orcid(author):
     return ""
 
 
+def adopted_byline_orcids(db, relation):
+    """Recall only identifiers still bound to the human-confirmed original byline."""
+    from . import author_suggestions, identity
+    for candidate in db.execute("SELECT * FROM archive_candidates WHERE target_type='record' AND target_id=? AND status='adopted'", (relation['origin_record_id'],)):
+        if relation['evidence'] != ('人工采用作者建议 ' + candidate['id'] + '\n' +
+                db.execute('SELECT url FROM archive_evidence WHERE id=?', (candidate['evidence_id'],)).fetchone()[0] +
+                '\nORCID ' + json.loads(candidate['value_json']).get('orcid', '')):
+            continue
+        job, unused = author_suggestions.check_candidate(db, candidate)
+        for event in db.execute("SELECT details_json FROM archive_events WHERE candidate_id=? AND action='adopted'", (candidate['id'],)):
+            rows = json.loads(event[0]).get('post_snapshot', {}).get('bylines', [])
+            previous = next((b for b in rows if b['id'] == relation['byline_id']), None)
+            if not previous or any(previous[k] != relation[k] for k in
+                    ('raw_name', 'manual_revision', 'selected_target_type', 'selected_target_id', 'evidence')):
+                continue
+            target = identity.resolve(db, 'people' if previous['target_type'] == 'person' else 'sources', previous['target_id'])
+            if target and (previous['target_type'], target['id']) == (relation['target_type'], relation['target_id']):
+                yield json.loads(candidate['value_json']).get('orcid', '')
+
+
 def candidates(db, access, fields, authors, identifiers):
+    from .bylines import Bylines
     def label(row, kind, basis):
         return {"id": row["id"], "name": row["name"], "type": kind, "basis": basis}
     verified_ids = {}
-    for relation in db.execute("""SELECT b.raw_name,b.target_type,b.target_id,r.* FROM record_bylines b
+    byline_access = Bylines(db, access.actor, access)
+    for relation in db.execute("""SELECT b.raw_name,b.target_type,b.target_id,b.origin_record_id,b.id AS byline_id,b.manual_revision,b.selected_target_type,b.selected_target_id,b.evidence,r.* FROM record_bylines b
                                  JOIN records r ON r.id=b.record_id WHERE b.status='confirmed'
                                  AND b.removed_at IS NULL AND r.merged_into IS NULL"""):
-        if not access.visible(relation):
+        if not access.visible(relation) or not byline_access.readable(relation):
             continue
-        for acquired in json.loads(relation["raw_json"] or "{}").get("intake_evidence", []):
+        origin = db.execute('SELECT raw_json FROM records WHERE id=?', (relation['origin_record_id'],)).fetchone()
+        for acquired in json.loads(origin['raw_json'] or "{}").get("intake_evidence", []):
             for author in acquired.get("authors", []):
                 if author.get("raw_name") == relation["raw_name"] and _orcid(author):
                     verified_ids.setdefault(_orcid(author), set()).add((relation["target_type"], relation["target_id"]))
+        for oid in adopted_byline_orcids(db, relation):
+            if oid:
+                verified_ids.setdefault(oid, set()).add((relation['target_type'], relation['target_id']))
     author_matches = []
     for author in authors:
         name = author["raw_name"].casefold()

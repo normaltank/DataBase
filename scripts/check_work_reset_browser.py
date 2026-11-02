@@ -26,6 +26,7 @@ def seed(app):
     call(lead, f'/api/collaboration/topics/{tid}/meetings', {
         'version': 0, 'topic_version': 1, 'request_id': 'reset-meeting',
         'assignments': [{'title': '合成重置文章', 'author_id': 'researcher', 'country': '拉脱维亚'}]})
+    call(lead, f'/api/collaboration/topics/{tid}/enter-compilation', {'request_id': 'reset-enter-compilation', 'stage_version': 1, 'topic_version': 1, 'meeting_version': 1})
     aid = lead.get(f'/api/collaboration/topics/{tid}/workflow').json['assignments'][0]['id']
     sid = call(lead, f'/api/collaboration/topics/{tid}/assignments/{aid}/submissions', {
         'version': 0, 'topic_version': 1, 'meeting_version': 1, 'request_id': 'reset-draft'}, b'synthetic topic original')['id']

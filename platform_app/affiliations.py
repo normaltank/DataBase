@@ -264,30 +264,36 @@ class Relations:
     def update(self, owner, data):
         with self.db:
             self.db.execute("BEGIN IMMEDIATE")
-            owner = self.detail(owner)[self.owner_key]
-            note, items = self.check_change(owner, data), data.get("items")
-            if not isinstance(items, list) or len(items) > 200:
-                abort(400, "请明确提交关系列表，最多 200 项。")
-            existing = {row["id"]: row for row in self.rows(owner) if self.readable(row)}
-            seen = set()
-            for item in items:
-                if not isinstance(item, dict):
-                    abort(400, "关系格式不正确。")
-                rid = item.get("id")
-                if rid is not None and (not isinstance(rid, str) or rid not in existing or rid in seen or existing[rid]["removed_at"]):
-                    abort(400, "关系编号无效或重复，请重新打开列表。")
-                before = existing.get(rid)
-                if "reconfirm" in item and type(item["reconfirm"]) is not bool:
-                    abort(400, "关系重新确认标记格式不正确。")
-                values = self.values(item, owner, before)
-                if not before or item.get("reconfirm") or any(before[key] != value for key, value in values.items()):
-                    self.change(before, values, owner=owner, note=note)
-                if rid:
-                    seen.add(rid)
-            for rid, row in existing.items():
-                if rid not in seen and not row["removed_at"]:
-                    self.change(row, {"removed_at": now()}, note=note)
-            self.bump(owner)
+            return self.update_in_transaction(owner, data)
+
+    def update_in_transaction(self, owner, data):
+        """Use the same validation/history while a caller owns the atomic transaction."""
+        if not self.db.in_transaction:
+            raise ValueError("关系保存需要活动事务。")
+        owner = self.detail(owner)[self.owner_key]
+        note, items = self.check_change(owner, data), data.get("items")
+        if not isinstance(items, list) or len(items) > 200:
+            abort(400, "请明确提交关系列表，最多 200 项。")
+        existing = {row["id"]: row for row in self.rows(owner) if self.readable(row)}
+        seen = set()
+        for item in items:
+            if not isinstance(item, dict):
+                abort(400, "关系格式不正确。")
+            rid = item.get("id")
+            if rid is not None and (not isinstance(rid, str) or rid not in existing or rid in seen or existing[rid]["removed_at"]):
+                abort(400, "关系编号无效或重复，请重新打开列表。")
+            before = existing.get(rid)
+            if "reconfirm" in item and type(item["reconfirm"]) is not bool:
+                abort(400, "关系重新确认标记格式不正确。")
+            values = self.values(item, owner, before)
+            if not before or item.get("reconfirm") or any(before[key] != value for key, value in values.items()):
+                self.change(before, values, owner=owner, note=note)
+            if rid:
+                seen.add(rid)
+        for rid, row in existing.items():
+            if rid not in seen and not row["removed_at"]:
+                self.change(row, {"removed_at": now()}, note=note)
+        self.bump(owner)
         return self.detail(owner)
 
     def merge_sources(self, keep, duplicate):
