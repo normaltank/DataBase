@@ -183,16 +183,23 @@ class PersonProfiles:
         current["avatar_id"] = aid
 
     def create(self, data, upload=None):
+        with self.mutation() as created_files:
+            pid = self.create_in_transaction(data, upload, created_files)
+        return self.detail(pid)
+
+    def create_in_transaction(self, data, upload=None, created_files=None):
+        """Create a profile and revision atomically with an owning domain operation."""
+        if not self.db.in_transaction:
+            raise RuntimeError("Person creation requires an owning transaction.")
         current = values(data)
         pid = "person-" + uuid.uuid4().hex
-        with self.mutation() as created_files:
-            current.update(id=pid, version=1, created_at=now(), updated_at=now())
-            self.db.execute(f"INSERT INTO people ({','.join(current)}) VALUES ({','.join('?' for _ in current)})", list(current.values()))
-            if upload:
-                self.upload_avatar(pid, current, upload, created_files)
-                self.db.execute("UPDATE people SET avatar_id=? WHERE id=?", (current["avatar_id"], pid))
-            save_revision(self.db, "person", pid, "建立人物档案", self.actor["id"])
-        return self.detail(pid)
+        current.update(id=pid, version=1, created_at=now(), updated_at=now())
+        self.db.execute(f"INSERT INTO people ({','.join(current)}) VALUES ({','.join('?' for _ in current)})", list(current.values()))
+        if upload:
+            self.upload_avatar(pid, current, upload, created_files)
+            self.db.execute("UPDATE people SET avatar_id=? WHERE id=?", (current["avatar_id"], pid))
+        save_revision(self.db, "person", pid, "建立人物档案", self.actor["id"])
+        return pid
 
     def update(self, pid, data, revision_id=None, upload=None):
         with self.mutation() as created_files:

@@ -185,6 +185,7 @@ def create_app(data_dir=None, testing=False):
         from .automatic_processing import projection as automatic_projection
         obj.update(automatic_projection(db(),r))
         obj['created_at'] = r['created_at']
+        obj['author_suggestions_available'] = r['kind'] not in workflow.CONTENT_KINDS and bool(intake.normalize_doi(r['doi']) or intake.normalize_url(r['url']))
         if 'record_search' in g:
             source = g.record_search.sources.get(r['source_id'])
             obj['source_name'] = source['name'] if source else ''
@@ -869,6 +870,9 @@ def create_app(data_dir=None, testing=False):
     from . import archive_suggestions
     archive_suggestions.register(app, SimpleNamespace(db=db, user=user, body=body, admin=admin,
                                                      get_source=get_source, save_source=save_source))
+    from . import author_suggestions
+    author_suggestions.register(app, SimpleNamespace(db=db, user=user, body=body, admin=admin,
+                                                    records=records, data_dir=data_dir))
     if not testing:
         archive_suggestions.start_worker(data_dir)
     translations.register(app, SimpleNamespace(db=db, user=user, body=body, records=records))

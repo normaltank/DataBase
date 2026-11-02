@@ -248,37 +248,43 @@ class Bylines:
     def update(self, rid, data):
         with self.db:
             self.db.execute("BEGIN IMMEDIATE")
-            record = self.record(rid)
-            rid = record["id"]
-            note, items = self.check_change(rid, data), data.get("items")
-            if type(data.get("record_version")) is not int or data["record_version"] != record["version"]:
-                abort(409, "原始资料已被修订，请对照最新题录与署名；你的输入仍保留。")
-            if not isinstance(items, list) or len(items) > 100:
-                abort(400, "请明确提交署名列表，最多 100 项。")
-            existing = {row["id"]: row for row in self.rows(rid) if self.readable(row)}
-            seen = set()
-            for position, item in enumerate(items, 1):
-                values = self.values(item, position)
-                bid = item.get("id")
-                if bid is not None and (not isinstance(bid, str) or bid not in existing or existing[bid]["removed_at"] or bid in seen):
-                    abort(400, "署名编号无效或重复，请重新打开署名列表。")
-                before = existing.get(bid)
-                if "reconfirm" in item and type(item["reconfirm"]) is not bool:
-                    abort(400, "署名身份确认标记格式不正确。")
-                if before and not item.get("reconfirm") and (values["target_type"], values["target_id"]) == (before["target_type"], before["target_id"]):
-                    # A form containing unchanged system transfers is not a new identity choice.
-                    values["selected_target_type"] = before["selected_target_type"]
-                    values["selected_target_id"] = before["selected_target_id"]
-                if not before or item.get("reconfirm") or any(values[key] != before[key] for key in FIELDS):
-                    self.change(before, values, record=record, note=note,
-                                kind="manual_confirmation" if item.get("reconfirm") else "manual")
-                if bid:
-                    seen.add(bid)
-            for bid, row in existing.items():
-                if bid not in seen and not row["removed_at"]:
-                    self.change(row, {"removed_at": now()}, note=note)
-            self.bump(rid)
+            self.update_in_transaction(rid, data)
         return self.detail(rid)
+
+    def update_in_transaction(self, rid, data):
+        """Save validated bylines in the owning domain operation's transaction."""
+        if not self.db.in_transaction:
+            raise RuntimeError("Byline changes require an owning transaction.")
+        record = self.record(rid)
+        rid = record["id"]
+        note, items = self.check_change(rid, data), data.get("items")
+        if type(data.get("record_version")) is not int or data["record_version"] != record["version"]:
+            abort(409, "原始资料已被修订，请对照最新题录与署名；你的输入仍保留。")
+        if not isinstance(items, list) or len(items) > 100:
+            abort(400, "请明确提交署名列表，最多 100 项。")
+        existing = {row["id"]: row for row in self.rows(rid) if self.readable(row)}
+        seen = set()
+        for position, item in enumerate(items, 1):
+            values = self.values(item, position)
+            bid = item.get("id")
+            if bid is not None and (not isinstance(bid, str) or bid not in existing or existing[bid]["removed_at"] or bid in seen):
+                abort(400, "署名编号无效或重复，请重新打开署名列表。")
+            before = existing.get(bid)
+            if "reconfirm" in item and type(item["reconfirm"]) is not bool:
+                abort(400, "署名身份确认标记格式不正确。")
+            if before and not item.get("reconfirm") and (values["target_type"], values["target_id"]) == (before["target_type"], before["target_id"]):
+                # A form containing unchanged system transfers is not a new identity choice.
+                values["selected_target_type"] = before["selected_target_type"]
+                values["selected_target_id"] = before["selected_target_id"]
+            if not before or item.get("reconfirm") or any(values[key] != before[key] for key in FIELDS):
+                self.change(before, values, record=record, note=note,
+                            kind="manual_confirmation" if item.get("reconfirm") else "manual")
+            if bid:
+                seen.add(bid)
+        for bid, row in existing.items():
+            if bid not in seen and not row["removed_at"]:
+                self.change(row, {"removed_at": now()}, note=note)
+        self.bump(rid)
 
     def initialize(self, rid, items, note):
         """Add initial bylines inside the owning record creation transaction."""
