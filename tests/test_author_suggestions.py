@@ -432,6 +432,22 @@ class AuthorSuggestionsTests(unittest.TestCase):
         self.assertEqual([r['id'] for r in rows['items']],[eligible])
         self.assertEqual(rows['total'],1)
 
+    def test_existing_pending_bylines_can_be_adopted_together_without_mutating_the_conflict_baseline(self):
+        self.synthetic()
+        raw=json.dumps({'message':{'DOI':'10.5555/pending','author':[
+            {'given':'Ada','family':'Example','ORCID':'https://orcid.org/0000-0002-1825-0097'},
+            {'given':'Bob','family':'Example','ORCID':'https://orcid.org/0000-0001-5109-3700'}]}}).encode()
+        self.fetcher=lambda url:{'url':url,'content_type':'application/json','bytes':raw,'text':raw.decode()}
+        archive_fixture.Provider.transform=lambda output,value:{'suggestions':value['author_facts']}
+        rid=self.record(authors='Ada Example; Bob Example',doi='10.5555/pending')
+        saved=self.call(f'/api/records/{rid}/bylines',{'version':0,'record_version':1,'change_note':'Synthetic existing intake bylines',
+            'items':[{'raw_name':'Ada Example','status':'pending'},{'raw_name':'Bob Example','status':'pending'}]},method='PUT')
+        self.assertEqual(saved.status_code,200)
+        state=self.queue_run(rid)
+        result=self.decision(rid,[c['id'] for c in state['candidates']])
+        self.assertEqual(result.status_code,200,result.json)
+        self.assertEqual([b['status'] for b in self.get(f'/api/records/{rid}/bylines')['items']],['confirmed','confirmed'])
+
     def crossref(self, name='Private Alias', doi='10.5555/identity'):
         return json.dumps({'message': {'title': ['Public article'], 'DOI': doi,
             'author': [{'given': name, 'family': '', 'ORCID': 'https://orcid.org/0000-0002-1825-0097'}]}})

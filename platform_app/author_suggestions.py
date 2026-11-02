@@ -711,7 +711,7 @@ def decide(ctx, rid, data):
                       or data['version'] != row['version'] or data['byline_version'] != current['byline_version']):
             abort(409, '资料或署名已修订；建议与选择保留。')
         selected, positions, relations = [], set(), []
-        items = [b for b in current['bylines'] if not b['removed_at']]
+        items = [dict(b) for b in current['bylines'] if not b['removed_at']]
         for cid in adopt + reject:
             candidate = db.execute("SELECT * FROM archive_candidates WHERE id=? AND target_type='record' AND target_id=?", (cid, row['id'])).fetchone()
             if not candidate:

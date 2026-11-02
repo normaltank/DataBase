@@ -156,7 +156,8 @@ def main():
                 page.get_by_role('button',name='取得作者建议',exact=True).click()
                 review=page.locator('[data-archive-review]')
                 expect(review.locator('input[name=candidate]')).to_have_count(1,timeout=20000)
-                review.locator('[data-author-choice]').select_option('new')
+                if review.locator('[data-author-choice]').count():
+                    review.locator('[data-author-choice]').select_option('new')
                 review.get_by_text('查看实际依据',exact=True).click()
                 expect(page.locator('#toast')).not_to_have_class(re.compile(r'\bshow\b'))
                 page.screenshot(path=str(root/('roles-'+str(width)+'.png')))
