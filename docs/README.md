@@ -27,6 +27,10 @@
 
 2026-10-27 用户明确以对象国新文章阅读为普通研究员的主要体验，后台持续采集、翻译和整理；已确认方向及机器结果生效边界见 [PRODUCT](../PRODUCT.md#自采集自维护与对象国新文章2026-10-27-确认方向)。[R021](需求讨论记录.md#r021自采集自维护与前端重设计)保留本轮 grill-with-docs 答复、现状核查及未决项；[整体规格 1.0](specs/自采集资料库与阅读前端重构.md)串联阅读、档案、成果、后台自动化及验收；十四项业务答复与七项完整流程拆分已经用户批准，原生任务 [#60—#66](https://github.com/normaltank/DataBase/issues/46) 已发布并进入施工。阅读与公共入口的实现及当次开发证据见 [#60](https://github.com/normaltank/DataBase/issues/60)，成品成果及简单资料夹见 [#61](https://github.com/normaltank/DataBase/issues/61) 与[当前使用说明](../README.md#简单资料夹与旧内容)，移除专门写作流程后既有内容与历史继续保留。任务状态以 Issue 为准。任务沿用 [#46](https://github.com/normaltank/DataBase/issues/46)，不将此前已完成的子任务重新打开。
 
+## 档案筛选与 AI 辅助维护
+
+[规格 1.0](specs/档案筛选与AI辅助维护.md)及 [R025](需求讨论记录.md#r025档案筛选与ai辅助维护)记录2026-11-02确认的国名／档案筛选、官网取证与来源建议、作者候选及人工采用。三项完整后统一交付，当前待施工；父任务沿用 [#46](https://github.com/normaltank/DataBase/issues/46)，作者接续 [#64](https://github.com/normaltank/DataBase/issues/64)，两个新任务编号以父任务发布为准。本轮收紧旧版明确依据自动正式关联许可，当前规则见 [PRODUCT](../PRODUCT.md#有据档案建议与人工采用2026-11-02-已确认)；旧规格及讨论保留历史身份，正式交付包与服务器部署仍属后续安排。
+
 ## 研究资料质量与辅助整理
 
 [规格 1.0](specs/研究资料质量与辅助整理.md)覆盖附件锚定摘录、引用用途与变化提示、专题排查、核对基线、出版题录与检索、部分日期及单篇辅助翻译。本批执行、审查与交付状态以 [父任务 #47](https://github.com/normaltank/DataBase/issues/47)／[PR #50](https://github.com/normaltank/DataBase/pull/50) 为准。
