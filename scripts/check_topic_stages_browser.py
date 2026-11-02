@@ -63,6 +63,9 @@ def main():
     def snapshot(page, name):
         no_overflow(page)
         page.screenshot(path=str(out / (name + ".png")), full_page=True)
+        if name.endswith(('-lead-compilation', '-author-two-drafts')):
+            page.evaluate('scrollTo(0,0)')
+            page.screenshot(path=str(out / (name + '-default-viewport.png')), full_page=False)
 
     try:
         for name in ("admin", "researcher", "colleague"):
@@ -112,6 +115,16 @@ def main():
                 page.get_by_role("button", name="确认以上分工，进入编译", exact=True).focus()
                 page.keyboard.press("Enter")
                 expect(page.get_by_text("第二阶段：编译", exact=True)).to_be_visible()
+                expect(page.locator('[data-topic-finals]')).to_have_count(0)
+                expect(page.get_by_role('button', name='补充选题材料', exact=True)).to_be_visible()
+                summary_title=page.locator('.meeting-assignment-title').first
+                expect(summary_title).to_be_visible()
+                metrics=summary_title.evaluate('(e)=>({height:e.getBoundingClientRect().height,lineHeight:parseFloat(getComputedStyle(e).lineHeight)})')
+                assert metrics['height'] <= metrics['lineHeight']*3+1, metrics
+                long_title=page.locator('.meeting-assignments li').first
+                long_title.get_by_text('完整题名',exact=True).click()
+                expect(long_title.get_by_text('文章1：'+'研究对象与出处核对'*12,exact=True)).to_be_visible()
+                long_title.get_by_text('完整题名',exact=True).click()
                 snapshot(page, label + "-lead-compilation")
                 assert get(root)["stage_events"][0]["meeting_version"] == 3
                 login(page, "colleague", tid)
@@ -175,7 +188,7 @@ def main():
                 login(page, "unassigned", tid)
                 expect(page.get_by_text("当前尚无文章分工，请联系负责人。", exact=True)).to_be_visible()
                 assert not page.get_by_role("button", name="我的编译分工", exact=True).count()
-                page.get_by_role("button", name="提交我的选题报告", exact=True).click()
+                page.get_by_role("button", name="补充选题材料", exact=True).click()
                 file(page.get_by_label("选题报告文件 *", exact=True), "补前期选题.txt", b"late selection material")
                 page.get_by_role("button", name="提交为版本 1", exact=True).click()
                 snapshot(page, label + "-unassigned-supplement")

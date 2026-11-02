@@ -6,7 +6,11 @@ function topicReviewFile(item,label){
 }
 
 function topicReviewDecision(m){
-  return '<article><h3>会议决定 v'+m.version+' · '+esc(m.actor_name)+'</h3><p class="small muted">'+dateTime(m.created_at)+'</p>'+(m.note?'<p class="collaboration-note">'+esc(m.note)+'</p>':'')+topicReviewFile(m,'下载会议材料')+(m.assignments.length?'<h4>采用文章与分工 '+m.assignments.length+' 项</h4><ul class="meeting-assignments">'+m.assignments.map(a=>'<li><strong>'+esc(a.author_name)+' — '+esc(a.title)+'</strong>'+(a.country?'<p>国家分工：'+esc(a.country)+'</p>':'')+(a.source||a.candidate_id?'<details><summary>出处与报告位置</summary>'+(a.source?'<p class="collaboration-note">'+esc(a.source)+'</p>':'')+(a.candidate_id?'<p>选题报告 v'+a.candidate_version+' · '+esc(a.candidate_item||'未注明项目位置')+'</p><a class="button tiny" href="/api/collaboration/topics/'+esc(m.topic_id)+'/candidates/'+esc(a.candidate_id)+'/file" download>下载所据选题报告</a>':'')+'</details>':'')+'</li>').join('')+'</ul>':'')+'</article>';
+  const assignments=m.assignments.map(a=>{
+    const longTitle=a.title.length>60,title=longTitle?a.title.slice(0,48)+'…':a.title;
+    return '<li><strong class="meeting-assignment-title">'+esc(a.author_name)+' — '+esc(title)+'</strong>'+(longTitle?'<details><summary>完整题名</summary><p>'+esc(a.title)+'</p></details>':'')+(a.country?'<p>国家分工：'+esc(a.country)+'</p>':'')+(a.source||a.candidate_id?'<details><summary>出处与报告位置</summary>'+(a.source?'<p class="collaboration-note">'+esc(a.source)+'</p>':'')+(a.candidate_id?'<p>选题报告 v'+a.candidate_version+' · '+esc(a.candidate_item||'未注明项目位置')+'</p><a class="button tiny" href="/api/collaboration/topics/'+esc(m.topic_id)+'/candidates/'+esc(a.candidate_id)+'/file" download>下载所据选题报告</a>':'')+'</details>':'')+'</li>';
+  }).join('');
+  return '<article><h3>会议决定 v'+m.version+' · '+esc(m.actor_name)+'</h3><p class="small muted">'+dateTime(m.created_at)+'</p>'+(m.note?'<p class="collaboration-note">'+esc(m.note)+'</p>':'')+topicReviewFile(m,'下载会议材料')+(m.assignments.length?'<h4>采用文章与分工 '+m.assignments.length+' 项</h4><ul class="meeting-assignments">'+assignments+'</ul>':'')+'</article>';
 }
 
 function topicReviewReturn(r,s){

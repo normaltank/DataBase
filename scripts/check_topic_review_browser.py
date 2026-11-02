@@ -122,7 +122,7 @@ def main():
                 expect(page.get_by_role("heading", name="编译稿与返修", exact=True)).to_be_visible()
                 expect(page.get_by_text("待交稿", exact=True)).to_be_visible()
                 # The top action must reveal the form inside folded candidate history.
-                page.get_by_role("button", name="提交我的选题报告", exact=True).click()
+                page.get_by_role("button", name="补充选题材料", exact=True).click()
                 expect(page.get_by_label("选题报告文件", exact=False)).to_be_visible(timeout=3000)
                 signout(page)
                 login(page, base, "colleague")
