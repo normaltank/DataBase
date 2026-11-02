@@ -19,3 +19,6 @@
 # Frozen RIS encoding/line-ending probes and independent expected-byte digest.
 tests/fixtures/ris_independent/*.ris -text whitespace=-blank-at-eol,cr-at-eol
 tests/fixtures/ris_independent/expected.json -text whitespace=cr-at-eol
+
+# Public response fixture: retain the acquired bytes and digest on every platform.
+tests/fixtures/archive_suggestions/liia-en-20261102.html -text whitespace=-blank-at-eol,cr-at-eol

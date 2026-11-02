@@ -182,8 +182,8 @@ class ArchiveSuggestionsTests(unittest.TestCase):
 
     def test_unregistered_publisher_keeps_visible_evidence_and_can_match_after_registration(self):
         self.synthetic()
-        self.document = {**self.document, 'text': '<p>Published by Synthetic Publisher.</p>',
-                         'bytes': b'<p>Published by Synthetic Publisher.</p>'}
+        raw = b'<h1>Synthetic Journal</h1><p>Published by Synthetic Publisher.</p>'
+        self.document = {**self.document, 'text': raw.decode(), 'bytes': raw}
         Provider.transform = lambda output, material: {'suggestions': [{'field': 'publisher',
             'value': {'target_name': 'Synthetic Publisher'}, 'evidence_id': material['documents'][0]['id'],
             'quote': 'Published by Synthetic Publisher.'}]}
@@ -417,6 +417,184 @@ class ArchiveSuggestionsTests(unittest.TestCase):
         current = self.clients['researcher'].get('/api/sources/' + missing).json
         self.assertEqual(current['country'], 'Latvia')
         self.assertIn('Our office is in Riga, Latvia.', current['country_evidence'])
+
+    def test_actual_liia_developer_and_cookie_partners_cannot_be_adopted_as_cooperation(self):
+        self.synthetic()
+        raw = (Path(__file__).parent / 'fixtures/archive_suggestions/liia-en-20261102.html').read_bytes()
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), '0c2cddf3bb3cc0eda089d759ad8c52cf41dd66d01c40dce1ce77154a31645f18')
+        self.document = {'url': 'https://www.liia.lv/en', 'content_type': 'text/html',
+                         'text': raw.decode(), 'bytes': raw}
+        developer = self.source('GOLD.LV', kind='institution')
+        sid = self.source('Latvian Institute of International Affairs', kind='institution', website='https://www.liia.lv/en')
+        quotes = []
+        def response(output, material):
+            document = material['documents'][0]
+            quote = document['text'][document['text'].index('© 2026'):]
+            quotes.append(quote)
+            return {'suggestions': [{'field': 'relationships', 'value': {'target_name': 'GOLD.LV', 'type': 'cooperates_with'},
+                                     'evidence_id': document['id'], 'quote': quote}]}
+        Provider.transform = response
+        state = self.queue_run(sid)
+        self.assertEqual(len(quotes), 1)
+        self.assertEqual(len(quotes[0]), 651)
+        self.assertEqual(hashlib.sha256(quotes[0].encode()).hexdigest(), 'fe551baca6df57c4a92059138c8ed90616eedde52ecec74ad78f4c8535eb3208')
+        # Exercise adoption when the buggy version creates a candidate: directory
+        # matching alone must not authorize a role absent from the original material.
+        decisions = [self.call(f'/api/sources/{sid}/suggestions/decide', {'version': 1, 'adopt': [c['id']]})
+                     for c in state['candidates']]
+        self.assertFalse(any(d.status_code == 200 for d in decisions), 'Website development and generic cookie partners do not establish cooperation.')
+        saved = self.clients['researcher'].get('/api/sources/' + sid).json
+        self.assertFalse(any(r['target_id'] == developer for r in saved['relationships']))
+        self.assertEqual(state['jobs'][0]['status'], 'failed')
+        self.assertEqual(state['candidates'], [])
+
+    def test_actual_liia_cookie_identity_does_not_establish_think_tank_type(self):
+        self.synthetic()
+        raw = (Path(__file__).parent / 'fixtures/archive_suggestions/liia-en-20261102.html').read_bytes()
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), '0c2cddf3bb3cc0eda089d759ad8c52cf41dd66d01c40dce1ce77154a31645f18')
+        self.document = {'url': 'https://www.liia.lv/en', 'content_type': 'text/html', 'text': raw.decode(), 'bytes': raw}
+        sid = self.source('Latvian Institute of International Affairs', kind='institution', website='https://www.liia.lv/en')
+        quotes = []
+        def response(output, material):
+            document = material['documents'][0]
+            quote = document['text'][document['text'].index('© 2026'):]
+            quotes.append(quote)
+            return {'suggestions': [{'field': 'institution_types', 'value': ['think_tank'],
+                                     'evidence_id': document['id'], 'quote': quote}]}
+        Provider.transform = response
+        state = self.queue_run(sid)
+        self.assertEqual(len(quotes), 1)
+        self.assertEqual(hashlib.sha256(quotes[0].encode()).hexdigest(), 'fe551baca6df57c4a92059138c8ed90616eedde52ecec74ad78f4c8535eb3208')
+        decisions = [self.call(f'/api/sources/{sid}/suggestions/decide', {'version': 1, 'adopt': [c['id']]})
+                     for c in state['candidates']]
+        self.assertFalse(any(d.status_code == 200 for d in decisions), 'Cookie company text does not establish an institutional type.')
+        self.assertNotIn('think_tank', self.clients['researcher'].get('/api/sources/' + sid).json['institution_types'])
+        self.assertEqual(state['jobs'][0]['status'], 'failed')
+        self.assertEqual(state['candidates'], [])
+
+    def test_institution_relations_require_the_sources_own_complete_role_statement(self):
+        self.synthetic()
+        target = self.source('Statement Partner', kind='institution')
+        for role, predicate in [('part_of', 'is part of'), ('established_by', 'was established by'),
+                                ('cooperates_with', 'cooperates with'), ('funded_by', 'is funded by')]:
+            with self.subTest(role=role):
+                name = 'Statement Institute ' + role
+                statement = name + ' ' + predicate + ' Statement Partner.'
+                raw = ('<h1>' + name + '</h1><p>' + statement + '</p>').encode()
+                self.document = {**self.document, 'text': raw.decode(), 'bytes': raw}
+                Provider.transform = lambda output, material: {'suggestions': [{'field': 'relationships',
+                    'value': {'target_name': 'Statement Partner', 'type': role},
+                    'evidence_id': material['documents'][0]['id'], 'quote': statement}]}
+                sid = self.source(name, kind='institution', website='https://source.example/' + role)
+                state = self.queue_run(sid, role)
+                self.assertEqual(len(state['candidates']), 1, state['jobs'])
+                decision = self.call(f'/api/sources/{sid}/suggestions/decide', {'version': 1, 'adopt': [state['candidates'][0]['id']]})
+                self.assertEqual(decision.status_code, 200, decision.json)
+                saved = self.clients['researcher'].get('/api/sources/' + sid).json
+                self.assertEqual([(r['type'], r['target_id']) for r in saved['relationships']], [(role, target)])
+
+    def test_journal_host_publication_roles_stay_bound_to_the_current_journal(self):
+        self.synthetic()
+        target = self.source('Statement Publisher', kind='institution')
+        cases = [
+            ('other-subject', 'host', 'Other Journal is hosted by Statement Publisher.', None, False),
+            ('website-host', 'host', 'Website is hosted by Statement Publisher.', None, False),
+            ('financial-sponsor', 'host', '{name} is sponsored by Statement Publisher.', None, False),
+            ('separate-role', 'host', 'Published by Statement Publisher. Hosting institution is unconfirmed.', None, False),
+            ('truncated-quote', 'host', '{name} is not hosted by Statement Publisher.', 'hosted by Statement Publisher.', False),
+            ('explicit-host', 'host', '{name} is hosted by Statement Publisher.', None, True),
+            ('explicit-publisher', 'publisher', '{name} is published by Statement Publisher.', None, True),
+            ('scoped-host-label', 'host', '主办：Statement Publisher', None, True),
+        ]
+        for key, field, prose, quote, supported in cases:
+            with self.subTest(key=key):
+                name = 'Statement Journal ' + key
+                statement = prose.format(name=name)
+                raw = ('<h1>' + name + '</h1><p>' + statement + '</p>').encode()
+                self.document = {**self.document, 'text': raw.decode(), 'bytes': raw}
+                Provider.transform = lambda output, material: {'suggestions': [{'field': field,
+                    'value': {'target_name': 'Statement Publisher'}, 'evidence_id': material['documents'][0]['id'],
+                    'quote': quote or statement}]}
+                sid = self.source(name, kind='journal', website='https://source.example/' + key)
+                state = self.queue_run(sid, key)
+                if supported:
+                    self.assertEqual(len(state['candidates']), 1, state['jobs'])
+                    decision = self.call(f'/api/sources/{sid}/suggestions/decide', {'version': 1, 'adopt': [state['candidates'][0]['id']]})
+                    self.assertEqual(decision.status_code, 200, decision.json)
+                else:
+                    self.assertEqual(state['candidates'], [])
+                    self.assertEqual(state['jobs'][0]['status'], 'failed')
+                saved = self.clients['researcher'].get('/api/sources/' + sid).json
+                self.assertEqual(saved['host_id'], target if supported and field == 'host' else '')
+                self.assertEqual(saved['publisher_id'], target if supported and field == 'publisher' else '')
+
+    def test_institution_type_names_and_subjects_match_the_specific_identity_statement(self):
+        self.synthetic()
+        cases = [
+            ('explicit-type', '{name} is an independent think tank.', ['think_tank'], True),
+            ('different-type', '{name} is a university.', ['think_tank'], False),
+            ('different-subject', 'Other Institute is a think tank.', ['think_tank'], False),
+            ('unsupported-extra-type', '{name} is a university.', ['university', 'think_tank'], False),
+        ]
+        for key, prose, proposed, supported in cases:
+            with self.subTest(key=key):
+                name = 'Identity Institute ' + key
+                statement = prose.format(name=name)
+                raw = ('<h1>' + name + '</h1><p>' + statement + '</p>').encode()
+                self.document = {**self.document, 'text': raw.decode(), 'bytes': raw}
+                Provider.transform = lambda output, material: {'suggestions': [{'field': 'institution_types', 'value': proposed,
+                    'evidence_id': material['documents'][0]['id'], 'quote': statement}]}
+                sid = self.source(name, kind='institution', website='https://source.example/' + key)
+                state = self.queue_run(sid, key)
+                if supported:
+                    self.assertEqual(len(state['candidates']), 1, state['jobs'])
+                    self.assertEqual(self.call(f'/api/sources/{sid}/suggestions/decide',
+                        {'version': 1, 'adopt': [state['candidates'][0]['id']]}).status_code, 200)
+                    self.assertEqual(self.clients['researcher'].get('/api/sources/' + sid).json['institution_types'], proposed)
+                else:
+                    self.assertEqual(state['candidates'], [])
+                    self.assertEqual(state['jobs'][0]['status'], 'failed')
+                    self.assertEqual(self.clients['researcher'].get('/api/sources/' + sid).json['institution_types'], [])
+
+    def test_direct_relationship_and_type_evidence_export_and_restore_after_adoption(self):
+        from platform_app.maintenance import restore_backup
+        from platform_app.web import create_app
+        self.synthetic()
+        partner = self.source('Recovery Partner', kind='institution')
+        sid = self.source('Recovery Institute', kind='institution', website='https://source.example/')
+        identity = 'Recovery Institute is a think tank.'
+        relation = 'Recovery Institute cooperates with Recovery Partner.'
+        raw = ('<h1>Recovery Institute</h1><p>' + identity + '</p><p>' + relation + '</p>').encode()
+        self.document = {**self.document, 'text': raw.decode(), 'bytes': raw}
+        Provider.transform = lambda output, material: {'suggestions': [
+            {'field': 'institution_types', 'value': ['think_tank'], 'evidence_id': material['documents'][0]['id'], 'quote': identity},
+            {'field': 'relationships', 'value': {'target_name': 'Recovery Partner', 'type': 'cooperates_with'},
+             'evidence_id': material['documents'][0]['id'], 'quote': relation}]}
+        state = self.queue_run(sid)
+        self.assertEqual(len(state['candidates']), 2, state['jobs'])
+        decision = self.call(f'/api/sources/{sid}/suggestions/decide',
+                             {'version': 1, 'adopt': [c['id'] for c in state['candidates']]}, user='colleague')
+        self.assertEqual(decision.status_code, 200, decision.json)
+        exported = self.clients['researcher'].get(f'/api/sources/{sid}/suggestions/export')
+        self.assertEqual(exported.status_code, 200)
+        with zipfile.ZipFile(io.BytesIO(exported.data)) as archive:
+            payload = json.loads(archive.read('suggestions.json'))
+            self.assertEqual({c['evidence']['quote'] for c in payload['candidates']}, {identity, relation})
+            self.assertEqual({c['decided_by'] for c in payload['candidates']}, {'colleague'})
+            self.assertEqual(archive.read('evidence/' + state['candidates'][0]['evidence']['id'] + '.bin'), raw)
+        backup = self.call('/api/backup', user='admin')
+        path = self.data_dir.parent / 'direct-statements.zip'
+        path.write_bytes(backup.data)
+        backup.close()
+        restored = self.data_dir.parent / 'direct-statements-restored'
+        restore_backup(path, restored)
+        client = self.login('colleague', create_app(restored, testing=True))
+        saved = client.get('/api/sources/' + sid).json
+        self.assertEqual(saved['institution_types'], ['think_tank'])
+        self.assertEqual([(r['type'], r['target_id']) for r in saved['relationships']], [('cooperates_with', partner)])
+        candidates = client.get(f'/api/sources/{sid}/suggestions').json['candidates']
+        self.assertEqual({(c['status'], c['decided_by']) for c in candidates}, {('adopted', 'colleague')})
+        self.assertEqual({c['evidence']['quote'] for c in candidates}, {identity, relation})
 
     def test_html_name_and_domain_do_not_support_country_or_journal_international_mission(self):
         self.synthetic()

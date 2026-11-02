@@ -206,7 +206,61 @@ def field_before(base, field):
     return json.loads(value) if key in {'institution_types', 'relationships'} and isinstance(value, str) else value
 
 
-def validate_field_basis(item, document):
+def direct_statement_basis(item, document, current):
+    """Admit a small set of complete identity/role statements, not nearby keywords.
+
+    Test the full material statement so a quote cannot drop another subject or a
+    negation. Standalone publication labels require the page's opening identity.
+    Uncovered wording stays missing for a member to investigate.
+    """
+    names = {current.get(key, '').strip() for key in ('name', 'original_name')} - {''}
+    named_subject = '(?:' + '|'.join(re.escape(name) for name in names) + ')'
+    page_named = document['text'].splitlines()[0].strip() in names
+    subject = named_subject + (r'|We|Our institution|Our institute|Our journal|本机构|本刊' if page_named else '')
+    statements = [statement.strip() for statement in re.split(r'(?:[.!?](?=\s|$)|[。！？；;\n])', document['text'])
+                  if statement.strip() and statement.strip() in item['quote']]
+    if item['field'] == 'institution_types':
+        labels = {
+            'think_tank': ('think tank', '智库'), 'university': ('university', '大学'),
+            'research_institute': ('research institute', '研究机构|研究所'),
+            'faculty': ('faculty', '院系'), 'other': ('other institution', '其他机构'),
+        }
+        for proposed in item['value']:
+            english, chinese = labels[proposed]
+            patterns = [rf'(?:{subject})\s+(?:is|are)\s+(?:an?\s+)?(?:(?:independent|non-profit|public|private)\s+)?{english}',
+                        rf'(?:{subject})\s*是一(?:家|所|个)?(?:{chinese})']
+            if not any(re.fullmatch(p, statement, re.IGNORECASE) for statement in statements for p in patterns):
+                return False
+        return True
+    target = re.escape(item['value']['target_name'])
+    role = item['value'].get('type', item['field'])
+    predicates = {
+        'host': r'is hosted by',
+        'publisher': r'is published by',
+        'part_of': r'is (?:a )?(?:part|subsidiary) of',
+        'established_by': r'was (?:established|founded) by',
+        'cooperates_with': r'(?:cooperates?|partners?) with',
+        'funded_by': r'(?:is|are) funded by',
+    }
+    chinese = {
+        'host': r'由\s*{target}\s*主办', 'publisher': r'由\s*{target}\s*出版',
+        'part_of': r'(?:隶属于|隶属|属于)\s*{target}',
+        'established_by': r'由\s*{target}\s*(?:设立|成立)',
+        'cooperates_with': r'与\s*{target}\s*合作',
+        'funded_by': r'(?:由|获得)\s*{target}\s*(?:资助|资金支持)',
+    }
+    patterns = [rf'(?:{subject})\s+{predicates[role]}\s+{target}',
+                rf'{named_subject}\s*' + chinese[role].format(target=target)]
+    if page_named and role in {'host', 'publisher'}:
+        label = {'host': r'(?:Hosting institution|主办|办刊单位)',
+                 'publisher': r'(?:Publisher|出版方|出版机构|出版单位)'}[role]
+        patterns.append(rf'{label}\s*[:：]\s*{target}')
+        if role == 'publisher':
+            patterns.append(rf'Published by\s+{target}')
+    return any(re.fullmatch(p, statement, re.IGNORECASE) for statement in statements for p in patterns)
+
+
+def validate_field_basis(item, document, current):
     """Known API keys are strict; ambiguous prose needs direct, field-specific context.
 
     Prose markers are a conservative eligibility check, not a claim to determine all
@@ -236,23 +290,13 @@ def validate_field_basis(item, document):
         raise ValueError('Crossref期刊接口仅支持其明确刊名、ISSN及出版方字段；出版方不能充当主办或国际定位依据。')
     context = quote.casefold()
     if field in {'host','publisher','relationships'}:
-        context = context.replace(value['target_name'].casefold(), '')
-        markers = {
-            'host': ('hosted by','hosting institution','sponsoring institution','主办','办刊单位'),
-            'publisher': ('published by','publisher','出版方','出版机构','出版商','出版单位'),
-            'part_of': ('part of','subsidiary of','隶属','下属','所属'),
-            'established_by': ('established by','founded by','共同设立','共同成立','设立方'),
-            'cooperates_with': ('cooperat','partner','合作'),
-            'funded_by': ('funded by','funding from','financial support from','资助','资金支持'),
-        }[value['type'] if field == 'relationships' else field]
-        if not any(marker in context for marker in markers):
-            raise ValueError('关系片段未直接表达所提议的角色；请补充主办、出版或机构关系的明确依据。')
+        if not direct_statement_basis(item, document, current):
+            raise ValueError('关系依据须在同一完整陈述中明确本来源、所提议角色及目标机构；请补充直接依据。')
     if field in {'country','location'} and not any(marker in context for marker in
             ('based in','located in','office','address','headquarter','registered in','所在地','地址','位于','总部')):
         raise ValueError('所在地建议缺少直接地址或驻地语境；名称、域名及活动地不能作为机构所在地。')
-    if field == 'institution_types' and not any(marker in context for marker in
-            ('we are','is a ','is an ','是一','机构性质','机构类型','our institute is','our organisation is','our organization is')):
-        raise ValueError('机构类型缺少直接身份说明；不能仅凭名称推断。')
+    if field == 'institution_types' and not direct_statement_basis(item, document, current):
+        raise ValueError('机构类型须有本来源及具体类型的完整身份陈述；名称或泛称不能作为依据。')
     if field == 'research_scope' and not any(marker in context for marker in
             ('focus','research on','research area','research programme','mission','研究范围','研究领域','聚焦','致力于')):
         raise ValueError('覆盖范围缺少明确研究定位；不能把个别内容标题当作完整长期范围。')
@@ -290,7 +334,7 @@ def validate_output(output, value):
             raise ValueError('网址建议必须是本次实际取得的页面。')
         if field == 'international_status' and proposed not in {'yes', 'no'}:
             raise ValueError('国际定位缺少确定依据时应留缺。')
-        validate_field_basis(item, documents[item['evidence_id']])
+        validate_field_basis(item, documents[item['evidence_id']], value['current'])
     return output
 
 
