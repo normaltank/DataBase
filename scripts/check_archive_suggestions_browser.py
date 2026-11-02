@@ -4,6 +4,7 @@ import base64
 import json
 import os
 import sys
+import zipfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -29,6 +30,8 @@ def flow(page, context, base, evidence, suffix):
     location.get_by_text('查看实际依据', exact=True).click()
     expect(location.locator('blockquote')).to_have_text('Our office is in Riga, Latvia.')
     location.locator('input').check()
+    location.locator('blockquote').scroll_into_view_if_needed()
+    expect(location.locator('blockquote')).to_be_visible()
     page.screenshot(path=str(evidence / ('evidence-' + suffix + '.png')))
     root.get_by_role('button', name='采用所选', exact=True).click()
     expect(root.locator('.archive-candidates input')).to_have_count(1)
@@ -40,6 +43,17 @@ def flow(page, context, base, evidence, suffix):
     expect(root.locator('[data-archive-history=history]')).to_contain_text('已采用')
     expect(root.locator('[data-archive-history=history]')).to_contain_text('已拒绝')
     page.screenshot(path=str(evidence / ('decisions-' + suffix + '.png')))
+    if suffix == '1366-1':
+        with page.expect_download() as download:
+            root.get_by_role('link', name='导出建议与依据', exact=True).click()
+        assert download.value.failure() is None
+        # A second CDP connection is used for zoom; use the browser's explicit download directory.
+        saved = evidence / 'downloads' / download.value.suggested_filename
+        assert saved.stat().st_size > 0
+        with zipfile.ZipFile(saved) as archive:
+            payload = json.loads(archive.read('suggestions.json'))
+            assert {c['status'] for c in payload['candidates']} == {'adopted','rejected'}
+            assert any(name.startswith('evidence/') and archive.read(name) for name in archive.namelist())
     # New evidence version permits reconsideration; the unchanged rejected input stays rejected.
     source = context.request.get(base + '/api/sources/' + sid).json()
     call(context, base, '/api/sources/' + sid, {'version': source['version'], 'website': source['website'] + '/new-evidence'}, method='PUT')
@@ -80,7 +94,11 @@ def main():
             '--remote-debugging-port=0', '--no-proxy-server'], viewport={'width': 1440, 'height': 900}, accept_downloads=True)
         port = (profile / 'DevToolsActivePort').read_text().splitlines()[0]
         browser = p.chromium.connect_over_cdp('http://127.0.0.1:' + port)
-        browser.new_browser_cdp_session().send('Extensions.loadUnpacked', {'path': str(extension)})
+        cdp = browser.new_browser_cdp_session()
+        cdp.send('Extensions.loadUnpacked', {'path': str(extension)})
+        downloads = args.evidence / 'downloads'
+        downloads.mkdir(exist_ok=True)
+        cdp.send('Browser.setDownloadBehavior', {'behavior': 'allow', 'downloadPath': str(downloads), 'eventsEnabled': True})
         worker = context.service_workers[0] if context.service_workers else context.wait_for_event('serviceworker')
         page = context.pages[0] if context.pages else context.new_page()
         errors = []

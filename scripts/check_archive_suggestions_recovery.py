@@ -57,7 +57,8 @@ print(json.dumps({'source_id':sid,'record_id':rid,'schema':client.get('/health')
     assert author.get('/health').json['schema'] == 24
     sid, rid = expected['source_id'], expected['record_id']
     source = author.get('/api/sources/' + sid).json
-    assert source == expected['source']
+    # New query/display projections may be added; every pre-upgrade field remains identical.
+    assert {key: source[key] for key in expected['source']} == expected['source']
     assert author.get('/api/history/source/' + sid).json == expected['history']
     assert colleague.get('/api/records/' + rid).json['can_edit'] is False
     assert author.get('/api/records/' + rid).json['body_html'] == '<p>Legacy original report body.</p>'

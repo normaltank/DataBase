@@ -78,32 +78,30 @@ class ArchiveSuggestionsTests(unittest.TestCase):
 
     def test_queue_evidence_select_adopt_preserves_review_boundary(self):
         self.synthetic()
-        if True:
-            self.assertEqual(self.call('/api/admin/ai/config', {'cap': '1', 'currency': 'USD'}, user='admin').status_code, 200)
-            sid = self.source('Synthetic Institute', kind='institution', website='https://source.example/')
-            queued = self.call('/api/archive-jobs', {'source_ids': [sid], 'request_id': 'one'})
-            self.assertEqual(queued.status_code, 201, queued.json)
-            self.assertEqual(self.call('/api/admin/archive-jobs/run', user='admin').status_code, 200)
-            detail = self.clients['researcher'].get(f'/api/sources/{sid}/suggestions')
-            self.assertEqual(detail.status_code, 200, detail.json)
-            candidate = detail.json['candidates'][0]
-            self.assertEqual(candidate['before'], '')
-            self.assertEqual(candidate['value'], 'Riga')
-            self.assertEqual(candidate['evidence']['quote'], 'Our office is in Riga, Latvia.')
-            adopted = self.call(f'/api/sources/{sid}/suggestions/decide',
-                                {'version': 1, 'adopt': [candidate['id']], 'reject': []}, user='colleague')
-            self.assertEqual(adopted.status_code, 200, adopted.json)
-            source = self.clients['researcher'].get('/api/sources/' + sid).json
-            self.assertEqual(source['location'], 'Riga')
-            self.assertEqual(source['status'], 'pending')
-            self.assertEqual(source['scope_status'], 'candidate')
-            self.assertFalse(source['automatic_collection']['enabled'])
-            current = self.clients['researcher'].get(f'/api/sources/{sid}/suggestions').json
-            self.assertEqual(current['candidates'][0]['status'], 'adopted')
-            self.assertEqual(current['events'][-1]['actor_id'], 'colleague')
-            costs = self.clients['admin'].get('/api/admin/ai').json
-            self.assertEqual(costs['charged_units'], 26)
-            self.assertTrue(any(a['scope'] == 'source:' + sid for a in costs['attempts']))
+        sid = self.source('Synthetic Institute', kind='institution', website='https://source.example/')
+        queued = self.call('/api/archive-jobs', {'source_ids': [sid], 'request_id': 'one'})
+        self.assertEqual(queued.status_code, 201, queued.json)
+        self.assertEqual(self.call('/api/admin/archive-jobs/run', user='admin').status_code, 200)
+        detail = self.clients['researcher'].get(f'/api/sources/{sid}/suggestions')
+        self.assertEqual(detail.status_code, 200, detail.json)
+        candidate = detail.json['candidates'][0]
+        self.assertEqual(candidate['before'], '')
+        self.assertEqual(candidate['value'], 'Riga')
+        self.assertEqual(candidate['evidence']['quote'], 'Our office is in Riga, Latvia.')
+        adopted = self.call(f'/api/sources/{sid}/suggestions/decide',
+                            {'version': 1, 'adopt': [candidate['id']], 'reject': []}, user='colleague')
+        self.assertEqual(adopted.status_code, 200, adopted.json)
+        source = self.clients['researcher'].get('/api/sources/' + sid).json
+        self.assertEqual(source['location'], 'Riga')
+        self.assertEqual(source['status'], 'pending')
+        self.assertEqual(source['scope_status'], 'candidate')
+        self.assertFalse(source['automatic_collection']['enabled'])
+        current = self.clients['researcher'].get(f'/api/sources/{sid}/suggestions').json
+        self.assertEqual(current['candidates'][0]['status'], 'adopted')
+        self.assertEqual(current['events'][-1]['actor_id'], 'colleague')
+        costs = self.clients['admin'].get('/api/admin/ai').json
+        self.assertEqual(costs['charged_units'], 26)
+        self.assertTrue(any(a['scope'] == 'source:' + sid for a in costs['attempts']))
 
     def test_reject_same_evidence_not_repeated_and_new_material_is_new_version(self):
         self.synthetic()
@@ -354,7 +352,7 @@ class ArchiveSuggestionsTests(unittest.TestCase):
         import sys
         from platform_app.store import connect
         sid = self.source('Missing Website', kind='institution')
-        jid = self.call('/api/archive-jobs', {'source_ids': [sid], 'request_id': 'cli'}) .json['items'][0]['id']
+        jid = self.call('/api/archive-jobs', {'source_ids': [sid], 'request_id': 'cli'}).json['items'][0]['id']
         db = connect(self.data_dir / 'platform.sqlite3')
         with db:
             db.execute("UPDATE archive_jobs SET status='running',lease_token='old-worker',lease_until='2099-01-01T00:00:00+00:00' WHERE id=?", (jid,))
@@ -403,3 +401,32 @@ class ArchiveSuggestionsTests(unittest.TestCase):
         self.assertEqual(saved['publisher_id'], publisher)
         self.assertEqual(saved['issn'], '0020-8833; 1468-2478')
         self.assertEqual(saved['host_id'], '')
+
+    def test_country_alias_change_is_not_a_correction_but_missing_basis_can_be_adopted(self):
+        self.synthetic()
+        Provider.transform = lambda output, material: {'suggestions': [{'field': 'country', 'value': 'LATVIA',
+            'evidence_id': material['documents'][0]['id'], 'quote': 'Our office is in Riga, Latvia.'}]}
+        supported = self.source('Country already supported', kind='institution', website='https://source.example/supported',
+                                country='拉脱维亚', country_evidence='Existing human country basis')
+        self.assertEqual(self.queue_run(supported)['candidates'], [])
+        missing = self.source('Country missing evidence', kind='institution', website='https://source.example/missing', country='Latvia')
+        state = self.queue_run(missing, 'evidence-only')
+        candidate = state['candidates'][0]
+        self.assertTrue(candidate['evidence_only'])
+        self.assertEqual(self.call(f'/api/sources/{missing}/suggestions/decide', {'version': 1, 'adopt': [candidate['id']]}).status_code, 200)
+        current = self.clients['researcher'].get('/api/sources/' + missing).json
+        self.assertEqual(current['country'], 'Latvia')
+        self.assertIn('Our office is in Riga, Latvia.', current['country_evidence'])
+
+    def test_html_name_and_domain_do_not_support_country_or_journal_international_mission(self):
+        self.synthetic()
+        self.document = {'url': 'https://www.liia.lv/en', 'content_type': 'text/html',
+                         'text': '<footer>© 2026 Latvian Institute of International Affairs</footer>',
+                         'bytes': '<footer>© 2026 Latvian Institute of International Affairs</footer>'.encode()}
+        Provider.transform = lambda output, material: {'suggestions': [{'field': 'country', 'value': 'Latvia',
+            'evidence_id': material['documents'][0]['id'], 'quote': '© 2026 Latvian Institute of International Affairs'}]}
+        sid = self.source('LIIA footer only', kind='institution', website='https://www.liia.lv/en')
+        state = self.queue_run(sid)
+        self.assertEqual(state['jobs'][0]['status'], 'failed')
+        self.assertEqual(state['candidates'], [])
+        self.assertEqual(self.clients['researcher'].get('/api/sources/' + sid).json['country'], '')

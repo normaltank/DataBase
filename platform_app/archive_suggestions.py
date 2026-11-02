@@ -316,6 +316,9 @@ def candidate_patch(db, base, item, document):
         return patch
     patch = {field: value}
     if field == 'country':
+        from . import countries
+        if base.get('country') and countries.keys(countries.terms(base['country'])) == countries.keys(countries.terms(value)):
+            return {'country_evidence': basis} if not base.get('country_evidence', '').strip() else None
         patch['country_evidence'] = basis
     if field == 'international_status':
         patch['international_evidence'] = basis
@@ -351,6 +354,8 @@ def execute(db, job):
             for item in output['suggestions']:
                 document = dict(db.execute('SELECT * FROM archive_evidence WHERE id=?', (item['evidence_id'],)).fetchone())
                 patch = candidate_patch(db, base, item, document)
+                if patch is None:
+                    continue
                 if patch and all(base.get(k) == v or (k in {'relationships','institution_types'} and field_before(base,k) == v) for k, v in patch.items()):
                     continue
                 # An unrelated human revision or directory change must not revive a rejected fact.
@@ -475,6 +480,8 @@ def projection(db, sid):
         job, document = check_candidate(db, candidate)
         candidates.append({k: candidate[k] for k in ['id','job_id','target_type','target_id','base_version','field','input_hash','status','created_at','decided_at','decided_by']} |
             {'before': json.loads(candidate['before_json']), 'value': json.loads(candidate['value_json']),
+             'evidence_only': set(json.loads(candidate['patch_json'])) == {'country_evidence'},
+             'before_evidence': json.loads(job['base_json']).get('country_evidence', '') if candidate['field'] == 'country' else '',
              'stale': row['version'] != candidate['base_version'],
              'evidence': {'id': document['id'], 'url': document['url'], 'fetched_at': document['fetched_at'],
                           'sha256': document['sha256'], 'quote': candidate['quote'], 'text': document['text']},
