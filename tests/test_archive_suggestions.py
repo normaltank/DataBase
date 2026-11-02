@@ -627,3 +627,19 @@ class ArchiveSuggestionsTests(unittest.TestCase):
         target = self.data_dir.parent / 'clock-restored'
         restore_backup(path, target)
         self.assertTrue(target.is_dir())
+
+    def test_pending_source_fact_can_resume_after_unrelated_human_revision(self):
+        self.synthetic()
+        sid = self.source('Synthetic Institute', kind='institution', website='https://source.example/')
+        old = self.queue_run(sid)['candidates'][0]['id']
+        self.assertEqual(self.call('/api/sources/' + sid, {'version': 1,
+            'research_scope': 'Human retained scope'}, method='PUT').status_code, 200)
+        state = self.queue_run(sid, 'new-baseline')
+        fresh = [c for c in state['candidates'] if not c['stale'] and c['status'] == 'pending']
+        self.assertEqual(len(fresh), 1, state)
+        self.assertEqual(self.call('/api/sources/' + sid + '/suggestions/decide',
+            {'version': 2, 'adopt': [fresh[0]['id']]}).status_code, 200)
+        current = self.clients['researcher'].get('/api/sources/' + sid).json
+        self.assertEqual(current['research_scope'], 'Human retained scope')
+        self.assertEqual(current['location'], 'Riga')
+        self.assertIn(old, [c['id'] for c in state['candidates']])

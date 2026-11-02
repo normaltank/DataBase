@@ -11,6 +11,7 @@ from contextlib import closing
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from platform_app.store import CURRENT_SCHEMA_VERSION
 from platform_app.web import create_app
 from platform_app.maintenance import restore_backup
 from scripts.check_collaboration_recovery import login
@@ -108,10 +109,17 @@ def main():
     app = create_app(restored, testing=True)
     compare_legacy(login(app, "colleague"), cases)
     pre_stage_backups = list((restored / "backups").glob("*.zip"))
-    assert len(pre_stage_backups) == 1
-    before_stage = out / "pre-stage-backup-restored"
-    restore_backup(pre_stage_backups[0], before_stage)
-    compare_legacy(login(create_app(before_stage, testing=True), "colleague"), cases)
+    versions = []
+    for index, backup in enumerate(pre_stage_backups):
+        with zipfile.ZipFile(backup) as package:
+            dbfile = out / f"migration-backup-{index}.sqlite3"
+            dbfile.write_bytes(package.read("platform.sqlite3"))
+        with closing(sqlite3.connect(dbfile)) as db:
+            versions.append(int(db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0]))
+        before_stage = out / f"migration-backup-restored-{index}"
+        restore_backup(backup, before_stage)
+        compare_legacy(login(create_app(before_stage, testing=True), "colleague"), cases)
+    assert sorted(versions) == list(range(24, CURRENT_SCHEMA_VERSION)), versions
     snapshots = [login(app, "researcher").get("/api/collaboration/topics").json]
     for _ in range(2):
         app = create_app(restored, testing=True)

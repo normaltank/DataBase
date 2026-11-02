@@ -146,7 +146,11 @@ def register(app, ctx):
             review.expect_version(data, "meeting_version", meeting["version"] if meeting else 0)
             if current["stage"] != "selection":
                 abort(409, "本期已进入编译阶段，请核对最新状态。")
-            if not effective_assignments(db, tid, meeting):
+            assignments = json.loads(meeting['assignments_json']) if meeting else []
+            effective = effective_assignments(db, tid, meeting)
+            if len(effective) != len(assignments):
+                abort(409, "当前分工含失效研究员，请核对全部文章分工后再进入编译。")
+            if not effective:
                 abort(409, "请先保存至少一项当前有效的研究员与文章分工，再确认进入编译。")
             eid, stamp = uuid.uuid4().hex, now()
             qv = db.execute("SELECT version FROM lead_qualifications WHERE member_id=?", (actor["id"],)).fetchone()[0]

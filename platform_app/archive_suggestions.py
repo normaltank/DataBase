@@ -428,12 +428,21 @@ def execute(db, job):
             state = 'ready' if count else 'empty'
             reason = '' if count else '无新增有据建议；已有采用或拒绝记录保留。'
     except ValueError as failure:
-        reason = str(failure)
-        evidence = getattr(failure, 'evidence', evidence)
-        code = getattr(failure, 'code', '')
-        state = 'paused' if code in {'configuration', 'paused', 'budget', 'unknown_cost', 'capacity', 'backoff', 'rate_limit'} else 'failed'
-        if not current_authority(db, job):
-            state = 'invalidated'
+        reason, evidence, state = failed_job(db, job, failure, evidence)
+    return finish_job(db, job, state, reason, evidence)
+
+
+def failed_job(db, job, failure, evidence):
+    reason, evidence = str(failure), getattr(failure, 'evidence', evidence)
+    state = 'paused' if getattr(failure, 'code', '') in {
+        'configuration', 'paused', 'budget', 'unknown_cost', 'capacity', 'backoff', 'rate_limit'} else 'failed'
+    if not current_authority(db, job):
+        state = 'invalidated'
+    return reason, evidence, state
+
+
+def finish_job(db, job, state, reason, evidence):
+    """Finalize a claimed job without losing old attempts or publishing a stale lease."""
     with db:
         db.execute('BEGIN IMMEDIATE')
         current = db.execute('SELECT * FROM archive_jobs WHERE id=?', (job['id'],)).fetchone()

@@ -120,3 +120,11 @@ class TopicStageTests(unittest.TestCase):
         self.assertEqual(unchanged["stage"], "selection")
         self.assertEqual(unchanged["stage_events"], [])
         self.assertEqual(unchanged["stage_version"], 1)
+
+    def test_one_valid_assignment_does_not_hide_another_disabled_compiler(self):
+        tid = self.topic()
+        self.assertEqual(self.save(tid, [{'title': 'Valid', 'author_id': 'researcher'},
+            {'title': 'Disabled', 'author_id': 'colleague'}]).status_code, 201)
+        self.assertEqual(self.call('/api/members/colleague', {'active': False}, 'admin', 'PUT').status_code, 200)
+        self.assertEqual(self.enter(tid).status_code, 409)
+        self.assertEqual(self.clients['researcher'].get('/api/collaboration/topics/' + tid).json['stage'], 'selection')

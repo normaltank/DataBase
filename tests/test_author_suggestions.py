@@ -637,3 +637,193 @@ class AuthorSuggestionsTests(unittest.TestCase):
             public = self.call('/api/intake/preview', {'input': 'doi:10.5555/third'}, user='colleague')
         self.assertEqual(public.status_code, 200, public.json)
         self.assertEqual(public.json['candidates']['authors'][0]['items'], [])
+
+    def test_pending_candidate_can_resume_after_record_revision_without_losing_history(self):
+        rid, state = self.native_case(names=('Ada',), suffix='resume')
+        old = state['candidates'][0]['id']
+        self.assertEqual(self.call('/api/records/' + rid, {'version': state['version'],
+            'title': 'Human corrected title'}, method='PUT').status_code, 200)
+        self.assertEqual(self.decision(rid, [old]).status_code, 409)
+        again = self.queue_run(rid, 'resume-new-baseline')
+        fresh = [c for c in again['candidates'] if not c['stale'] and c['status'] == 'pending']
+        self.assertEqual(len(fresh), 1, again)
+        self.assertNotEqual(fresh[0]['id'], old)
+        self.assertEqual(self.decision(rid, [fresh[0]['id']]).status_code, 200)
+        self.assertEqual(self.get('/api/records/' + rid)['title'], 'Human corrected title')
+        self.assertIn(old, [c['id'] for c in self.get('/api/records/' + rid + '/suggestions')['candidates']])
+
+    def test_confirmed_orcid_recalls_variant_then_removed_origin_invalidates_pending_link(self):
+        rid, state = self.native_case(names=('Ada',), suffix='identity-origin')
+        self.assertEqual(self.decision(rid, [state['candidates'][0]['id']]).status_code, 200)
+        pid = self.get('/api/records/' + rid + '/bylines')['items'][0]['target_id']
+        raw = json.dumps({'message': {'DOI': '10.5555/variant',
+            'author': [{'given': 'A.', 'family': 'Example', 'ORCID': 'https://orcid.org/0000-0002-1825-0097'}]}}).encode()
+        self.fetcher = lambda url: {'url': url, 'content_type': 'application/json', 'bytes': raw, 'text': raw.decode()}
+        second = self.record(authors='A. Example', doi='10.5555/variant')
+        pending = self.queue_run(second, 'variant')
+        candidate = pending['candidates'][0]
+        self.assertEqual(candidate['operation']['action'], 'link_existing')
+        self.assertEqual(candidate['operation']['target_id'], pid)
+        self.assertEqual(self.get('/api/records/' + second + '/bylines')['items'], [])
+        origin = self.get('/api/records/' + rid + '/bylines')
+        self.assertEqual(self.call('/api/records/' + rid + '/bylines', {
+            'version': origin['version'], 'record_version': self.get('/api/records/' + rid)['version'],
+            'items': [], 'change_note': 'Human removal of old identity evidence'}, method='PUT').status_code, 200)
+        self.assertEqual(self.decision(second, [candidate['id']]).status_code, 409)
+        again = self.queue_run(second, 'variant-origin-removed')
+        self.assertTrue(any(c['operation']['action'] == 'create_person' and not c['stale'] for c in again['candidates']))
+
+    def variant_work(self, suffix):
+        raw = json.dumps({'message': {'DOI': '10.5555/' + suffix,
+            'author': [{'given': 'A.', 'family': 'Example', 'ORCID': 'https://orcid.org/0000-0002-1825-0097'}]}}).encode()
+        self.fetcher = lambda url: {'url': url, 'content_type': 'application/json', 'bytes': raw, 'text': raw.decode()}
+        return self.record(authors='A. Example', doi='10.5555/' + suffix)
+
+    def test_adopted_identifier_recall_stays_manual_and_survives_portable_restore(self):
+        from platform_app.maintenance import restore_backup
+        from platform_app.web import create_app
+        rid, state = self.native_case(names=('Ada',), suffix='recall-original')
+        self.assertEqual(self.decision(rid, [state['candidates'][0]['id']]).status_code, 200)
+        pid = self.get('/api/records/' + rid + '/bylines')['items'][0]['target_id']
+        second = self.variant_work('recall-next')
+        candidate = self.queue_run(second, 'recall-next')['candidates'][0]
+        self.assertEqual(candidate['operation']['target_id'], pid)
+        self.assertEqual(self.decision(second, [candidate['id']]).status_code, 200)
+        self.assertEqual(self.get('/api/people')['total'], 1)
+        self.assertEqual(self.get('/api/people/' + pid + '/works')['total'], 2)
+        backup = self.call('/api/backup', user='admin')
+        saved, target = Path(self.temp.name) / 'recall.zip', Path(self.temp.name) / 'recall-restored'
+        saved.write_bytes(backup.data); backup.close()
+        restore_backup(saved, target)
+        client = byline_fixture.BylineTests.login(self, 'researcher', create_app(target, testing=True))
+        self.assertEqual(client.get('/api/people/' + pid + '/works').json['total'], 2)
+
+    def test_pending_and_rejected_identifiers_do_not_recall_an_existing_person(self):
+        rid, state = self.native_case(names=('Ada',), suffix='not-confirmed')
+        second = self.variant_work('not-confirmed-next')
+        self.assertEqual(self.queue_run(second, 'pending-only')['candidates'][0]['operation']['action'], 'create_person')
+        self.assertEqual(self.decision(rid, [], reject=[state['candidates'][0]['id']]).status_code, 200)
+        self.assertTrue(all(c['operation']['action'] == 'create_person' for c in self.queue_run(second, 'rejected-only')['candidates']))
+
+    def test_human_corrected_or_private_adoption_cannot_recall_for_colleague(self):
+        rid, state = self.native_case(names=('Ada',), suffix='private-origin')
+        self.assertEqual(self.decision(rid, [state['candidates'][0]['id']]).status_code, 200)
+        self.assertEqual(self.call('/api/records/' + rid, {'version': 1, 'visibility': 'restricted'}, method='PUT').status_code, 200)
+        second = self.variant_work('public-next')
+        queued = self.call('/api/archive-jobs', {'record_ids': [second], 'request_id': 'private-origin'}, user='colleague')
+        self.assertEqual(queued.status_code, 201)
+        self.call('/api/admin/archive-jobs/run', user='admin')
+        state = self.get('/api/records/' + second + '/suggestions', 'colleague')
+        self.assertEqual(state['candidates'][0]['operation']['action'], 'create_person')
+        original = self.get('/api/records/' + rid + '/bylines')
+        rows = original['items']; rows[0]['evidence'] = 'Human corrected identity basis'
+        self.assertEqual(self.call('/api/records/' + rid + '/bylines', {'version': original['version'],
+            'record_version': 2, 'items': rows, 'change_note': 'Human corrected evidence'}, method='PUT').status_code, 200)
+        self.assertTrue(any(c['operation']['action'] != 'link_existing' for c in self.queue_run(second, 'human-corrected')['candidates']))
+
+    def test_legacy_candidate_fingerprints_restore_reject_history_and_resume(self):
+        from platform_app.maintenance import restore_backup
+        from platform_app.web import create_app
+        rid, state = self.native_case(suffix='legacy-candidates')
+        ada, bob = state['candidates']
+        self.assertEqual(self.decision(rid, [], reject=[bob['id']]).status_code, 200)
+        backup = self.call('/api/backup', user='admin')
+        with zipfile.ZipFile(io.BytesIO(backup.data)) as bundle:
+            files = {n: bundle.read(n) for n in bundle.namelist()}
+        backup.close()
+        for index, candidate in enumerate((ada, bob)):
+            saved = self.rewrite_candidate_backup(files, candidate['id'], lambda patch: None, 'legacy-signature-' + str(index))
+            with zipfile.ZipFile(saved) as bundle:
+                files = {n: bundle.read(n) for n in bundle.namelist()}
+        target = Path(self.temp.name) / 'legacy-candidate-restored'
+        restore_backup(saved, target)
+        self.app = create_app(target, testing=True)
+        self.clients = {u: byline_fixture.BylineTests.login(self, u, self.app) for u in ('researcher', 'colleague', 'admin')}
+        self.assertEqual(self.call('/api/records/' + rid, {'version': 1, 'title': 'Restored human revision'}, method='PUT').status_code, 200)
+        state = self.queue_run(rid, 'after-legacy-restore')
+        fresh = [c for c in state['candidates'] if not c['stale'] and c['status'] == 'pending']
+        self.assertEqual(len(fresh), 1)
+        self.assertEqual(fresh[0]['operation']['name'], 'Ada Example')
+        self.assertEqual(self.decision(rid, [fresh[0]['id']]).status_code, 200)
+        self.assertTrue(any(c['id'] == bob['id'] and c['status'] == 'rejected' for c in state['candidates']))
+
+    def test_recalled_identifiers_follow_merge_split_without_automatic_confirmation(self):
+        from tests.test_person_identity import PersonIdentityTests as Identity
+        rid, state = self.native_case(names=('Ada',), suffix='merge-recall')
+        self.assertEqual(self.decision(rid, [state['candidates'][0]['id']]).status_code, 200)
+        original = self.get('/api/records/' + rid + '/bylines')['items'][0]['target_id']
+        keep = self.person('Different public name')
+        preview = Identity.compare(self, keep, original)
+        merged = self.call('/api/people/merge', Identity.intent(self, preview))
+        self.assertEqual(merged.status_code, 200, merged.json)
+        second = self.variant_work('after-person-merge')
+        state = self.queue_run(second, 'after-person-merge')
+        self.assertEqual(state['candidates'][0]['operation']['target_id'], keep)
+        split = self.call('/api/people/identity-events/' + merged.json['event_id'] + '/split-preview')
+        self.assertEqual(split.status_code, 200)
+        response = self.call('/api/people/split', {'preview_id': split.json['preview_id'],
+            'idempotency_key': 'recall-split', 'confirmed': True, 'evidence': 'Synthetic split back to original'})
+        self.assertEqual(response.status_code, 200, response.json)
+        self.assertEqual(self.decision(second, [state['candidates'][0]['id']]).status_code, 409)
+        state = self.queue_run(second, 'after-person-split')
+        fresh = [c for c in state['candidates'] if c['operation'].get('target_id') == original]
+        self.assertTrue(fresh, state)
+
+    def test_conflicting_confirmed_identifiers_remain_unmatched(self):
+        rid, first = self.native_case(names=('Ada',), suffix='conflict-one')
+        second = self.variant_work('conflict-two')
+        pending = self.queue_run(second, 'conflict-two')
+        self.assertEqual(self.decision(rid, [first['candidates'][0]['id']]).status_code, 200)
+        self.assertEqual(self.decision(second, [pending['candidates'][0]['id']]).status_code, 200)
+        third = self.variant_work('conflict-three')
+        state = self.queue_run(third, 'conflict-three')
+        candidate = state['candidates'][0]
+        self.assertEqual(candidate['operation']['action'], 'unmatched')
+        self.assertEqual(len([m for m in candidate['operation']['matches'] if m['basis'].startswith('ORCID')]), 2)
+        self.assertEqual(self.decision(third, [candidate['id']]).status_code, 409)
+
+    def test_adopted_orcid_does_not_escape_private_origin_after_record_merge(self):
+        rid, state = self.native_case(names=('Ada',), suffix='private-merged')
+        self.assertEqual(self.decision(rid, [state['candidates'][0]['id']]).status_code, 200)
+        self.assertEqual(self.call('/api/records/' + rid, {'version': 1, 'visibility': 'restricted'}, method='PUT').status_code, 200)
+        shared = self.record(title='Shared target', doi='10.5555/merged-target', visibility='restricted')
+        self.merge('record', shared, rid)
+        record = self.get('/api/records/' + shared)
+        self.assertEqual(self.call('/api/records/' + shared, {'version': record['version'], 'visibility': 'shared'}, method='PUT').status_code, 200)
+        second = self.variant_work('private-merged-next')
+        self.assertEqual(self.call('/api/archive-jobs', {'record_ids': [second],
+            'request_id': 'hidden-original'}, user='colleague').status_code, 201)
+        self.call('/api/admin/archive-jobs/run', user='admin')
+        state = self.get('/api/records/' + second + '/suggestions', 'colleague')
+        self.assertEqual(state['candidates'][0]['operation']['action'], 'create_person')
+        self.assertEqual(state['candidates'][0]['operation'].get('matches', []), [])
+
+    def test_unknown_author_cost_keeps_attempt_and_blocks_retry_after_restore(self):
+        from platform_app.maintenance import restore_backup
+        from platform_app.web import create_app
+        self.synthetic()
+        archive_fixture.Provider.usage = False
+        archive_fixture.Provider.transform = lambda output, value: {'suggestions': value['author_facts']}
+        raw = json.dumps({'message': {'DOI': '10.5555/unknown-author',
+            'author': [{'given': 'Ada', 'family': 'Example', 'ORCID': 'https://orcid.org/0000-0002-1825-0097'}]}}).encode()
+        self.fetcher = lambda url: {'url': url, 'content_type': 'application/json', 'bytes': raw, 'text': raw.decode()}
+        rid = self.record(authors='Ada Example', doi='10.5555/unknown-author')
+        state = self.queue_run(rid, 'unknown-author')
+        self.assertEqual(state['jobs'][0]['status'], 'paused')
+        jid = state['jobs'][0]['id']
+        costs = self.get('/api/admin/ai', 'admin')
+        held = costs['held_units']
+        self.assertGreater(held, 0)
+        event = json.loads(state['events'][-1]['details_json'])
+        self.assertEqual(event['ai']['attempt_id'], costs['attempts'][0]['id'])
+        self.assertEqual(self.call('/api/admin/archive-jobs/' + jid + '/retry',
+            {'basis': 'Synthetic billing investigation'}, user='admin').status_code, 409)
+        backup = self.call('/api/backup', user='admin')
+        saved, target = Path(self.temp.name) / 'unknown-author.zip', Path(self.temp.name) / 'unknown-author-restored'
+        saved.write_bytes(backup.data); backup.close(); restore_backup(saved, target)
+        client = byline_fixture.BylineTests.login(self, 'admin', create_app(target, testing=True))
+        self.assertEqual(client.get('/api/admin/ai').json['held_units'], held)
+        csrf = client.get('/api/session').json['csrf']
+        response = client.post('/api/admin/archive-jobs/' + jid + '/retry',
+            json={'basis': 'Synthetic billing investigation'}, headers={'X-CSRF-Token': csrf})
+        self.assertEqual(response.status_code, 409)

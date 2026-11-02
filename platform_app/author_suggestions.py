@@ -456,12 +456,13 @@ def candidate_patch(db, job, fact, actor):
     return result
 
 
-def candidate_fingerprint(target, fact, patch):
+def candidate_fingerprint(target, fact, patch, base=None):
     def stable(value):
         if isinstance(value, dict):
             return {k: stable(v) for k, v in value.items() if k != 'version' and not k.endswith(('_version', '_versions'))}
         return [stable(v) for v in value] if isinstance(value, list) else value
-    return archive().digest({'target': target, 'fact': fact, 'patch': stable(patch), 'rule': RULE})
+    fact_hash = archive().digest({'target': target, 'fact': fact, 'patch': stable(patch), 'rule': RULE})
+    return fact_hash if base is None else archive().digest({'fact': fact_hash, 'base': base, 'patch': patch})
 
 
 def decision_base(db, job):
@@ -499,7 +500,12 @@ def execute(db, job):
                 patch = candidate_patch(db, job, fact, actor)
                 if patch is None:
                     continue
-                fingerprint = candidate_fingerprint(job['target_id'], fact, patch)
+                # Rejection suppresses the same fact across unrelated baseline revisions.
+                rejected = db.execute("SELECT value_json,patch_json FROM archive_candidates WHERE target_type='record' AND target_id=? AND status='rejected'", (job['target_id'],))
+                if any(candidate_fingerprint(job['target_id'], json.loads(r['value_json']), json.loads(r['patch_json'])) ==
+                       candidate_fingerprint(job['target_id'], fact, patch) for r in rejected):
+                    continue
+                fingerprint = candidate_fingerprint(job['target_id'], fact, patch, json.loads(job['base_json']))
                 cid = uuid.uuid4().hex
                 changed = db.execute('INSERT OR IGNORE INTO archive_candidates VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                     (cid, job['id'], 'record', job['target_id'], job['base_version'], job['input_hash'], fingerprint,
@@ -511,24 +517,8 @@ def execute(db, job):
             state = 'ready' if db.execute("SELECT 1 FROM archive_candidates WHERE job_id=? AND status IN ('pending','unmatched')", (job['id'],)).fetchone() else 'empty'
             reason = '按实际题录逐人整理；缺少身份依据的署名继续待确认。' if value['author_facts'] else '未取得适用的作者题录；原始署名继续保留，尚未完成身份整理。'
     except ValueError as failure:
-        reason, evidence = str(failure), getattr(failure, 'evidence', evidence)
-        state = 'paused' if getattr(failure, 'code', '') in {'configuration', 'paused', 'budget', 'unknown_cost', 'capacity', 'backoff', 'rate_limit'} else 'failed'
-        if not current_authority(db, job):
-            state = 'invalidated'
-    with db:
-        db.execute('BEGIN IMMEDIATE')
-        current = db.execute('SELECT * FROM archive_jobs WHERE id=?', (job['id'],)).fetchone()
-        if current['lease_token'] != job['lease_token'] or current['status'] != 'running':
-            if evidence.get('attempt_id'):
-                archive().event(db, current, 'discarded_response', job['actor_id'], {'ai': evidence})
-            return False
-        previous = json.loads(current['ai_json'])
-        if previous.get('attempt_id') and not evidence.get('attempt_id'):
-            evidence = {**previous, 'latest_block': evidence}
-        db.execute("UPDATE archive_jobs SET status=?,reason=?,lease_token='',lease_until='',finished_at=?,next_run=?,ai_json=? WHERE id=?",
-            (state, reason, store.now(), archive().later(300), json.dumps(evidence), job['id']))
-        archive().event(db, job, state, job['actor_id'], {'reason': reason, 'ai': evidence})
-    return state in {'ready', 'empty'}
+        reason, evidence, state = archive().failed_job(db, job, failure, evidence)
+    return archive().finish_job(db, job, state, reason, evidence)
 
 
 def check_candidate(db, candidate):
@@ -548,7 +538,7 @@ def check_candidate(db, candidate):
     parsed = {'text': document['raw'].decode(document['encoding'], errors='replace'), 'content_type': document['content_type'], 'url': document['url']}
     actual = facts_from_document(parsed, json.loads(job['base_json']), dict(document))
     original_fact = {k: v for k, v in fact.items() if k not in {'profile_evidence_id', 'profile_quote', 'limitation', 'employments', 'orcid_evidence_id', 'orcid_name', 'identity_conflict', 'profile_attempted'}}
-    if original_fact not in actual or candidate['fingerprint'] != candidate_fingerprint(job['target_id'], fact, patch):
+    if original_fact not in actual or candidate['fingerprint'] not in {candidate_fingerprint(job['target_id'], fact, patch), candidate_fingerprint(job['target_id'], fact, patch, json.loads(job['base_json']))}:
         raise ValueError('作者对象、标识或候选采用内容校验失败。')
     if fact.get('profile_evidence_id'):
         extra = db.execute('SELECT * FROM archive_evidence WHERE id=?', (fact['profile_evidence_id'],)).fetchone()
@@ -779,6 +769,10 @@ def decide(ctx, rid, data):
                         'original_name': fact['raw_name'], 'sources': document['url'] + '\n' + fact['profile_url'] + ('\nORCID ' + fact['orcid'] if fact['orcid'] else ''),
                         'change_note': '人工采用有据作者建议：' + document['url']})
                 else:
+                    # A recalled identifier may have been removed or hidden since queueing.
+                    latest = identity_patch(db, job, fact, actor)
+                    if not latest or latest.get('action') != 'link_existing' or latest.get('target_id') != patch['target_id']:
+                        abort(409, '身份依据或当前权限已变化；建议与选择保留。')
                     target = identity.resolve(db, 'people' if patch['kind'] == 'person' else 'sources', patch['target_id'])
                     if not target or target['id'] != patch['target_id'] or target['version'] != patch['target_version']:
                         abort(409, '身份档案或转向已变化；建议与选择保留。')

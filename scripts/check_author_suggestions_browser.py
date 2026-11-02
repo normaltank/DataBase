@@ -19,10 +19,61 @@ from scripts.check_reader_maintenance_browser import call
 from platform_app import archive_suggestions
 
 
+def continuation(page, context, base, fixture, root):
+    """One desktop flow for conflict, new baseline and manually confirmed ORCID reuse."""
+    def fetch(url):
+        doi = url.split('/works/')[-1].replace('%2F', '/')
+        name = 'A.' if doi.endswith('variant') else 'Ada'
+        value = {'message': {'DOI': doi, 'author': [{'given': name, 'family': 'Example',
+            'ORCID': 'https://orcid.org/0000-0002-1825-0097'}]}}
+        raw = json.dumps(value).encode()
+        return {'url': url, 'content_type': 'application/json', 'bytes': raw, 'text': raw.decode()}
+    fixture.fetcher = fetch
+    def open_record(title, doi):
+        rid = call(context, base, '/api/records', {'kind': 'report', 'title': title,
+            'authors': 'A. Example' if doi.endswith('variant') else 'Ada Example', 'doi': doi}, expected=201)['id']
+        page.goto(base + '/#library?feed=all&q=' + title)
+        page.locator('.record-title button').first.click()
+        page.locator('.ux-identities > summary').click()
+        page.get_by_role('button', name='作者关联建议', exact=True).click()
+        page.get_by_role('button', name='取得作者建议', exact=True).click()
+        review = page.locator('[data-archive-review]')
+        expect(review.locator('input[name=candidate]')).to_have_count(1, timeout=20000)
+        return rid, review
+    rid, review = open_record('CONTINUATION94', '10.5555/continuation')
+    review.locator('input[name=candidate]').check()
+    call(context, base, '/api/records/' + rid, {'version': 1, 'title': 'Human corrected title'}, method='PUT')
+    review.get_by_role('button', name='采用所选', exact=True).click()
+    expect(review.locator('.form-error')).to_contain_text('已修订')
+    expect(review.locator('input[name=candidate]')).to_be_checked()
+    review.get_by_role('button', name='重新取得建议', exact=True).click()
+    expect(review.locator('input[name=candidate]')).to_have_count(2, timeout=20000)
+    state = context.request.get(base + '/api/records/' + rid + '/suggestions').json()
+    fresh = next(c for c in state['candidates'] if not c['stale'])
+    for checkbox in review.locator('input[name=candidate]').all():
+        checkbox.uncheck()
+    review.locator('input[name=candidate][value="' + fresh['id'] + '"]').check()
+    review.get_by_role('button', name='采用所选', exact=True).click()
+    expect(review.get_by_text('已处理建议与采用来历', exact=True)).to_be_visible()
+    assert context.request.get(base + '/api/records/' + rid).json()['title'] == 'Human corrected title'
+    assert context.request.get(base + '/api/records/' + rid + '/bylines').json()['items'][0]['status'] == 'confirmed'
+    page.screenshot(path=str(root / 'continued-after-conflict.png'))
+    second, review = open_record('VARIANT94', '10.5555/variant')
+    expect(review).to_contain_text('已有作者＋关联本篇')
+    assert context.request.get(base + '/api/records/' + second + '/bylines').json()['items'] == []
+    review.locator('input[name=candidate]').check()
+    review.get_by_role('button', name='采用所选', exact=True).click()
+    expect(review.locator('input[name=candidate]')).to_have_count(0)
+    assert context.request.get(base + '/api/people').json()['total'] == 1
+    page.screenshot(path=str(root / 'confirmed-existing-identity.png'))
+    return {'width': 1440, 'conflict_selection_preserved': True, 'new_baseline_adopted': True,
+        'human_title_preserved': True, 'variant_orcid_existing_identity_still_manual': True}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--evidence-dir', type=Path, required=True)
-    parser.add_argument('--check', choices=['all','exceptions'], default='all')
+    parser.add_argument('--check', choices=['all','exceptions','continuation'], default='all')
     args = parser.parse_args()
     root = args.evidence_dir.resolve()
     if root.exists():
@@ -72,6 +123,12 @@ def main():
             errors=[];results=[]
             page.on('pageerror',lambda error:errors.append(str(error)))
             login(page,base,'researcher')
+            if args.check == 'continuation':
+                result = continuation(page, context, base, fixture, root)
+                assert not errors, errors
+                (root/'results.json').write_text(json.dumps({'continuation': result, 'page_errors': errors}, indent=2))
+                print(json.dumps(result), flush=True)
+                return
             actual = 1
             for width, zoom in ([] if args.check=='exceptions' else [(1440,1),(1366,1),(390,1),(320,1),(1366,2)]):
                 page.set_viewport_size({'width':width,'height':900})

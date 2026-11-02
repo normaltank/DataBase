@@ -1,4 +1,4 @@
-"""Frozen schema23 -> 24, preserving legacy source/history/account permissions."""
+"""Frozen schema23 -> current migration chain, preserving legacy source/history/account permissions."""
 import argparse
 import json
 import subprocess
@@ -8,6 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+from platform_app.store import CURRENT_SCHEMA_VERSION
 from platform_app.web import create_app
 from platform_app.maintenance import create_backup, restore_backup
 
@@ -54,7 +55,7 @@ print(json.dumps({'source_id':sid,'record_id':rid,'schema':client.get('/health')
     assert expected['schema'] == 23
     app = create_app(data, testing=True)
     author, colleague = login(app, 'researcher'), login(app, 'colleague')
-    assert author.get('/health').json['schema'] == 24
+    assert author.get('/health').json['schema'] == CURRENT_SCHEMA_VERSION
     sid, rid = expected['source_id'], expected['record_id']
     source = author.get('/api/sources/' + sid).json
     # New query/display projections may be added; every pre-upgrade field remains identical.
@@ -73,19 +74,19 @@ print(json.dumps({'source_id':sid,'record_id':rid,'schema':client.get('/health')
             db = sqlite3.connect(dbpath)
             version = int(db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0])
             db.close()
-        if version == 23:
-            previous = evidence / 'restored-pre-upgrade'
+        if version in range(23, CURRENT_SCHEMA_VERSION):
+            previous = evidence / ('restored-pre-upgrade-' + str(version))
             restore_backup(backup, previous)
             assert login(create_app(previous, testing=True), 'researcher').get('/api/sources/' + sid).json['research_scope'] == 'Human legacy scope'
         versions.append(version)
-    assert versions.count(23) == 1, versions
+    assert sorted(v for v in versions if v >= 23) == list(range(23, CURRENT_SCHEMA_VERSION)), versions
     complete = create_backup(data)
     target = evidence / 'restored-new-directory'
     restore_backup(complete, target)
     restored = login(create_app(target, testing=True), 'colleague')
     assert restored.get('/api/sources/' + sid).json == source
     assert restored.get('/api/records/' + rid).json['can_edit'] is False
-    result = {'baseline': BASELINE, 'schema_before': 23, 'schema_after': 24, 'legacy_source_and_history_unchanged': True,
+    result = {'baseline': BASELINE, 'schema_before': 23, 'schema_after': CURRENT_SCHEMA_VERSION, 'restored_migration_backups': sorted(v for v in versions if v >= 23), 'legacy_source_and_history_unchanged': True,
               'legacy_personal_permission_preserved': True, 'preupgrade23_backup_restored': True, 'new_directory_restore': True}
     (evidence / 'results.json').write_text(json.dumps(result, indent=2), encoding='utf-8')
     print(json.dumps(result), flush=True)
