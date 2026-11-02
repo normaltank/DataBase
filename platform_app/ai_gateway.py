@@ -368,12 +368,17 @@ def summary(db):
     held=sum(r['reserved_units'] for r in current if r['status'] in {'sent','unknown'})
     charged=sum(r['charged_units'] for r in current)
     if cap and held+charged>=cap: reasons.append('本月额度已用完或全部预留')
+    source_tasks = [dict(r) for r in db.execute("SELECT a.id,a.target_type,a.target_id,a.id AS archive_job_id,'source-archive-v1' AS task,a.status,a.reason,a.next_run,a.ai_json AS evidence_json,s.name AS title FROM archive_jobs a JOIN sources s ON s.id=a.target_id WHERE a.status NOT IN ('ready','empty','cancelled') ORDER BY a.next_run,a.rowid LIMIT 100")]
+    task_counts = {r[0]:r[1] for r in db.execute('SELECT status,COUNT(*) FROM automatic_tasks GROUP BY status')}
+    for status, count in db.execute('SELECT status,COUNT(*) FROM archive_jobs GROUP BY status'):
+        task_counts[status] = task_counts.get(status, 0) + count
     return dict(cap_units=cap,currency=policy.get('currency',''),month=now()[:7],timezone='UTC',unit='microcurrency',
         paused=bool(paused and paused[0]=='1'),blocked_reasons=reasons,legacy_unknown=int(legacy[0]) if legacy else 0,
         held_units=held,charged_units=charged,months=months,
         attempts=[{k:r[k] for k in ['id','scope','task','month','currency','status','reserved_units','charged_units','created_at','finished_at']} | {'configuration':json.loads(r['config_json']),'evidence':json.loads(r['evidence_json'])} for r in rows[:100]],
-        tasks=[dict(r) for r in db.execute("SELECT a.id,a.record_id,a.task,a.status,a.reason,a.next_run,a.evidence_json,r.title FROM automatic_tasks a JOIN records r ON r.id=a.record_id WHERE a.status<>'succeeded' ORDER BY a.next_run,a.rowid LIMIT 100")],
-        task_counts={r[0]:r[1] for r in db.execute('SELECT status,COUNT(*) FROM automatic_tasks GROUP BY status')},
+        tasks=[dict(r) for r in db.execute("SELECT a.id,a.record_id,a.task,a.status,a.reason,a.next_run,a.evidence_json,r.title FROM automatic_tasks a JOIN records r ON r.id=a.record_id WHERE a.status<>'succeeded' ORDER BY a.next_run,a.rowid LIMIT 100")] + source_tasks,
+        task_counts=task_counts,
+        archive_worker_heartbeat=(db.execute("SELECT value FROM settings WHERE key='archive_worker_heartbeat'").fetchone() or [''])[0],
         worker_heartbeat=(db.execute("SELECT value FROM settings WHERE key='automatic_worker_heartbeat'").fetchone() or [''])[0],
         events=[dict(r) for r in db.execute('SELECT * FROM ai_events ORDER BY rowid DESC LIMIT 100')])
 

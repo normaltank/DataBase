@@ -131,7 +131,9 @@ class AIBudgetTests(unittest.TestCase):
             with patch('platform_app.ai_gateway.now',return_value=clock):
                 self.assertEqual(self.run_job(rid,'attempt-'+str(index)).json['status'],'failed')
         self.assertEqual(len(Provider.requests),3)
-        self.assertEqual(self.get('/api/admin/ai','admin').json['charged_units'],75)
+        # These synthetic attempts belong to October even when the suite runs in a later month.
+        october=next(m for m in self.get('/api/admin/ai','admin').json['months'] if m['month']=='2026-10')
+        self.assertEqual(october['charged_units'],75)
         with patch('platform_app.ai_gateway.now',return_value='2026-10-28T00:10:00+00:00'):
             self.assertEqual(self.run_job(rid,'fourth-new-request').json['status'],'failed')
         self.assertEqual(len(Provider.requests),3)

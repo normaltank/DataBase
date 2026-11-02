@@ -641,20 +641,24 @@ def create_app(data_dir=None, testing=False):
 
     @app.put("/api/sources/<sid>")
     def edit_source(sid):
-        db().execute("BEGIN IMMEDIATE")
-        row, data = get_source(sid), body()
+        with db():
+            db().execute("BEGIN IMMEDIATE")
+            return jsonify(id=save_source(sid, body()))
+
+    def save_source(sid, data, action="修订来源"):
+        """Caller owns transaction, including any candidate decision audit."""
+        row = get_source(sid)
         sid = row["id"]
         check_version(data, row)
         values = source_values(data, row)
         values.update(status="pending", version=row["version"]+1, updated_at=now())
-        with db():
-            if not db().execute("SELECT 1 FROM revisions WHERE target_type='source' AND target_id=?", (sid,)).fetchone():
-                save_revision(db(), "source", sid, "导入初始版本", "admin")
-            changed = db().execute(f"UPDATE sources SET {','.join(k+'=?' for k in values)} WHERE id=? AND version=?", [*values.values(), sid, row["version"]]).rowcount
-            if not changed:
-                abort(409, "内容已变化，请刷新。")
-            save_revision(db(), "source", sid, "修订来源", user()["id"])
-        return jsonify(id=sid)
+        if not db().execute("SELECT 1 FROM revisions WHERE target_type='source' AND target_id=?", (sid,)).fetchone():
+            save_revision(db(), "source", sid, "导入初始版本", "admin")
+        changed = db().execute(f"UPDATE sources SET {','.join(k+'=?' for k in values)} WHERE id=? AND version=?", [*values.values(), sid, row["version"]]).rowcount
+        if not changed:
+            abort(409, "内容已变化，请刷新。")
+        save_revision(db(), "source", sid, action, user()["id"])
+        return sid
 
     @app.get("/api/users")
     def users_list():
@@ -846,6 +850,11 @@ def create_app(data_dir=None, testing=False):
     ris.register(app, SimpleNamespace(db=db, user=user, body=body, records=records))
     from . import ai_gateway
     ai_gateway.register(app, SimpleNamespace(db=db, user=user, body=body, admin=admin))
+    from . import archive_suggestions
+    archive_suggestions.register(app, SimpleNamespace(db=db, user=user, body=body, admin=admin,
+                                                     get_source=get_source, save_source=save_source))
+    if not testing:
+        archive_suggestions.start_worker(data_dir)
     translations.register(app, SimpleNamespace(db=db, user=user, body=body, records=records))
     bulk.register(app, SimpleNamespace(db=db, user=user, body=body, visible=visible, get_collection=get_collection, export_csv=export_csv))
     identity.register(app, db=db, body=body, records=records, validate_source=source_values)
