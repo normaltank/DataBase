@@ -70,6 +70,31 @@ class AuthorSuggestionsTests(unittest.TestCase):
         return self.call(f'/api/records/{rid}/suggestions/decide', {'version': state['version'],
             'byline_version': state['byline_version'], 'adopt': ids, **extra})
 
+    def rewrite_candidate_backup(self, original, candidate_id, mutation, suffix):
+        """Fault fixture: modify only the candidate patch and public integrity hashes."""
+        import hashlib
+        import sqlite3
+        from contextlib import closing
+        from platform_app.author_suggestions import candidate_fingerprint
+        files = dict(original)
+        database = Path(self.temp.name) / (suffix + '.sqlite3')
+        database.write_bytes(files['platform.sqlite3'])
+        with closing(sqlite3.connect(database)) as db, db:
+            target, fact_json, patch_json = db.execute('SELECT target_id,value_json,patch_json FROM archive_candidates WHERE id=?', (candidate_id,)).fetchone()
+            fact, operation = json.loads(fact_json), json.loads(patch_json)
+            mutation(operation)
+            db.execute('UPDATE archive_candidates SET patch_json=?,fingerprint=? WHERE id=?',
+                (json.dumps(operation, ensure_ascii=False), candidate_fingerprint(target, fact, operation), candidate_id))
+        files['platform.sqlite3'] = database.read_bytes()
+        manifest = json.loads(files['manifest.json'])
+        manifest['files']['platform.sqlite3'] = {'bytes': len(files['platform.sqlite3']), 'sha256': hashlib.sha256(files['platform.sqlite3']).hexdigest()}
+        files['manifest.json'] = json.dumps(manifest).encode()
+        archive = Path(self.temp.name) / (suffix + '.zip')
+        with zipfile.ZipFile(archive, 'w') as bundle:
+            for name, content in files.items():
+                bundle.writestr(name, content)
+        return archive
+
     def test_existing_identity_and_remaining_author_can_be_decided_one_at_a_time(self):
         pid = self.person('Ada Example')
         rid, state = self.native_case()
@@ -343,6 +368,139 @@ class AuthorSuggestionsTests(unittest.TestCase):
         self.assertEqual(self.decision(rid,[c['id'] for c in state['candidates']],article_units=[c['id'] for c in state['candidates']]).status_code,200)
         self.assertEqual(self.get('/api/people')['total'],2)
         self.assertEqual([u['institution_id'] for u in self.get(f'/api/records/{rid}/affiliations')['items']],institution_ids)
+
+    def test_real_author_unit_backup_rejects_rehashed_other_author_and_publisher_mapping(self):
+        import hashlib
+        from platform_app.maintenance import restore_backup
+        from platform_app.web import create_app
+        self.synthetic()
+        fixture = Path(__file__).parent / 'fixtures' / 'author_suggestions'
+        raw = (fixture / 'crossref-doi-derived.json').read_bytes()
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), 'f9b17d55a6d9faf6dabc9a9c64db2d89d5c7ca75fa782b999f522bfe10ddba9b')
+        original_raw = (fixture / '06-crossref-online.raw').read_bytes()
+        self.assertEqual(hashlib.sha256(original_raw).hexdigest(), 'd0979af7849f0326d7b522fd16b83be9551448444a92e83d5ec18a273efd05a9')
+        self.assertEqual(json.loads(raw)['message'], json.loads(original_raw)['message']['items'][0])
+        def fetch(url):
+            if 'pub.orcid.org' in url:
+                oid = url.split('/')[-2]
+                index = '01' if oid == '0009-0000-8922-637X' else '02'
+                response = (fixture / (index + '-' + oid + '-person.raw')).read_bytes()
+            else:
+                response = raw
+            return {'url': url, 'content_type': 'application/json', 'bytes': response, 'text': response.decode()}
+        self.fetcher = fetch
+        archive_fixture.Provider.transform = lambda output, value: {'suggestions': value['author_facts']}
+        names = ['Charles University', 'Institute of Sociology of the Czech Academy of Sciences, Prague, Czech Republic', 'Informa UK Limited']
+        institutions = [self.source(name) for name in names]
+        rid = self.record(authors='Alena Jechová; Martina Mysíková', doi='10.1080/1406099x.2026.2740283')
+        state = self.queue_run(rid)
+        candidate = state['candidates'][0]
+        self.assertEqual(candidate['value']['raw_name'], 'Alena Jechová')
+        self.assertEqual(candidate['value']['native']['affiliation'], [{'name': 'Charles University', 'place': ['Prague, Czech Republic']}])
+        self.assertEqual(candidate['operation']['article_units'][0]['institution_id'], institutions[0])
+        backup = self.call('/api/backup', user='admin')
+        self.assertEqual(backup.status_code, 200)
+        with zipfile.ZipFile(io.BytesIO(backup.data)) as bundle:
+            original = {name: bundle.read(name) for name in bundle.namelist()}
+        backup.close()
+        for index, institution in enumerate(institutions):
+            with self.subTest(institution=names[index]):
+                # Native author, Charles quote and valid institution versions stay intact.
+                archive = self.rewrite_candidate_backup(original, candidate['id'],
+                    lambda operation: operation['article_units'][0].update(institution_id=institution, institution_name=names[index]), 'unit-' + str(index))
+                target = Path(self.temp.name) / ('unit-restored-' + str(index))
+                if index:
+                    with self.assertRaises(ValueError):
+                        restore_backup(archive, target)
+                else:
+                    restore_backup(archive, target)
+                    app = create_app(target, testing=True)
+                    client = byline_fixture.BylineTests.login(self, 'researcher', app)
+                    current = client.get(f'/api/records/{rid}/suggestions').json
+                    response = client.post(f'/api/records/{rid}/suggestions/decide', json={
+                        'version': current['version'], 'byline_version': current['byline_version'],
+                        'adopt': [candidate['id']], 'article_units': [candidate['id']]},
+                        headers={'X-CSRF-Token': client.get('/api/session').json['csrf']})
+                    self.assertEqual(response.status_code, 200, response.json)
+                    units = client.get(f'/api/records/{rid}/affiliations').json['items']
+                    self.assertEqual([u['institution_id'] for u in units], [institutions[0]])
+
+    def test_rehashed_employment_and_organization_signature_cannot_switch_institution(self):
+        from platform_app.maintenance import restore_backup
+        from platform_app.web import create_app
+        self.synthetic()
+        institution, other = self.source('Approved Institute'), self.source('Unrelated Institute')
+        article = '<h1>Article</h1><script type="application/ld+json">' + json.dumps({
+            '@type': 'Article', 'headline': 'Article', 'author': [
+                {'@type': 'Person', 'name': 'Ada Example', 'url': 'https://profile.example/ada'},
+                {'@type': 'Organization', 'name': 'Approved Institute'}]}) + '</script>'
+        def fetch(url):
+            text = '<h1>Ada Example</h1><p>Ada Example is Researcher at Approved Institute.</p>' if url.endswith('/ada') else article
+            return {'url': url, 'content_type': 'text/html', 'bytes': text.encode(), 'text': text}
+        self.fetcher = fetch
+        archive_fixture.Provider.transform = lambda output, value: {'suggestions': value['author_facts']}
+        rid = self.record(authors='Ada Example; Approved Institute', url='https://article.example/roles')
+        state = self.queue_run(rid)
+        person, organization = state['candidates']
+        self.assertEqual(person['operation']['employments'][0]['institution_id'], institution)
+        self.assertEqual(organization['operation']['target_id'], institution)
+        backup = self.call('/api/backup', user='admin')
+        with zipfile.ZipFile(io.BytesIO(backup.data)) as bundle:
+            original = {name: bundle.read(name) for name in bundle.namelist()}
+        backup.close()
+        cases = [
+            ('correct', person['id'], lambda operation: None),
+            ('wrong-employer', person['id'], lambda operation: operation['employments'][0].update(institution_id=other, institution_name='Unrelated Institute')),
+            ('wrong-organization', organization['id'], lambda operation: operation.update(target_id=other)),
+        ]
+        for name, cid, mutation in cases:
+            with self.subTest(case=name):
+                archive = self.rewrite_candidate_backup(original, cid, mutation, name)
+                target = Path(self.temp.name) / ('restored-' + name)
+                if name != 'correct':
+                    with self.assertRaises(ValueError):
+                        restore_backup(archive, target)
+                else:
+                    restore_backup(archive, target)
+                    client = byline_fixture.BylineTests.login(self, 'researcher', create_app(target, testing=True))
+                    response = client.post(f'/api/records/{rid}/suggestions/decide', json={
+                        'version': state['version'], 'byline_version': state['byline_version'],
+                        'adopt': [person['id'], organization['id']], 'employments': [person['id']]},
+                        headers={'X-CSRF-Token': client.get('/api/session').json['csrf']})
+                    self.assertEqual(response.status_code, 200, response.json)
+                    bylines = client.get(f'/api/records/{rid}/bylines').json['items']
+                    self.assertEqual((bylines[1]['target_type'], bylines[1]['target_id']), ('institution', institution))
+                    employments = client.get('/api/people/' + bylines[0]['target_id'] + '/employments').json['items']
+                    self.assertEqual([(e['institution_id'], e['role']) for e in employments], [(institution, 'Researcher')])
+
+    def test_original_institution_version_stays_readable_after_human_edit_and_blocks_adoption(self):
+        from platform_app.maintenance import restore_backup
+        from platform_app.web import create_app
+        self.synthetic()
+        institution = self.source('Original Institute')
+        raw = json.dumps({'message': {'DOI': '10.5555/original-unit', 'author': [{
+            'given': 'Ada', 'family': 'Example', 'ORCID': 'https://orcid.org/0000-0002-1825-0097',
+            'affiliation': [{'name': 'Original Institute'}]}]}}).encode()
+        self.fetcher = lambda url: {'url': url, 'content_type': 'application/json', 'bytes': raw, 'text': raw.decode()}
+        archive_fixture.Provider.transform = lambda output, value: {'suggestions': value['author_facts']}
+        rid = self.record(authors='Ada Example', doi='10.5555/original-unit')
+        state = self.queue_run(rid)
+        cid = state['candidates'][0]['id']
+        self.assertEqual(self.call('/api/sources/' + institution, {'version': 1, 'name': 'Human corrected institute'}, method='PUT').status_code, 200)
+        current = self.get(f'/api/records/{rid}/suggestions')
+        self.assertEqual(current['candidates'][0]['operation']['article_units'][0]['institution_name'], 'Original Institute')
+        self.assertEqual(self.decision(rid, [cid], article_units=[cid]).status_code, 409)
+        self.assertEqual(self.get(f'/api/records/{rid}/bylines')['items'], [])
+        self.assertEqual(self.get('/api/people')['total'], 0)
+        backup = self.call('/api/backup', user='admin')
+        path = Path(self.temp.name) / 'edited-institution.zip'
+        path.write_bytes(backup.data)
+        backup.close()
+        target = Path(self.temp.name) / 'edited-institution-restored'
+        restore_backup(path, target)
+        client = byline_fixture.BylineTests.login(self, 'researcher', create_app(target, testing=True))
+        self.assertEqual(client.get(f'/api/records/{rid}/suggestions').json, current)
+        self.assertEqual(client.get('/api/sources/' + institution).json['name'], 'Human corrected institute')
 
     def test_unknown_organization_signature_stays_unmatched_without_creating_person(self):
         self.synthetic()
