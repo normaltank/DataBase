@@ -9,6 +9,7 @@ import threading
 import unittest
 import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from unittest.mock import patch
 
 from tests import test_workflow as workflow_fixture
@@ -60,9 +61,10 @@ class ArchiveSuggestionsTests(unittest.TestCase):
         self.document = {'url': 'https://source.example/', 'content_type': 'text/html',
                     'text': '<h1>Synthetic Institute</h1><p>Our office is in Riga, Latvia.</p>',
                     'bytes': b'<h1>Synthetic Institute</h1><p>Our office is in Riga, Latvia.</p>'}
+        self.fetcher = None
         contexts = [patch.dict(os.environ, env), patch.object(ssl.SSLContext, 'wrap_socket', lambda c, s, *a, **k: s)]
         if fetch:
-            contexts.append(patch('platform_app.intake.fetch_document', side_effect=lambda *a, **k: self.document))
+            contexts.append(patch('platform_app.intake.fetch_document', side_effect=lambda url, *a, **k: self.fetcher(url) if self.fetcher else self.document))
         for context in contexts:
             context.start()
             self.addCleanup(context.stop)
@@ -366,3 +368,38 @@ class ArchiveSuggestionsTests(unittest.TestCase):
         self.assertEqual(second.returncode, 0, second.stderr)
         self.assertEqual(json.loads(second.stdout)['archive_suggestions']['tasks'], 1)
         self.assertEqual(self.clients['colleague'].get(f'/api/sources/{sid}/suggestions').json['jobs'][0]['status'], 'failed')
+
+    def test_actual_crossref_publisher_evidence_cannot_become_host_or_international_mission(self):
+        self.synthetic()
+        raw = (Path(__file__).parent / 'fixtures/archive_suggestions/crossref-0020-8833.json').read_bytes()
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), '0968869804f3e19e4a2cefed5f8208fda12cbd22949b51c636b6b60df4493d30')
+        self.fetcher = lambda url: {'url': url, 'content_type': 'application/json', 'bytes': raw, 'text': raw.decode()} if url.startswith('https://api.crossref.org/journals/') else self.document
+        publisher = self.source('Oxford University Press', kind='institution')
+        quote = '"publisher":"Oxford University Press"'
+        for field, value in [('host', {'target_name': 'Oxford University Press'}), ('international_status', 'yes')]:
+            with self.subTest(field=field):
+                Provider.transform = lambda output, material: {'suggestions': [{'field': field, 'value': value,
+                    'evidence_id': next(d['id'] for d in material['documents'] if 'api.crossref.org' in d['url']), 'quote': quote}]}
+                sid = self.source('Crossref negative ' + field, kind='journal', website='https://journal.example/' + field, issn='0020-8833')
+                state = self.queue_run(sid, field)
+                if state['candidates']:
+                    decision = self.call(f'/api/sources/{sid}/suggestions/decide', {'version': 1, 'adopt': [state['candidates'][0]['id']]})
+                    self.assertEqual(decision.status_code, 409, 'A real publisher quote must never authorize this role.')
+                else:
+                    self.assertEqual(state['jobs'][0]['status'], 'failed')
+                saved = self.clients['researcher'].get('/api/sources/' + sid).json
+                self.assertEqual(saved['host_id'], '')
+                self.assertEqual(saved['international_status'], 'unknown')
+        Provider.transform = lambda output, material: {'suggestions': [
+            {'field': 'publisher', 'value': {'target_name': 'Oxford University Press'},
+             'evidence_id': next(d['id'] for d in material['documents'] if 'api.crossref.org' in d['url']), 'quote': quote},
+            {'field': 'issn', 'value': '0020-8833; 1468-2478',
+             'evidence_id': next(d['id'] for d in material['documents'] if 'api.crossref.org' in d['url']), 'quote': '"ISSN":["0020-8833","1468-2478"]'}]}
+        sid = self.source('Crossref positive', kind='journal', website='https://journal.example/positive', issn='0020-8833')
+        state = self.queue_run(sid, 'positive')
+        decision = self.call(f'/api/sources/{sid}/suggestions/decide', {'version': 1, 'adopt': [c['id'] for c in state['candidates']]})
+        self.assertEqual(decision.status_code, 200, decision.json)
+        saved = self.clients['researcher'].get('/api/sources/' + sid).json
+        self.assertEqual(saved['publisher_id'], publisher)
+        self.assertEqual(saved['issn'], '0020-8833; 1468-2478')
+        self.assertEqual(saved['host_id'], '')

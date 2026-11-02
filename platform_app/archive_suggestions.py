@@ -172,6 +172,8 @@ def acquire(db, job):
                        (eid, job['target_type'], job['target_id'], document['url'], store.now(), document['content_type'],
                         document['bytes'], sha, text, 'crossref-journal-v1' if url == registry_url else 'official-site-depth-1-no-retry-v1', document.get('encoding', 'utf-8')))
             db.execute('INSERT OR IGNORE INTO archive_job_evidence VALUES(?,?)', (job['id'], eid))
+            event(db, job, 'acquired', job['actor_id'], {'evidence_id': eid, 'url': document['url'], 'sha256': sha,
+                  'bytes': len(document['bytes']), 'fetched_at': store.now()})
         documents.append({'id': eid, 'url': document['url'], 'sha256': sha, 'text': text})
         if index == 0:
             if registry_url:
@@ -204,6 +206,63 @@ def field_before(base, field):
     return json.loads(value) if key in {'institution_types', 'relationships'} and isinstance(value, str) else value
 
 
+def validate_field_basis(item, document):
+    """Known API keys are strict; ambiguous prose needs direct, field-specific context.
+
+    Prose markers are a conservative eligibility check, not a claim to determine all
+    natural-language truth. The member still reviews the actual quote before adoption.
+    """
+    field, value, quote = item['field'], item['value'], item['quote']
+    parsed = urlsplit(document['url'])
+    if parsed.hostname == 'api.crossref.org' and parsed.path.startswith('/journals/'):
+        try:
+            metadata = json.loads(document['text'])['message']
+            if not isinstance(metadata, dict): raise ValueError()
+        except (ValueError, KeyError, TypeError):
+            raise ValueError('Crossref题录结构不完整；不能据此提出字段建议。') from None
+        if field == 'publisher' and value['target_name'] == metadata.get('publisher'):
+            return
+        if field == 'original_name' and value == metadata.get('title') and metadata['title'] in quote:
+            return
+        if field == 'name' and isinstance(metadata.get('title'), str) and metadata['title'] in quote:
+            return  # A translated display-name suggestion, with original title shown as its basis.
+        if field == 'issn':
+            proposed = [x.strip().upper() for x in re.split(r'[|;,；\s]+', value) if x.strip()]
+            registered = metadata.get('ISSN', [])
+            if (proposed and isinstance(registered, list) and all(isinstance(x, str) for x in registered)
+                    and set(proposed) <= {x.upper() for x in registered}
+                    and all(re.fullmatch(r'\d{4}-\d{3}[\dX]', x) and x in quote.upper() for x in proposed)):
+                return
+        raise ValueError('Crossref期刊接口仅支持其明确刊名、ISSN及出版方字段；出版方不能充当主办或国际定位依据。')
+    context = quote.casefold()
+    if field in {'host','publisher','relationships'}:
+        context = context.replace(value['target_name'].casefold(), '')
+        markers = {
+            'host': ('hosted by','hosting institution','sponsoring institution','主办','办刊单位'),
+            'publisher': ('published by','publisher','出版方','出版机构','出版商','出版单位'),
+            'part_of': ('part of','subsidiary of','隶属','下属','所属'),
+            'established_by': ('established by','founded by','共同设立','共同成立','设立方'),
+            'cooperates_with': ('cooperat','partner','合作'),
+            'funded_by': ('funded by','funding from','financial support from','资助','资金支持'),
+        }[value['type'] if field == 'relationships' else field]
+        if not any(marker in context for marker in markers):
+            raise ValueError('关系片段未直接表达所提议的角色；请补充主办、出版或机构关系的明确依据。')
+    if field in {'country','location'} and not any(marker in context for marker in
+            ('based in','located in','office','address','headquarter','registered in','所在地','地址','位于','总部')):
+        raise ValueError('所在地建议缺少直接地址或驻地语境；名称、域名及活动地不能作为机构所在地。')
+    if field == 'institution_types' and not any(marker in context for marker in
+            ('we are','is a ','is an ','是一','机构性质','机构类型','our institute is','our organisation is','our organization is')):
+        raise ValueError('机构类型缺少直接身份说明；不能仅凭名称推断。')
+    if field == 'research_scope' and not any(marker in context for marker in
+            ('focus','research on','research area','research programme','mission','研究范围','研究领域','聚焦','致力于')):
+        raise ValueError('覆盖范围缺少明确研究定位；不能把个别内容标题当作完整长期范围。')
+    if field == 'international_status':
+        negative = any(marker in context for marker in ('not an international','not international','national-only','domestic readership only','仅面向本国','非国际期刊'))
+        positive = any(marker in context for marker in ('international journal','international peer-reviewed','international scope','international readership','international authors','international publishing mission','国际性期刊','国际办刊','国际期刊'))
+        if not (negative if value == 'no' else positive and not negative):
+            raise ValueError('国际定位需要直接办刊定位依据；刊名、出版方或语言不能替代。')
+
+
 def validate_output(output, value):
     if not isinstance(output, dict) or set(output) != {'suggestions'} or not isinstance(output['suggestions'], list) or len(output['suggestions']) > 30:
         raise ValueError('档案建议结构无效。')
@@ -231,6 +290,7 @@ def validate_output(output, value):
             raise ValueError('网址建议必须是本次实际取得的页面。')
         if field == 'international_status' and proposed not in {'yes', 'no'}:
             raise ValueError('国际定位缺少确定依据时应留缺。')
+        validate_field_basis(item, documents[item['evidence_id']])
     return output
 
 

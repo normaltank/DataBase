@@ -13,13 +13,15 @@ from scripts.check_reader_maintenance_browser import call, account
 
 
 def flow(page, context, base, evidence, suffix):
-    sid = call(context, base, '/api/sources', {'name': 'SYNTHETIC93 ' + suffix, 'kind': 'institution',
-              'website': 'https://synthetic93.example/' + suffix}, expected=201)['id']
+    name = 'SYNTHETIC93 ' + evidence.name + ' ' + suffix
+    sid = call(context, base, '/api/sources', {'name': name, 'kind': 'institution',
+              'website': 'https://synthetic93.example/' + evidence.name + '/' + suffix}, expected=201)['id']
     page.goto(base + '/#sources?id=' + sid)
     page.get_by_role('button', name='AI补全', exact=True).click()
     page.get_by_role('button', name='取得AI补全建议', exact=True).click()
     page.screenshot(path=str(evidence / ('queued-' + suffix + '.png')))
     root = page.locator('[data-archive-review]')
+    expect(root.get_by_role('heading', name=name, exact=True)).to_be_visible()
     expect(root.locator('input[name=candidate]')).to_have_count(2, timeout=20000)
     rows = root.locator('.archive-candidates > .archive-candidate')
     location = rows.filter(has_text='所在地')
@@ -38,6 +40,9 @@ def flow(page, context, base, evidence, suffix):
     expect(root.locator('[data-archive-history=history]')).to_contain_text('已采用')
     expect(root.locator('[data-archive-history=history]')).to_contain_text('已拒绝')
     page.screenshot(path=str(evidence / ('decisions-' + suffix + '.png')))
+    # New evidence version permits reconsideration; the unchanged rejected input stays rejected.
+    source = context.request.get(base + '/api/sources/' + sid).json()
+    call(context, base, '/api/sources/' + sid, {'version': source['version'], 'website': source['website'] + '/new-evidence'}, method='PUT')
     root.get_by_role('button', name='重新取得建议', exact=True).click()
     expect(root.locator('.archive-candidates input')).to_have_count(1, timeout=20000)
     root.locator('.archive-candidates input').check()
