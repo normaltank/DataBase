@@ -52,7 +52,67 @@ function assertReading(document){
   assert.ok(article.querySelector('[data-action="ux-copy"]'),'copy remains available');
   assert.ok(article.querySelector('[data-action="edit-record"]'),'authorized editing remains available');
 }
+async function historyPage(){
+  const dom=new JSDOM('<div id="app"><main id="content"></main></div><div id="modal-root"></div><div id="toast"></div>',{runScripts:'outside-only',url:'http://synthetic.local/'}),w=dom.window,requests=[];
+  const add=w.addEventListener.bind(w);w.addEventListener=(type,handler,...rest)=>{if(type!=='DOMContentLoaded')add(type,handler,...rest);};
+  w.matchMedia=()=>({matches:false,addEventListener(){},removeEventListener(){}});w.scrollTo=()=>{};
+  const html=fs.readFileSync(path.join(root,'templates/index.html'),'utf8');
+  for(const [,file] of html.matchAll(/<script src="\/static\/([^"]+)"/g))vm.runInContext(fs.readFileSync(path.join(root,'static',file),'utf8'),dom.getInternalVMContext(),{filename:file});
+  w.eval("state.me={id:'reader',name:'合成研究员'};state.page='collaboration';state.loadId=1;");
+  const topic={id:'A',theme:'合成历史 A',stage:'compilation',lifecycle_state:'open',materials:[],participants:[]},workflow={meetings:[],assignments:[],summaries:[]};
+  let release,held;
+  w.fetch=async url=>{
+    requests.push(url);if(held===url){held=null;await new Promise(resolve=>release=resolve);}
+    return {ok:true,status:200,json:async()=>url.endsWith('/workflow')?workflow:topic};
+  };
+  async function render(){w.document.querySelector('#content').innerHTML=await w.workbenchTopic('A');}
+  await render();
+  return {w,requests,topic,workflow,hold:suffix=>{held='/api/collaboration/topics/A'+suffix;},release:()=>release(),close:()=>w.close()};
+}
+async function checkHistoryNavigation(){
+  for(const delayed of ['/workflow',''])for(const interrupt of ['navigation','close','other-modal']){
+    const p=await historyPage();try{
+      p.hold(delayed);p.w.document.querySelector('[data-action="handoff-legacy"]').click();
+      await waitFor(()=>p.requests.includes('/api/collaboration/topics/A'+delayed));
+      if(interrupt==='navigation'){
+        p.w.eval("state.loadId++;state.params=new URLSearchParams('id=B');");
+        p.w.document.querySelector('#content').innerHTML='<h1>合成主题 B</h1>';
+      }else if(interrupt==='close')p.w.closeModal();
+      else p.w.modal('另一项阅读','<p>保留当前内容。</p>');
+      p.release();await tick();await tick();
+      assert.equal(p.w.document.querySelector('#drawer-title')?.textContent,interrupt==='other-modal'?'另一项阅读':undefined,'delayed history must not reopen or replace the current reading');
+      if(delayed==='/workflow')assert.equal(p.requests.filter(url=>url==='/api/collaboration/topics/A').length,0,'obsolete workflow must not start a second read');
+    }finally{p.close();}
+  }
+  console.log('PASS delayed old-history workflow/detail cannot replace navigation, close or another modal');
+}
+async function checkOptionalLegacySummary(){
+  for(const summaries of [false,true])for(const allowed of [true,false]){
+    const p=await historyPage();try{
+      Object.assign(p.topic,{version:1,can_submit_summary:allowed,participants:[{id:'reader',name:'合成研究员',active:true}]});
+      const final={id:'final-A',title:'旧定稿 A',version:1,author_id:'reader',author_name:'合成研究员',name:'final.txt',file_url:'/synthetic-final',sha256:'synthetic'};
+      p.workflow.assignments=[{id:'assignment-A',finals:[final]}];
+      if(summaries)p.workflow.summaries=[{id:'summary-A',version:1,name:'summary.txt',adoptions:[final]}];
+      const entry=p.w.document.querySelector('[data-action="handoff-legacy"]');
+      assert.equal(entry.closest('details').open,false,'optional summary starts under secondary controls');
+      entry.click();await waitFor(()=>p.w.document.querySelector('[data-topic-single-finals]'));
+      const action=p.w.document.querySelector('[data-action="topic-finals-summary"]');
+      assert.equal(!!action,allowed,'old finals retain first/new summary action only with the existing permission');
+      assert.equal(p.w.document.querySelectorAll('[data-action="topic-finals-confirm"],[data-action^="topic-review"]').length,0,'former meeting workflow remains historical');
+      if(allowed){
+        action.click();await waitFor(()=>p.w.document.querySelector('[data-form="topic-finals-summary"]'));
+        const form=p.w.document.querySelector('[data-form="topic-finals-summary"]');
+        assert.equal(form.querySelector('[name="final_ids"]').value,'final-A','summary can explicitly adopt the saved old final');
+        assert.ok(form.querySelector('[data-action="topic-finals-search"]'),'optional existing-result association remains available');
+        assert.equal(form.querySelector('[type="submit"]').textContent,'保存整期汇总 v'+(summaries?2:1));
+      }
+    }finally{p.close();}
+  }
+  console.log('PASS optional first/new legacy summary, existing-result association and unchanged permission gate');
+}
 (async()=>{
+  await checkHistoryNavigation();
+  await checkOptionalLegacySummary();
   for(const route of ['sources?id=s1&content_published=2','people?id=p1','library?feed=all&q=Harbour']){
     const p=await page(route);try{
       const d=p.w.document,origin=d.querySelector('#content [data-action="detail"]');origin.focus();p.w.scrollTo(0,320);const hash=p.w.location.hash;
