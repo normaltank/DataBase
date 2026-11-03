@@ -156,7 +156,7 @@ def _parse(content, retrieved_at, source_id, actor=None, *, previously_seen=None
     earliest = min(dates).isoformat() if dates else None
     warnings = ['仅列当前 RSS 返回的内容；该订阅通常只返回最近 20 条，不代表栏目全部覆盖。'] if adapter['id'] == 'liia-opinions-v1' else [adapter['scope']]
     if not dates or min(dates) >= start or len(nodes) >= 20 or any(counts.values()) or dates != sorted(dates, reverse=True):
-        warnings.append('当前结果可能遗漏窗口内内容：订阅截断、日期或条目异常、乱序及最早日期均需人工核对。')
+        warnings.append('当前结果可能遗漏窗口内内容：入口截断、日期或条目异常、乱序及最早日期均需人工核对。')
     result = dict(format='discovery', source_id=source_id, filename=adapter['name']+' 近期发现', sha256=hashlib.sha256(content).hexdigest(),
                 source_name=adapter['name'], entry_type=adapter['mode'],
                 date_basis='rss_online' if adapter['kinds'] == {'journal'} else 'published',

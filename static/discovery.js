@@ -7,7 +7,7 @@ function discoveryContext(queue){
 function discoveryCoverage(queue){
   if(!queue.window)return '<p>从此来源的固定官方入口手动取得最近 30 天题录，核对后逐条保存。</p>';
   const context=discoveryContext(queue),date=context.date;
-  const labels={missing_date:'日期缺失',invalid_date:'日期无效',outside_window:'超出窗口',future:'未来日期',invalid_item:'题名或链接等条目无效',duplicate_url:'订阅内重复网址',duplicate_guid:'重复 GUID（只提示，不作资料身份）'};
+  const labels={missing_date:'日期缺失',invalid_date:'日期无效',outside_window:'超出窗口',future:'未来日期',invalid_item:'题名或链接等条目无效',duplicate_url:'入口内重复网址',duplicate_guid:'重复 GUID（只提示，不作资料身份）'};
   return '<section class="notice discovery-coverage"><p>'+date+'范围：'+esc(queue.window.start)+' 至 '+esc(queue.window.end)+'</p><p>当前入口不代表栏目全部覆盖。'+((queue.warnings||[]).length>1?'本次可能遗漏范围内资料，请查看详情。':'')+'</p><details><summary>来源与取得详情</summary><p>'+externalLink(queue.column_url,'官方栏目')+' · '+externalLink(queue.feed_url,'本次'+(context.entry==='RSS'?'固定 RSS':'官方 HTML 列表'))+'</p><p>取得时间（原始值）：'+esc(queue.retrieved_at)+'<br>范围按取得当日的 UTC 日历日期计算，含首尾共 30 天；按入口提供日期的原始时区筛选。<br>'+esc(queue.window_role||(context.online?'RSS 上线／发布标签的日期窗口；不替代原文发表日期、引用年份或首次入库时间':'保存前核对原文发表日期与题录。'))+'<br>当前 '+context.entry+' 返回 '+queue.returned+' 条；最早有效'+date+'：'+esc(queue.earliest||'未知')+'</p>'+(queue.warnings||[]).map(w=>'<p>'+esc(w)+'</p>').join('')+'<p>'+Object.entries(labels).map(([k,label])=>label+' '+(queue.counts[k]||0)).join('；')+'</p><p>署名、语言、摘要缺项保持空白；来源公开描述可能只是系列介绍，不是已核实摘要。切换、关闭及失败保留账号草稿。</p><h4>排除条目及原因</h4>'+(queue.exclusions.length?queue.exclusions.map(e=>'<p>'+context.entry+' 第 '+e.index+' 条：'+esc(labels[e.reason]||e.reason)+'</p>').join(''):'<p>无排除条目。</p>')+'</details></section>';
 }
 function discoveryQueueHtml(queue){
