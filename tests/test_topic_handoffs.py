@@ -31,6 +31,9 @@ class HandoffTests(unittest.TestCase):
         data = dict(stage=stage, token=self.board(tid, who)['token'], request_id=key or __import__('uuid').uuid4().hex, note='合成说明', **extra)
         if material_ref:
             data['material_ref'] = material_ref
+            material=next(m for m in self.board(tid,who)['materials'] if m['ref']==material_ref)
+            if material['legacy']:
+                data['source_ref']=material['versions'][0]['ref']
         return self.call(f'/api/collaboration/topics/{tid}/handoffs', data, who, file=('合成材料.txt', b'synthetic original'))
 
     def decide(self, tid, ref, decision='returned', who='researcher', **extra):
@@ -265,3 +268,32 @@ class HandoffTests(unittest.TestCase):
         review_file=recovered['materials'][0]['versions'][0]['reviews'][0]
         with self.clients['researcher'].get(review_file['file_url']) as r:
             self.assertEqual(r.data,b'synthetic review bytes')
+
+    def test_concurrent_new_version_and_review_have_one_legal_winner_and_failure_cleans_file(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from platform_app.store import connect
+        from contextlib import closing
+        tid=self.topic()
+        first=self.upload(tid)
+        b=self.board(tid);m=b['materials'][0];v=m['versions'][0]
+        upload_data=dict(request_id='racing-revision',token=b['token'],stage='selection',material_ref=m['ref'])
+        review_data=dict(request_id='racing-review',token=b['token'],version_ref=v['ref'],decision='approved')
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            a=pool.submit(self.call,f'/api/collaboration/topics/{tid}/handoffs',upload_data,'colleague',file=('race.txt',b'racing original'))
+            r=pool.submit(self.call,f'/api/collaboration/topics/{tid}/handoff-reviews',review_data)
+            statuses=a.result().status_code,r.result().status_code
+        self.assertIn(statuses,((201,409),(409,201)))
+        current=self.board(tid)['materials'][0]
+        if statuses[0]==201:
+            self.assertEqual(current['status'],'pending')
+            self.assertEqual(len(current['versions']),2)
+        else:
+            self.assertEqual(current['status'],'approved')
+            self.assertEqual(len(current['versions']),1)
+        before={p.name:p.read_bytes() for p in (self.data_dir/'handoffs').iterdir()}
+        with closing(connect(self.data_dir/'platform.sqlite3')) as db,db:
+            db.execute("CREATE TRIGGER reject_material_version BEFORE INSERT ON topic_material_versions BEGIN SELECT RAISE(ABORT,'synthetic failure after original save'); END")
+        failed=self.upload(tid,material_ref=first.json['material_ref'])
+        self.assertEqual(failed.status_code,409,failed.json)
+        self.assertEqual(before,{p.name:p.read_bytes() for p in (self.data_dir/'handoffs').iterdir()})
+        self.assertEqual(self.board(tid)['materials'][0],current)

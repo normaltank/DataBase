@@ -186,6 +186,40 @@ class PortableTrialTests(unittest.TestCase):
         denied = self.call(visitor, '/api/collaboration/topics', {'theme': '已撤资格不能重授', 'participant_ids': []})
         self.assertEqual(denied.status_code, 403)
 
+    def test_native_trial_practice_uses_direct_two_stage_chain_without_a_socket(self):
+        from portable.demo_seed import seed
+        from unittest.mock import patch
+        import urllib.error
+        import sys
+        with patch.object(sys,'path',[str(Path(__file__).resolve().parents[1]/'scripts'),*sys.path]):
+            from scripts import check_portable_trial, check_portable_preview
+        seed(create_app(self.data,testing=True,embedded_worker=False))
+        app=self.app()
+        class HTTP:
+            def __init__(adapter,base):
+                adapter.client=app.test_client()
+            def request(adapter,path,body=None,method=None,file=None,raw=False):
+                token=adapter.client.get('/api/session').json['csrf']
+                options={'headers':{'X-CSRF-Token':token}}
+                if file:
+                    options['data']={'data':json.dumps(body),'file':(io.BytesIO(file[1]),file[0])}
+                elif body is not None:
+                    options['json']=body
+                response=adapter.client.open(path,method=method or ('POST' if body is not None else 'GET'),**options)
+                status=response.status_code
+                payload=response.data if raw else response.json
+                response.close()
+                if status>=400:
+                    raise urllib.error.HTTPError(path,status,'synthetic HTTP rejection',{},io.BytesIO())
+                return payload
+        with patch.dict(sys.modules,{'check_portable_preview':check_portable_preview}),patch.object(check_portable_preview,'HTTP',HTTP):
+            first,second,tid,uid,samples=check_portable_trial.practice('no-listener')
+        board=first.request('/api/collaboration/topics/'+tid+'/handoffs')
+        self.assertEqual(board['stage'],'compilation')
+        self.assertEqual({m['stage'] for m in board['materials']},{'selection','compilation'})
+        self.assertTrue(all(m['status']=='approved' for m in board['materials']))
+        self.assertTrue(samples)
+
 
 if __name__ == '__main__':
     unittest.main()

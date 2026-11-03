@@ -123,7 +123,7 @@ def board(db, actor, tid):
     return {**t, 'token': _token(db, topic), 'materials': items}
 
 
-def archive(db, actor, tid, scope):
+def _material_archive(db, actor, tid, scope):
     collaboration.topic_for(db, actor, tid)
     if scope not in {'all', 'products', 'process'}:
         abort(400, '材料范围无效。')
@@ -134,6 +134,36 @@ def archive(db, actor, tid, scope):
             for v in m['versions']:
                 v['reviews'] = [r for r in v['reviews'] if r['decision'] != 'legacy_final']
     return {'format': 'topic-handoffs-v1', 'materials': items}, [v for m in items for v in m['versions']] + [r for m in items for v in m['versions'] for r in v['reviews'] if not r.get('legacy')]
+
+
+def archive(db, actor, tid, scope):
+    """Own scope and legacy adoption knowledge; callers only copy authorized files."""
+    if scope not in {'all', 'products', 'process'}:
+        abort(400, '材料范围无效。')
+    payload = {}
+    topic = collaboration.topic_for(db, actor, tid)
+    payload['topic'] = collaboration.projection(db, actor, topic)
+    payload['stage_coverage'] = '阶段与结束状态为导出时当前状态；升级、人工转换、结束／重开及确认缺项依据单独列明，不代表各份旧材料提交时已有该状态。'
+    workflow = review.workflow_projection(db, actor, topic)
+    candidates = collaboration.candidate_projection(db, tid) if scope != 'products' else []
+    if scope == 'products':
+        workflow['meetings'] = []
+        for a in workflow['assignments']:
+            a['submissions'] = [s for s in a['submissions'] if any(f['submission_id'] == s['id'] for f in a['finals'])]
+            a['returns'] = []
+    elif scope == 'process':
+        workflow['summaries'] = []
+        for a in workflow['assignments']:
+            a['finals'] = []
+    handoffs, direct_originals = _material_archive(db, actor, tid, scope)
+    payload.update(candidates=candidates, workflow=workflow, handoffs=handoffs)
+    originals = candidates + workflow['meetings'] + workflow['summaries'] + [s for a in workflow['assignments'] for k in ('submissions', 'returns', 'finals') for s in a[k]]
+    originals += direct_originals
+    for summary in workflow['summaries']:
+        summary['adopted_final_ids'] = json.loads(db.execute('SELECT adoptions_json FROM topic_summaries WHERE id=?', (summary['id'],)).fetchone()[0])
+        originals += summary['adoptions']
+    payload['coverage'] = {'all': '本期全部已提交过程、定稿和汇总及其历史版本', 'products': '本期全部已确认定稿及汇总版本，含汇总采用的具体稿件；不含候选、会议文件及返修意见', 'process': '本期两阶段材料、审阅与旧选题报告、会议、稿件及返修意见；不含旧定稿决定及整期汇总'}[scope]
+    return payload, originals
 
 
 def _expect(db, topic, data):
@@ -180,7 +210,7 @@ def submit(ctx, tid, data, uploaded):
             abort(403, '只能为本人同阶段材料提交新版本。')
         source_ref = None
         if material and material['legacy']:
-            source_ref = data.get('source_ref', material['versions'][0]['ref'])
+            source_ref = data.get('source_ref')
             if source_ref not in {v['ref'] for v in material['versions']}:
                 abort(403, '前驱版本不属于本人的材料。')
             if any(m['source_ref'] in {v['ref'] for v in material['versions']} for m in _materials(db, tid) if m['source_ref']):
@@ -253,7 +283,7 @@ def validate_backup(db):
                 require(data['stage'] == m['stage'])
                 if row['version'] == 1:
                     if m['source_ref']:
-                        require(data.get('material_ref') == previous['ref'] and data.get('source_ref', m['source_ref']) == m['source_ref'])
+                        require(data.get('material_ref') == previous['ref'] and data.get('source_ref') == m['source_ref'])
                     else:
                         require(not data.get('material_ref'))
                         f = db.execute('SELECT name FROM handoff_files WHERE id=?', (row['file_id'],)).fetchone()

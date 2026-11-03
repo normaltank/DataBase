@@ -240,6 +240,6 @@ document.addEventListener('click',async event=>{
 document.addEventListener('submit',async event=>{
   const form=event.target.closest('[data-form="trial-nickname"]');if(!form)return;event.preventDefault();
   const button=form.querySelector('button[type="submit"]');button.disabled=true;
-  try{const r=await api('/api/trial/nickname',{method:'PUT',body:{name:form.elements.name.value}});state.me=r.user;announceAccount();await route();toast('称呼已保存；原署名身份保持。');}
+  try{const r=await api('/api/trial/nickname',{method:'PUT',body:{name:form.elements.name.value}});state.me=r.user;announceAccount();await route();toast('称呼已保存。');}
   catch(error){form.querySelector('.form-error').textContent=error.message;}finally{button.disabled=false;}
 });

@@ -184,7 +184,7 @@ async function uxReadRecord(record,target=null) {
     +(typeof intakeEvidenceHtml==='function'?intakeEvidenceHtml(record.intake_evidence):'')
     +(typeof discoveryEvidenceHtml==='function'?discoveryEvidenceHtml(record.discovery_evidence):'')
     +(typeof risEvidenceHtml==='function'?risEvidenceHtml(record.ris_evidence):'')
-    +'<details class="ux-maintenance"><summary>整理、编辑与核对</summary><div class="detail-actions">'+maintenance+(!authorControlledKinds.has(record.kind)&&record.kind!=='research_note'?'<p>当前有权读取的有效成员共同编辑。</p>':'')+'</div>'+(!research&&!record.translations?.length&&!record.chinese_title&&!record.chinese_abstract?translationPanel(record):'')+'</details>'
+    +'<details class="ux-maintenance"><summary>整理、编辑与核对</summary><div class="detail-actions">'+maintenance+'</div>'+(!research&&!record.translations?.length&&!record.chinese_title&&!record.chinese_abstract?translationPanel(record):'')+'</details>'
     +(!hasEvidence&&research&&typeof archivedLinks==='function'?archivedLinks('record',record):'')+'</article>';
   if(target)target.innerHTML=content;else modal(kinds[record.kind]||'阅读资料',content);
   const body=target||document.querySelector('.drawer-body');body.classList.add('ux-reader');body.closest('.drawer')?.classList.add('ux-reading-drawer');

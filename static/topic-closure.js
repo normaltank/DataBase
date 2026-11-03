@@ -26,7 +26,7 @@ async function topicClosureForm(tid,reopen=false){
   if(reopen?!t.can_reopen:!t.can_end)throw new Error('当前状态或负责人资格不允许此操作。');
   const p=reopen?null:await api(root+'/closure-preview');
   if(account!==state.me?.id)return;
-  modal(reopen?'重新开启本期':'结束本期','<form data-form="topic-closure" data-account="'+esc(account)+'" data-topic="'+esc(tid)+'" data-operation="'+(reopen?'reopen':'end')+'" data-version="'+(p?.lifecycle_version||t.lifecycle_version)+'" data-request="'+crypto.randomUUID()+'"><div data-closure-preview>'+(reopen?'<p>恢复'+(t.closed_stage==='compilation'?'编译':'选题')+'阶段，保留现有稿件、决定及固定采用版本。</p>':topicClosurePreview(p))+'</div><div class="form-error" role="alert"></div><div data-closure-conflict></div><div class="form-actions"><button class="button primary" type="submit">'+(reopen?'确认重新开启':'确认结束本期')+'</button></div></form>',true);
+  modal(reopen?'重新开启本期':'结束本期','<form data-form="topic-closure" data-account="'+esc(account)+'" data-topic="'+esc(tid)+'" data-operation="'+(reopen?'reopen':'end')+'" data-version="'+(p?.lifecycle_version||t.lifecycle_version)+'" data-request="'+crypto.randomUUID()+'"><div data-closure-preview>'+(reopen?'<p>恢复'+(t.closed_stage==='compilation'?'编译':'选题')+'阶段，保留全部材料。</p>':topicClosurePreview(p))+'</div><div class="form-error" role="alert"></div><div data-closure-conflict></div><div class="form-actions"><button class="button primary" type="submit">'+(reopen?'确认重新开启':'确认结束本期')+'</button></div></form>',true);
   document.querySelector('[data-form="topic-closure"]')._preview=p;
 }
 document.addEventListener('click',async event=>{
