@@ -1,7 +1,7 @@
 'use strict';
 
 const personProfileLabels={introduction:'人物介绍',chinese_name:'中文姓名',original_name:'原名',aliases:'其他姓名写法',employment:'任职经历（单独选择）'};
-const personProfileStates={queued:'等待后台取得',running:'正在取得与整理',paused:'暂停待恢复',failed:'取得或处理失败',invalidated:'人物或授权已变化',cancelled:'已取消',ready:'建议待人工核对',empty:'无新增适用建议',pending:'待人工核对',adopted:'已采用',rejected:'已拒绝'};
+const personProfileStates={queued:'等待后台取得',running:'正在取得与整理',paused:'暂停待恢复',failed:'取得或处理失败',invalidated:'人物或授权已变化',cancelled:'已取消',ready:'建议已生成',empty:'无新增适用建议',pending:'待人工核对',adopted:'已采用',rejected:'已拒绝'};
 function personProfilePath(id){return '/api/people/'+encodeURIComponent(id)+'/profile-suggestions';}
 function personProfileProse(value){if(Array.isArray(value))value=value.map(x=>[x.institution_name||state.sources.find(s=>s.id===x.institution_id)?.name||'既有任职机构',x.role,x.start_date||'起始不详',x.end_date||'结束不详'].join(' · ')).join('\n');else if(value&&typeof value==='object')value=[value.institution_name,value.role,value.start_date||'起始不详',value.end_date||'结束不详'].join(' · ');return '<p>'+esc(value||'未填写').replace(/\n/g,'<br>')+'</p>';}
 
