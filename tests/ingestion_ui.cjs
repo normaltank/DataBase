@@ -33,7 +33,7 @@ function page(storage = new Map()) {
       querySelector:selector=>selector.includes('ingestion-config') ? forms.get(selector.match(/data-id="([^"]+)"/)?.[1]) : root,
       querySelectorAll:()=>[]},
     api:async (path, options)=>{
-      calls.push({path,options});
+      calls.push({path,options,actor:context.state.me?.id});
       if (apiHook) {const response=await apiHook(path, options);if(response)return response;}
       if (!options) return {items:[...saved.values()].map(s=>({...s})), unavailable:[]};
       const id = path.split('/')[3];
@@ -148,4 +148,34 @@ test('an unknown poll result keeps its identity across a browser page reload',as
   const second=page(storage);await second.context.ingestionSystemCard();await second.select('a',true);await second.click('poll');
   assert.equal(first.calls.find(call=>call.options?.method==='POST').options.body.request_id,
     second.calls.find(call=>call.options?.method==='POST').options.body.request_id);
+});
+
+for(const action of ['save','poll'])for(const outcome of ['response','error'])for(const reopen of [false,true])test(`${action} stops remaining writes after account switches during ${outcome}, reopened=${reopen}`,async()=>{
+  const p=page();await p.context.ingestionSystemCard();await p.click('all');
+  await p.edit('a','frequency_hours',11);if(action==='poll')await p.fire('submit',p.forms.get('a'));
+  p.calls.length=0;
+  let release;const gate=new Promise(resolve=>release=resolve);
+  p.hook(async(path,options)=>{if(options){await gate;if(outcome==='error')throw new Error('账号已切换');}});
+  const pending=p.click(action);p.context.state.me={id:'other-admin',role:'admin'};
+  if(reopen)await p.context.ingestionSystemCard();
+  const before=p.nodes.get('[data-ingestion-summary]').textContent;
+  release();await pending;
+  assert.deepEqual(p.calls.filter(c=>c.options).map(c=>[c.path,c.actor]),[[`/api/sources/a/ingestion${action==='poll'?'/run':''}`,'admin']]);
+  assert.equal(p.nodes.get('[data-ingestion-summary]').textContent,before,'old batch must not repaint another account');
+  // Returning to the original view must not strand unexecuted sources busy.
+  p.context.state.me={id:'admin',role:'admin'};if(reopen)await p.context.ingestionSystemCard();p.hook(null);
+  await p.fire('submit',p.forms.get('b'));
+  assert.equal(p.calls.filter(c=>c.options&&c.path.includes('/b/')).length,1);
+});
+
+test('returning to the same account with a replacement view does not resume an old batch',async()=>{
+  const p=page();await p.context.ingestionSystemCard();await p.click('all');
+  let release;const gate=new Promise(resolve=>release=resolve);p.hook((path,options)=>options?gate:undefined);
+  const pending=p.click('save');
+  p.context.state.me={id:'other-admin',role:'admin'};await p.context.ingestionSystemCard();
+  p.context.state.me={id:'admin',role:'admin'};await p.context.ingestionSystemCard();
+  release();await pending;
+  assert.equal(p.calls.filter(c=>c.options).length,1,'view replacement must stop the second write even when the account id matches again');
+  p.hook(null);await p.fire('submit',p.forms.get('b'));
+  assert.equal(p.calls.filter(c=>c.options).length,2,'the new view can submit its own intent');
 });

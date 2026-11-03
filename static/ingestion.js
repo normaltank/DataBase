@@ -80,6 +80,7 @@ function ingestionReadForm(form){
 }
 async function ingestionExecute(ids,action,runId){
   const view=ingestionView;if(!view||state.me?.id!==view.actor)return;
+  const current=()=>view===ingestionView&&state.me?.id===view.actor;
   const jobs=ids.filter(id=>view.items.has(id)&&!view.items.get(id).busy).map(id=>{
     const item=view.items.get(id),form=ingestionForm(id);if(form)ingestionReadForm(form);
     return {id,item,form,body:{...item.draft}};
@@ -89,21 +90,25 @@ async function ingestionExecute(ids,action,runId){
   for(const job of jobs){job.item.busy=true;job.item.revision=(job.item.revision||0)+1;}
   view.summary='正在处理 '+jobs.length+' 个来源…';ingestionPaint(view);
   let succeeded=0,failed=0;
-  for(const job of jobs){
+  try{for(const job of jobs){
+    if(!current())break;
     const {id,item,form,body}=job,save=['save','enable','disable'].includes(action),key=action+':'+(runId||id);
     item.error='';item.result=save?'正在保存设置…':'正在安排后台任务…';ingestionPaint(view);
     try{
       if(save&&form&&!form.reportValidity())throw new Error('请修正此来源的参数后重新保存。');
+      if(!current())break;
       if(!save&&!view.tokens.has(key)){view.tokens.set(key,crypto.randomUUID());ingestionKeepRequests(view);}
       const result=await api(action==='retry'?'/api/ingestion/runs/'+encodeURIComponent(runId)+'/retry':'/api/sources/'+encodeURIComponent(id)+'/ingestion'+(save?'':'/run'),{method:save?'PUT':'POST',body:save?body:{request_id:view.tokens.get(key)}});
+      if(!current())break;
       const previous=item.saved;item.source={...item.source,...result};item.saved=ingestionValues(result);
       // Responses update the saved baseline, while newer per-field edits stay drafts.
       for(const field of ingestionFields)if(item.draft[field]===(save?body[field]:previous[field]))item.draft[field]=item.saved[field];
       view.tokens.delete(key);ingestionKeepRequests(view);
       item.result=save?'设置已保存'+(ingestionDirty(item)?'；仍有新修改待保存':''):(result.runs.some(run=>['queued','running'].includes(run.status))?'任务已安排，等待后台执行':'此请求已处理，未重复安排任务；查看下方巡检结果');succeeded++;
-    }catch(error){item.error=error.message;item.result=(save?'保存失败':'安排失败')+'：'+error.message+'；输入和选择已保留，可重试。';failed++;}
+    }catch(error){if(!current())break;item.error=error.message;item.result=(save?'保存失败':'安排失败')+'：'+error.message+'；输入和选择已保留，可重试。';failed++;}
     finally{item.busy=false;ingestionPaint(view);}
-  }
+  }}finally{for(const job of jobs)job.item.busy=false;ingestionPaint(view);}
+  if(!current())return;
   view.summary='本次 '+jobs.length+' 个来源：成功 '+succeeded+'，失败 '+failed+'。'+(failed?'失败项保留输入，请在对应来源重试。':'');ingestionPaint(view);
 }
 async function ingestionRefresh(){

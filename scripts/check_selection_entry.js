@@ -43,6 +43,28 @@ const data={target_id:'s1',target_type:'source',name:'Synthetic',version:1,jobs:
   const row=w.document.createElement('div');row.innerHTML=w.topicReviewAssignmentRow({}, {participants:[{id:'off',name:'Inactive',active:0},{id:'ok',name:'Active',active:1}]},[]);
   const member=row.querySelector('[name=author_id]');assert.equal(member.value,'');assert.equal(member.querySelector('[value=off]').disabled,true);
   console.log('PASS participant single-person empty state, refresh race, payload and unavailable assignment member');
+  const manyMembers=[{id:'researcher',name:'Lead'},...Array.from({length:201},(_,i)=>({id:'member'+i,name:(i<200?'Included ':'Extra ')+i}))];
+  w.api=async()=>({items:manyMembers});await w.collaborationTopicForm();
+  const limited=w.document.querySelector('[data-form=collaboration-topic]'),all=limited.querySelector('[data-action=collaboration-members-all]'),clear=limited.querySelector('[data-action=collaboration-members-clear]'),query=limited.querySelector('[data-collaboration-member-search]');
+  const choices=()=>[...new w.FormData(limited).getAll('participant_ids')];
+  assert.match(limited.textContent,/最多.*200.*其他参与研究员/);
+  assert.equal(all.disabled,true,'201 visible members must not be silently truncated');
+  change(limited.querySelector('[value=member0]'),true);
+  all.dispatchEvent(new w.MouseEvent('click',{bubbles:true}));assert.deepEqual(choices(),['member0'],'over-limit select all preserves prior selections');
+  query.value='Included';query.dispatchEvent(new w.Event('input',{bubbles:true}));assert.equal(all.disabled,false);all.click();
+  assert.equal(choices().length,200);assert.match(limited.querySelector('[data-collaboration-member-count]').textContent,/200 \/ 200/);
+  assert.equal(limited.querySelector('[value=member200]').disabled,true);
+  change(limited.querySelector('[value=member200]'),true);assert.equal(choices().length,200,'201st individual choice is rejected');
+  assert.match(limited.querySelector('[data-collaboration-member-error]').textContent,/最多.*200/);
+  let overLimitWrites=0;w.api=async()=>{overLimitWrites++;throw new Error('must not send over-limit topic');};
+  // Submit-time validation also protects a form changed outside the change event.
+  limited.querySelector('[value=member200]').disabled=false;limited.querySelector('[value=member200]').checked=true;
+  submit(limited);await tick();assert.equal(overLimitWrites,0);assert.equal(choices().length,201);assert.match(limited.querySelector('.form-error:not([data-collaboration-member-error])').textContent,/最多.*200/);
+  clear.click();assert.equal(choices().length,0);query.value='';query.dispatchEvent(new w.Event('input',{bubbles:true}));assert.equal(all.disabled,true);
+  query.value='Included';query.dispatchEvent(new w.Event('input',{bubbles:true}));all.click();
+  limited.elements.theme.value='200 other participants';let maximumPayload;w.api=async(url,options)=>{maximumPayload=options.body;return {id:'maximum-topic'};};
+  submit(limited);await tick();assert.equal(maximumPayload.participant_ids.length,200);assert.equal(maximumPayload.participant_ids.includes('researcher'),false);
+  console.log('PASS participant 200 other-member limit, hidden choices, all/individual/submit rejection, preservation and clear');
   w.isInstitution=s=>s.kind==='institution';w.isPublication=s=>s.kind==='journal';
   const sources=Array.from({length:21},(_,i)=>({id:'s'+i,name:'Source '+i,kind:'institution'}));
   w.api=async()=>({items:sources});await w.archiveBatchForm();let sourceForm=w.document.querySelector('[data-form=archive-batch]');
