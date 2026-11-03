@@ -51,6 +51,25 @@ def main():
             assert result.status_code == 201, result.json
             people.append(result.json['id'])
         seed_profile_examples(app, people, *members)
+        # Large member lists are synthetic fixtures, not real member accounts.
+        # Public topic requests below verify the persisted limit independently.
+        from platform_app.store import connect
+        db = connect(app.config['DATA_DIR'] / 'platform.sqlite3')
+        try:
+            with db:
+                for i in range(201):
+                    db.execute('INSERT INTO users(id,username,name,password_hash,role) VALUES (?,?,?,?,?)',
+                               (f'limit-member-{i}', f'limit-member-{i}',
+                                f'LIMIT INCLUDED {i:03}' if i < 200 else 'LIMIT EXTRA 200',
+                                'synthetic-no-login', 'researcher'))
+        finally:
+            db.close()
+        result = client.post('/api/members', json={'username': 'batch-other', 'name': 'Synthetic second admin',
+                             'password': 'LocalDemo2026!', 'role': 'admin'}, headers=headers)
+        assert result.status_code == 201, result.json
+        for name, site in [('BATCH LIIA', 'https://liia.lv/en/'), ('BATCH GSSC', 'https://www.gssc.lt/en/')]:
+            result = client.post('/api/sources', json={'kind': 'think_tank', 'name': name, 'website': site}, headers=headers)
+            assert result.status_code == 201, result.json
         environment = {**os.environ, 'SELECTION108_PERSON_ID': people[0]}
         child = subprocess.Popen(['node', str(root / 'scripts/check_selection_http.js')], cwd=root, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8', env=environment)
         summary = None
@@ -60,7 +79,8 @@ def main():
                 if request.get('done'):
                     summary = request
                     break
-                response = client.open(request['url'], method=request['method'], json=request.get('body'), headers=headers)
+                current_headers = {'X-CSRF-Token': client.get('/api/session').json['csrf']}
+                response = client.open(request['url'], method=request['method'], json=request.get('body'), headers=request.get('headers', current_headers))
                 child.stdin.write(json.dumps({'id': request['id'], 'status': response.status_code, 'body': response.json}) + '\n')
                 child.stdin.flush()
             child.wait(timeout=10)
