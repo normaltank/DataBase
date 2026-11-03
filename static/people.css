@@ -57,3 +57,6 @@
   .person-heading,.person-card,.person-avatar-editor{grid-template-columns:minmax(0,1fr)}
   .person-heading,.person-section,.person-works-group,.person-page>.detail-section{padding:16px}
 }
+
+/* Avatar provenance uses the title measure, rather than the narrow image column. */
+.person-page .person-heading .person-avatar-source{max-width:none;margin:6px 0;overflow-wrap:anywhere}
