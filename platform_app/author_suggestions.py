@@ -164,10 +164,36 @@ def current_authority(db, job):
     actor = db.execute('SELECT * FROM users WHERE id=? AND active=1', (job['actor_id'],)).fetchone()
     if not actor or actor['credential_version'] != job['credential_version'] or actor['role'] not in {'researcher', 'admin'}:
         return False
+    if job['request_id'].startswith('ingestion-new:'):
+        from . import discovery
+        sid = job['request_id'].split(':')[1]
+        config = db.execute('SELECT * FROM ingestion_sources WHERE source_id=? AND enabled=1', (sid,)).fetchone()
+        source = identity.resolve(db, 'sources', sid)
+        if not config or config['updated_by'] != actor['id'] or actor['role'] != 'admin' or not source or source['id'] != sid or not discovery.supported(source):
+            return False
     try:
         return snapshot(db, actor, job['target_id']) == json.loads(job['base_json'])
     except Exception:
         return False
+
+
+def enqueue(db, actor, rid, request_id):
+    """Queue with existing authority/idempotency; caller owns the transaction."""
+    current = db.execute('SELECT * FROM users WHERE id=? AND active=1', (actor['id'],)).fetchone()
+    if not current or current['role'] not in {'researcher', 'admin'}:
+        abort(403, '当前账号不能取得作者建议。')
+    base = snapshot(db, current, rid)
+    if not intake.normalize_doi(base['doi']) and not intake.normalize_url(base['url']):
+        abort(400, '资料缺少公开文章网址或 DOI；原始署名继续保留。')
+    existing = db.execute("SELECT * FROM archive_jobs WHERE actor_id=? AND request_id=? AND target_type='record' AND target_id=?", (current['id'], request_id, base['id'])).fetchone()
+    if existing:
+        return {'id': existing['id'], 'target_id': base['id'], 'status': existing['status']}
+    jid = uuid.uuid4().hex
+    db.execute('''INSERT INTO archive_jobs(id,target_type,target_id,base_version,base_json,actor_id,credential_version,request_id,status,next_run,created_at)
+        VALUES(?,'record',?,?,?,?,?,?,'queued',?,?)''', (jid, base['id'], base['version'], json.dumps(base, ensure_ascii=False), current['id'], current['credential_version'], request_id, store.now(), store.now()))
+    job = db.execute('SELECT * FROM archive_jobs WHERE id=?', (jid,)).fetchone()
+    archive().event(db, job, 'queued', current['id'])
+    return {'id': jid, 'target_id': base['id'], 'status': 'queued'}
 
 
 def queue(ctx, data):
@@ -182,21 +208,8 @@ def queue(ctx, data):
     with db:
         db.execute('BEGIN IMMEDIATE')
         actor = ctx.user()
-        credential = db.execute('SELECT credential_version FROM users WHERE id=?', (actor['id'],)).fetchone()[0]
         for rid in ids:
-            base = snapshot(db, actor, rid)
-            if not intake.normalize_doi(base['doi']) and not intake.normalize_url(base['url']):
-                abort(400, '资料缺少公开文章网址或 DOI；原始署名继续保留。')
-            existing = db.execute("SELECT * FROM archive_jobs WHERE actor_id=? AND request_id=? AND target_type='record' AND target_id=?", (actor['id'], request_id, base['id'])).fetchone()
-            if existing:
-                items.append({'id': existing['id'], 'target_id': base['id'], 'status': existing['status']})
-                continue
-            jid = uuid.uuid4().hex
-            db.execute('''INSERT INTO archive_jobs(id,target_type,target_id,base_version,base_json,actor_id,credential_version,request_id,status,next_run,created_at)
-                VALUES(?,'record',?,?,?,?,?,?,'queued',?,?)''', (jid, base['id'], base['version'], json.dumps(base, ensure_ascii=False), actor['id'], credential, request_id, store.now(), store.now()))
-            job = db.execute('SELECT * FROM archive_jobs WHERE id=?', (jid,)).fetchone()
-            archive().event(db, job, 'queued', actor['id'])
-            items.append({'id': jid, 'target_id': base['id'], 'status': 'queued'})
+            items.append(enqueue(db, actor, rid, request_id))
     return jsonify(items=items), 201
 
 
@@ -246,6 +259,11 @@ def native_authors(document, base):
             return result
         raise ValueError('未取得适用的正式作者题录。')
     metadata = intake.page_metadata(document)
+    from .source_adapters import bound_authors
+    bindings = bound_authors(document)
+    if bindings and (not metadata[1] or [a['raw_name'] for a in bindings] == [a['raw_name'] for a in metadata[1]]):
+        return [dict(raw_name=a['raw_name'], kind='person', orcid=intake._orcid(a),
+                     profile_url=a.get('profile_url',''), native=a, affiliations=a.get('affiliations',[])) for a in bindings]
     for author in metadata[1]:
         result.append({'raw_name': author['raw_name'], 'kind': 'person', 'orcid': intake._orcid(author),
                        'profile_url': '', 'native': author, 'affiliations': author.get('affiliations', [])})
@@ -332,9 +350,12 @@ def acquire(db, job):
     base = json.loads(job['base_json'])
     deadline = time.monotonic() + archive().MAX_SECONDS
     doi = intake.normalize_doi(base['doi'])
-    url = 'https://api.crossref.org/works/' + quote(doi, safe='') if doi else intake.normalize_url(base['url'])
+    from .source_adapters import ADAPTERS, article_url
+    official_article = any(a['id'] != 'liia-opinions-v1' and article_url(a, base['url']) for a in ADAPTERS)
+    use_crossref = bool(doi and not official_article)
+    url = 'https://api.crossref.org/works/' + quote(doi, safe='') if use_crossref else intake.normalize_url(base['url'])
     document = intake.fetch_document(url, deadline)
-    evidence = save_document(db, job, document, 'crossref-authors-v1' if doi else 'article-authors-v1')
+    evidence = save_document(db, job, document, 'crossref-authors-v1' if use_crossref else 'article-authors-v1')
     requests = 1
     documents, facts, total, profiles = [evidence], facts_from_document(document, base, evidence), len(document['bytes']), {}
     actor = db.execute('SELECT * FROM users WHERE id=?', (job['actor_id'],)).fetchone()
