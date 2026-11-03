@@ -121,6 +121,12 @@ class AutomaticProcessingTests(unittest.TestCase):
     def test_real_worker_cli_respects_active_lease_then_recovers_expired_claim_without_sending(self):
         import subprocess,sys,os
         sid=self.source();self.call('/api/sources/'+sid+'/ingestion',{'enabled':True},user='admin',method='PUT');self.run_worker()
+        # This subprocess checks Chinese leases only. New-record author jobs
+        # are covered with fake transport in test_source_adapters; do not let
+        # the child perform an unmocked public article acquisition.
+        for row in self.clients['researcher'].get('/api/records').json['items']:
+            for job in self.clients['admin'].get('/api/records/'+row['id']+'/suggestions').json['jobs']:
+                self.assertEqual(self.call('/api/archive-jobs/'+job['id']+'/cancel', user='admin').status_code, 200)
         from platform_app.automatic_processing import run_pending
         from platform_app.store import connect
         with patch.dict('os.environ',{'DEEPSEEK_API_KEY':''}):run_pending(self.app.config['DATA_DIR'],limit=0)

@@ -179,7 +179,9 @@ def bound_authors(document):
     if urlsplit(document['url']).hostname not in {'gssc.lt', 'www.gssc.lt'}:
         return []
     main = first(tree.find(classes=('single-publication',)))
-    for section in main.find(classes=('authors',)):
+    # The first explicit byline precedes the body. The later biography cards
+    # repeat these names and must not become duplicate work signatures.
+    for section in main.find(classes=('authors',))[:1]:
         for link in section.find('a', ('title',)):
             url = intake.normalize_url(urljoin(document['url'], link.attrs.get('href', '')))
             if link.text() and urlsplit(url).hostname in {'gssc.lt', 'www.gssc.lt'} and re.fullmatch(r'/en/autoriai/[A-Za-z0-9_-]+/?', urlsplit(url).path):
@@ -220,12 +222,18 @@ def article(document, adapter):
         if not fields.get('title') or provenance.get('title', '').startswith('HTML title'):
             raise intake.AcquisitionError('未取得正式期刊文章题录；可能为挑战或登录页面。')
         abstracts = tree.find(classes=('item', 'abstract'))
+        abstract_basis = '.item.abstract（原摘要）'
+        if not abstracts and adapter['id'] == 'cjir-rss-v1':
+            abstracts = [section for main in tree.find(classes=('article-details-main',))
+                         for section in main.find('section')
+                         if any(isinstance(c, Node) and c.tag == 'h2' and c.text() == 'Abstract' for c in section.children)]
+            abstract_basis = '.article-details-main section > h2 Abstract（原摘要）'
         abstract_html = first(abstracts).html()
         if abstracts:
             abstract_html = ''.join(c.render() if isinstance(c, Node) else escape(c)
                                     for c in abstracts[0].children if not isinstance(c, Node) or c.tag not in {'h2', 'h3'})
             fields['abstract'] = workflow.clean_rich(abstract_html)[1]
-            provenance['abstract'] = '.item.abstract（原摘要）'
+            provenance['abstract'] = abstract_basis
         else:
             fields.pop('abstract', None)
         for value in raw['meta'].get('citation_pdf_url', []):

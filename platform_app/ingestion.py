@@ -288,6 +288,9 @@ def validate_backup(db):
     for row in db.execute('SELECT * FROM ingestion_sources'):
         if row['enabled'] not in {0,1} or not 1 <= row['frequency_hours'] <= 720 or row['initial_days'] != 30 or row['inclusion_rule'] not in {'research_only','all_opinions'}:
             raise ValueError('采集来源配置无效。')
+        days = json.loads(row['coverage_json']).get('backfill_days',30)
+        if type(days) is not int or not 30 <= days <= 3650:
+            raise ValueError('采集回溯窗口无效。')
 
 
 def _queue_run(db, sid, stamp):
@@ -523,9 +526,11 @@ def register(app, ctx):
         ctx.admin()
         run = ctx.db().execute('SELECT * FROM ingestion_runs WHERE id=?',(run_id,)).fetchone()
         if not run or run['feed_bytes'] is None:
-            abort(404,'本轮尚未成功取得 RSS 原字节。')
+            abort(404,'本轮尚未成功取得官方目录原字节。')
+        source = identity.resolve(ctx.db(), 'sources', run['source_id'])
+        adapter = source_adapters.for_source(source) if source else None
         return send_file(io.BytesIO(run['feed_bytes']),mimetype='application/octet-stream',as_attachment=True,
-            download_name='rss-'+run['feed_sha256'][:16]+'.xml')
+            download_name='discovery-'+run['feed_sha256'][:16]+('.html.txt' if adapter and adapter['mode']=='html' else '.xml'))
 
     @app.get('/api/ingestion')
     def ingestion_status():
@@ -545,7 +550,7 @@ def register(app, ctx):
         ctx.admin()
         data = ctx.body()
         if set(data) - {'enabled', 'frequency_hours', 'inclusion_rule', 'backfill_days'}:
-            abort(400, '只可调整启用、频率和既有 Opinions 栏目纳入规则。')
+            abort(400, '只可调整启用、频率、当前条目纳入规则及日期回溯窗口。')
         if type(data.get('enabled')) is not bool or type(data.get('frequency_hours', 24)) is not int or not 1 <= data.get('frequency_hours',24) <= 720:
             abort(400, '启用状态或巡检频率无效。')
         if data.get('inclusion_rule','research_only') not in {'research_only','all_opinions'}:

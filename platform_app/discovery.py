@@ -133,6 +133,9 @@ def _parse(content, retrieved_at, source_id, actor=None, *, previously_seen=None
             counts['duplicate_guid'] += 1
         guids.add(raw['guid'])
         fields = dict(kind='other', title=title, url=url, published_on=published.isoformat(), source_id=source_id)
+        if adapter['kinds'] == {'journal'}:
+            fields.pop('source_id')
+            fields['serial_id'] = source_id
         if raw.get('authors'):
             fields['authors'] = raw['authors']
         description = intake.plain(raw['description'], 40000)
@@ -159,7 +162,8 @@ def _parse(content, retrieved_at, source_id, actor=None, *, previously_seen=None
                 earliest=earliest, counts=counts, exclusions=exclusions, warnings=warnings, items=items)
     if actor is None:
         result['observed_urls'] = sorted({article_key(node.findtext('link','')) for node in nodes if article_key(node.findtext('link',''))})
-        result['window_role'] = '首次发表日期窗口' if previously_seen is None else '参考日期窗口；本轮按新发现与已纳入身份取得，可包含较早文章'
+        result['window_role'] = ('RSS 上线／发布标签的日期窗口；不替代引用年份或首次入库时间' if adapter['kinds']=={'journal'} else
+                                '首次发表日期窗口') if previously_seen is None else '参考日期窗口；本轮按新发现与已纳入身份取得，可包含较早文章'
     return result
 
 
