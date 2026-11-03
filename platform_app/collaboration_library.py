@@ -48,7 +48,8 @@ def work_items(db, actor, access):
             people.add(record['author_id'])
         people.discard(None)
         products = [dict(s, product_kind='journal') for s in work['submissions'] if s['id'] == work['current_product_id']]
-        yield {**work, 'business': 'journal', 'title': work['journal_name'] + ' · ' + work['coverage'],
+        yield {**work, 'trial_sample': record['id'] in actor.get('trial_sample_records', []),
+               'business': 'journal', 'title': work['journal_name'] + ' · ' + work['coverage'],
                'products': products, 'countries': [], 'participating': actor['id'] in people,
                'leading': record['kind'] in {'compilation', 'research_report'} and record['author_id'] == actor['id'] and access.editable(record),
                'participant_ids': sorted(people),

@@ -141,6 +141,8 @@ class RecordRevisions:
 
     def editable(self, r):
         u = self.actor
+        if r['id'] in u.get('trial_sample_records', []):
+            return False
         if not self.visible(r):
             return False
         if r["kind"] in workflow.AUTHOR_CONTROLLED_KINDS:

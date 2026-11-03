@@ -48,7 +48,7 @@ def qualified(db, uid):
 
 
 def can_read(db, actor, topic):
-    return actor["role"] == "admin" or bool(db.execute("SELECT 1 FROM topic_participants WHERE topic_id=? AND member_id=? AND active=1", (topic["id"], actor["id"])).fetchone())
+    return actor["role"] == "admin" or topic['id'] in actor.get('trial_sample_topics', []) or bool(db.execute("SELECT 1 FROM topic_participants WHERE topic_id=? AND member_id=? AND active=1", (topic["id"], actor["id"])).fetchone())
 
 
 def topic_for(db, actor, tid, manage=False):
@@ -89,6 +89,7 @@ def save_topic_event(db, tid, actor):
 
 def projection(db, actor, row):
     result = dict(row)
+    result['trial_sample'] = row['id'] in actor.get('trial_sample_topics', [])
     result["lead_name"] = db.execute("SELECT name FROM users WHERE id=?", (row["lead_id"],)).fetchone()[0]
     result["participants"] = [dict(r) for r in db.execute("SELECT u.id,u.name,u.active FROM topic_participants p JOIN users u ON u.id=p.member_id WHERE p.topic_id=? AND p.active=1 ORDER BY u.name,u.id", (row["id"],))]
     result["can_manage"] = row["lead_id"] == actor["id"] and qualified(db, actor["id"])
