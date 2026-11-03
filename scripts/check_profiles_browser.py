@@ -337,7 +337,7 @@ class ProfileBrowserTests(unittest.TestCase):
         try:
             page = fresh.new_page()
             page.goto(URL + "/#sources?id=" + publication)
-            expect(page.get_by_role("heading", name="登录知汇", exact=True)).to_be_visible()
+            expect(page.get_by_role("heading", name="登录", exact=True)).to_be_visible()
             page.get_by_role("button", name="研究员", exact=True).click()
             expect(page.locator('.source-page h1')).to_have_text(publication_name)
             self.assertIn("id=" + publication, page.url)

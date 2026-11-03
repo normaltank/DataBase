@@ -82,6 +82,7 @@ def reading(page, base, evidence, suffix):
 
 def topic(page,base,evidence,suffix):
     page.goto(base+'/#collaboration')
+    page.locator('.workbench-new > summary').click()
     page.get_by_role('button',name='开启一期主题',exact=True).click()
     title='合成主题交接 '+suffix
     page.get_by_label('本期主题 *',exact=True).fill(title)
@@ -127,8 +128,8 @@ def topic(page,base,evidence,suffix):
     no_overflow(page)
     dialog.get_by_role('button',name='确认稿件 v2 为定稿',exact=True).click()
     expect(card.get_by_text('已定稿',exact=True)).to_be_visible()
-    page.get_by_role('button',name='← 返回主题工作',exact=True).click()
-    page.locator('[data-work-id]').filter(has_text=title).get_by_role('button',name='进入主题工作',exact=True).click()
+    page.goto(base+'/#collaboration')
+    page.locator('[data-work-id]').filter(has_text=title).get_by_role('button',name=title,exact=True).click()
     # The latest created work is first; exact title resolves without assuming row order.
     if not page.get_by_role('heading',name=title,exact=True).count():
         page.goto(base+'/#collaboration')
@@ -138,12 +139,14 @@ def topic(page,base,evidence,suffix):
 
 def journal(page,base,evidence,suffix):
     page.goto(base+'/#collaboration?business=journal')
+    page.locator('.workbench-new > summary').click()
     page.get_by_role('button',name='新建期刊工作',exact=True).click()
     name='合成期刊留档 '+suffix
     page.get_by_label('已知刊名 *',exact=True).fill(name)
     page.get_by_label('原刊卷期或覆盖范围 *',exact=True).fill('2026年第1—3期')
     page.get_by_role('button',name='保存期刊工作',exact=True).click()
-    page.get_by_label('期刊编译文件 *',exact=True).set_input_files({'name':'期刊成品_'+('长文件名'*25)+'.txt','mimeType':'text/plain','buffer':b'synthetic journal product'})
+    expect(page.locator('.workbench-detail h1')).to_have_text(name)
+    page.get_by_label('期刊编译文件 *',exact=True).set_input_files({'name':'期刊成品_'+('长文件名'*15)+'.txt','mimeType':'text/plain','buffer':b'synthetic journal product'})
     page.get_by_label('材料类型',exact=True).select_option('product')
     page.get_by_role('button',name='保存文件新版本',exact=True).click()
     expect(page.get_by_text('当前成品',exact=True)).to_have_count(0)
@@ -157,7 +160,7 @@ def journal(page,base,evidence,suffix):
     assert download.value.failure() is None
     assert (evidence/'downloads'/download.value.suggested_filename).read_bytes()==b'synthetic journal product'
     nav(page,'中心成果')
-    page.get_by_role('button',name='期刊编译',exact=True).click()
+    page.locator('[data-workbench-business]').select_option('journal')
     product=page.locator('[data-work-id]').filter(has_text=name)
     with page.expect_download() as download:
         product.get_by_role('link',name='下载成果原件 v1',exact=True).click()

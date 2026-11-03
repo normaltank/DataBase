@@ -1,10 +1,8 @@
 'use strict';
 
 async function collaborationPage(){
-  if(state.params.get('business')==='journal'&&state.params.get('id'))return journalCollaborationPage();
-  const tid=state.params.get('id');
-  if(tid)return collaborationTopicPage(tid);
-  return collaborationWorkspacePage();
+  if(state.params.get('full')==='1'&&state.params.get('id'))return state.params.get('business')==='journal'?journalWorkPage(state.params.get('id')):collaborationTopicPage(state.params.get('id'));
+  return workbenchWorkspacePage();
 }
 
 async function collaborationTopicPage(tid){

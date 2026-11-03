@@ -93,7 +93,7 @@ document.addEventListener('submit',async event=>{
     else{data.submission_id=form.dataset.submission;path=base+'/assignments/'+encodeURIComponent(form.dataset.assignment)+'/returns';}
     const upload=new FormData();upload.set('data',JSON.stringify(data));const file=form.querySelector('[name=file]').files[0];if(file)upload.set('file',file);
     await api(path,{method:'POST',body:upload});if(account!==state.me?.id||!form.isConnected)return;
-    closeModal();await route();toast(type==='topic-review-meeting'?'会议决定已留档':type==='topic-review-draft'?'编译稿已提交，等待负责人审阅':'退回意见已保存到具体版本');
+    closeModal();if(typeof workbenchAfterWrite==='function')workbenchAfterWrite(type,form.dataset.assignment);await route();toast(type==='topic-review-meeting'?'会议决定已留档':type==='topic-review-draft'?'编译稿已提交，等待负责人审阅':'退回意见已保存到具体版本');
     if(type!=='topic-review-meeting')document.querySelector('[data-assignment-card="'+form.dataset.assignment+'"]')?.scrollIntoView({block:'start'});
   }catch(e){if(!form.isConnected)return;error.textContent=e.message;if(e.status===409){form._conflict=true;try{const [t,w]=await Promise.all([api(base),api(base+'/workflow')]);form.querySelector('[data-topic-review-conflict]').innerHTML=topicReviewConflictContent(t,w,w.assignments.find(a=>a.id===form.dataset.assignment),type==='topic-review-return');}catch(check){error.textContent=check.message;}}}finally{if(form.isConnected)button.disabled=false;}
 });
@@ -108,6 +108,6 @@ document.addEventListener('submit',async event=>{
   event.preventDefault();const button=form.querySelector('[type=submit]'),error=form.querySelector('.form-error');button.disabled=true;
   try{
     await api('/api/collaboration/topics/'+encodeURIComponent(form.dataset.topic)+'/enter-compilation',{method:'POST',body:{request_id:form.dataset.request,topic_version:Number(form.dataset.topicVersion),stage_version:Number(form.dataset.stageVersion),meeting_version:Number(form.dataset.meetingVersion)}});
-    closeModal();await route();toast('已确认分工，进入编译阶段');
+    closeModal();if(typeof workbenchAfterWrite==='function')workbenchAfterWrite('topic-stage-enter');await route();toast('已确认分工，进入编译阶段');
   }catch(e){if(form.isConnected){error.textContent=e.message;button.disabled=false;}}
 });

@@ -23,6 +23,7 @@ def nav(page, label):
     button=page.get_by_role('button',name='打开导航',exact=True)
     if button.is_visible():
         button.click()
+    label={'档案':'来源与作者档案','资料':'资料检索','我的':'个人空间'}.get(label,label)
     page.get_by_role('navigation',name='主导航',exact=True).get_by_role('button',name=label,exact=True).click()
 
 
