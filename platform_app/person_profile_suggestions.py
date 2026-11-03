@@ -20,6 +20,7 @@ from flask import abort, jsonify, send_file
 from . import ai_gateway, archive_suggestions as archive, affiliations, intake, people, store
 
 RULE = 'person-profile-v1'
+EXTRACTION = 'person-profile-v2'
 FIELDS = {'introduction', 'chinese_name', 'original_name', 'aliases', 'employment'}
 IGNORED = {'nav', 'footer', 'header', 'aside', 'script', 'style', 'noscript', 'template', 'svg'}
 
@@ -64,8 +65,60 @@ def normalized(value):
     return ' '.join(value.split())
 
 
-def extract_profile(raw, encoding, content_type, url):
+def descendants(node):
+    for child in node['children']:
+        if isinstance(child, dict):
+            yield child
+            yield from descendants(child)
+
+
+def author_block_profile(tree, url):
+    """Institutional author-page layout, corroborated by its document title.
+
+    A heading mentioned by an article is insufficient: the author container,
+    unique author block, matching title and dedicated biography must agree.
+    """
+    containers = [n for n in tree.nodes if n['tag'] in {'div', 'main'}
+        and {'main', 'author'} <= set(n['attrs'].get('class', '').split())]
+    heads = [n for n in tree.nodes if n['tag'] == 'head']
+    if len(containers) != 1 or len(heads) != 1:
+        return None
+    titles = [n for n in heads[0]['children'] if isinstance(n, dict) and n['tag'] == 'title']
+    blocks = [n for n in containers[0]['children'] if isinstance(n, dict) and n['tag'] == 'section'
+        and 'author-block' in n['attrs'].get('class', '').split()]
+    if len(titles) != 1 or len(blocks) != 1:
+        return None
+    nodes = list(descendants(blocks[0]))
+    headings = [n for n in nodes if n['tag'] == 'h2']
+    biographies = [n for n in nodes if 'biography' in n['attrs'].get('class', '').split()]
+    if len(headings) != 1 or 'block-title' not in headings[0]['attrs'].get('class', '').split() or len(biographies) != 1:
+        return None
+    subject = normalized(node_text(headings[0]))
+    title = normalized(node_text(titles[0]))
+    if not subject or not re.fullmatch(re.escape(subject) + r',\s+Author at\s+\S.{1,400}', title, re.I):
+        return None
+    works = []
+    for group in nodes:
+        if not {'single-group', 'points-list'} <= set(group['attrs'].get('class', '').split()):
+            continue
+        if not any(n['tag'] == 'h3' and normalized(node_text(n)).casefold() == 'publications by the author' for n in descendants(group)):
+            continue
+        for publication in descendants(group):
+            if 'single-publication' not in publication['attrs'].get('class', '').split():
+                continue
+            for link in descendants(publication):
+                if link['tag'] != 'a' or 'title' not in link['attrs'].get('class', '').split():
+                    continue
+                target, label = intake.normalize_url(urljoin(url, link['attrs'].get('href', ''))), normalized(node_text(link))
+                if target and label and {'title': label, 'url': target} not in works:
+                    works.append({'title': label, 'url': target})
+    return subject, biographies[0], works
+
+
+def extract_profile(raw, encoding, content_type, url, method=EXTRACTION):
     """Deterministic acquisition projection; never truncate a chosen biography region."""
+    if method not in {RULE, EXTRACTION}:
+        raise ValueError('人物材料提取版本无效。')
     text = raw.decode(encoding, errors='replace')
     if 'json' in content_type:
         value = json.loads(text)
@@ -90,6 +143,9 @@ def extract_profile(raw, encoding, content_type, url):
     tree = ProfileTree(text)
     headings = [normalized(node_text(n)) for n in tree.nodes if n['tag'] == 'h1']
     subject = headings[0] if len(headings) == 1 else ''
+    author_block = author_block_profile(tree, url) if not headings and method == EXTRACTION else None
+    if author_block:
+        subject = author_block[0]
     # Prefer actual biography regions over a page-wide main/article (e.g. ICDS).
     def region_rank(node):
         attrs = node['attrs']
@@ -100,6 +156,8 @@ def extract_profile(raw, encoding, content_type, url):
             return 1
         return 2 if node['tag'] in {'main', 'article'} else 3
     regions = sorted((n for n in tree.nodes if region_rank(n) < 3), key=region_rank)
+    if author_block:
+        regions = [author_block[1]]
     biography, works = '', []
     for region in regions:
         lines, links, publication = [], [], False
@@ -128,7 +186,7 @@ def extract_profile(raw, encoding, content_type, url):
         visit(region)
         candidate = '\n\n'.join(lines)
         if len(candidate) >= 80:
-            biography, works = candidate, links
+            biography, works = candidate, author_block[2] if author_block else links
             break
     problem = ''
     if not subject:
@@ -210,14 +268,19 @@ def save_document(db, job, document):
         raise ValueError('个人材料超过单页1MiB取得上限。')
     encoding = document.get('encoding', 'utf-8')
     profile = extract_profile(raw, encoding, document['content_type'], document['url'])
+    # Unchanged v1 interpretations retain their evidence identity and rejections.
+    # Older failed author-page acquisitions remain readable under their own rule.
+    legacy = extract_profile(raw, encoding, document['content_type'], document['url'], method=RULE)
+    method = RULE if profile == legacy else EXTRACTION
     text = json.dumps(profile, ensure_ascii=False, sort_keys=True)
     sha = hashlib.sha256(raw).hexdigest()
-    eid = archive.digest({'type': 'person', 'target': job['target_id'], 'url': document['url'], 'sha256': sha})
+    binding = {'type': 'person', 'target': job['target_id'], 'url': document['url'], 'sha256': sha}
+    eid = archive.digest(binding if method == RULE else binding | {'method': method})
     with db:
         if not archive.authorized(db, job):
             raise ValueError('人物、账号或任务状态已变化，停止取得。')
         db.execute('INSERT OR IGNORE INTO archive_evidence VALUES(?,?,?,?,?,?,?,?,?,?,?)',
-            (eid, 'person', job['target_id'], document['url'], store.now(), document['content_type'], raw, sha, text, RULE, encoding))
+            (eid, 'person', job['target_id'], document['url'], store.now(), document['content_type'], raw, sha, text, method, encoding))
         db.execute('INSERT OR IGNORE INTO archive_job_evidence VALUES(?,?)', (job['id'], eid))
         archive.event(db, job, 'acquired', job['actor_id'], {'evidence_id': eid, 'sha256': sha})
     return {'id': eid, 'url': document['url'], 'sha256': sha, **profile}
@@ -349,11 +412,12 @@ def execute(db, job):
 
 
 def validate_evidence(db, row):
+    binding = {'type': 'person', 'target': row['target_id'], 'url': row['url'], 'sha256': row['sha256']}
     if (not db.execute('SELECT 1 FROM people WHERE id=?', (row['target_id'],)).fetchone()
             or not intake.normalize_url(row['url']) or not 0 < len(row['raw']) <= intake.MAX_BYTES
-            or hashlib.sha256(row['raw']).hexdigest() != row['sha256'] or row['method'] != RULE
-            or row['id'] != archive.digest({'type': 'person', 'target': row['target_id'], 'url': row['url'], 'sha256': row['sha256']})
-            or json.loads(row['text']) != extract_profile(row['raw'], row['encoding'], row['content_type'], row['url'])):
+            or hashlib.sha256(row['raw']).hexdigest() != row['sha256'] or row['method'] not in {RULE, EXTRACTION}
+            or row['id'] != archive.digest(binding if row['method'] == RULE else binding | {'method': row['method']})
+            or json.loads(row['text']) != extract_profile(row['raw'], row['encoding'], row['content_type'], row['url'], method=row['method'])):
         raise ValueError('人物实际响应、完整介绍或目标绑定无效。')
     datetime.fromisoformat(row['fetched_at'])
 
