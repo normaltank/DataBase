@@ -165,43 +165,27 @@ class PortableRuntimeTests(unittest.TestCase):
 
 @unittest.skipUnless(os.name == 'nt', 'Portable credential and lifecycle contract is Windows-only')
 class PortableTerminalIntegrationTests(unittest.TestCase):
-    def test_lan_main_retry_success_existing_accounts_and_cancel_without_listener(self):
+    def test_lan_configuration_requires_no_input_and_preserves_accounts_and_port(self):
         from platform_app.web import create_app
-        from platform_app.deployment import default_password_users
+        from platform_app.store import connect
+        import json
         import sys
-        import os
         with tempfile.TemporaryDirectory(prefix='LAN 中文 空格 ') as temp:
             root = Path(temp)
             create_app(root / 'data', testing=True, embedded_worker=False)
             state = root / '.portable'
-            password = 'Synthetic 私有 口令 2026!'
-            output = io.StringIO()
-            with patch.object(launch, 'ROOT', root), patch.object(launch, 'STATE', state), \
-                 patch.dict(os.environ), patch.object(sys, 'argv', ['launch.py', 'lan-configure', '--password-stdin']), \
-                 patch.object(sys, 'stdin', io.StringIO('short\n'+password+'\ndifferent password\n'+password+'\n'+password+'\n')), redirect_stdout(output):
-                launch.main()
-            self.assertIn('局域网设置成功', output.getvalue())
-            self.assertIn('不一致', output.getvalue())
-            self.assertNotIn(password, output.getvalue())
-            self.assertEqual(default_password_users(root / 'data'), [])
-            original_config = (state / 'lan.json').read_bytes()
-            # The same account configuration is reused without any password input.
-            output = io.StringIO()
-            with patch.object(launch, 'ROOT', root), patch.object(launch, 'STATE', state), \
-                 patch.dict(os.environ), patch.object(sys, 'argv', ['launch.py', 'lan-configure']), redirect_stdout(output):
-                launch.main()
-            self.assertIn('已有自设账号已保留', output.getvalue())
-            self.assertEqual((state / 'lan.json').read_bytes(), original_config)
-        with tempfile.TemporaryDirectory(prefix='LAN cancel ') as temp:
-            root = Path(temp)
-            create_app(root / 'data', testing=True, embedded_worker=False)
-            state = root / '.portable'
-            with patch.object(launch, 'ROOT', root), patch.object(launch, 'STATE', state), \
-                 patch.dict(os.environ), patch.object(sys, 'argv', ['launch.py', 'lan-configure', '--password-stdin']), \
-                 patch.object(sys, 'stdin', io.StringIO('')), redirect_stdout(io.StringIO()):
-                launch.main()
-            self.assertFalse((state / 'lan.json').exists())
-            self.assertTrue(default_password_users(root / 'data'))
+            with closing(connect(root / 'data/platform.sqlite3')) as db:
+                before = [tuple(r) for r in db.execute('SELECT * FROM users ORDER BY id')]
+            for argv in (['launch.py', 'lan-configure', '--port', '18516'], ['launch.py', 'lan-configure']):
+                output = io.StringIO()
+                with patch.object(launch, 'ROOT', root), patch.object(launch, 'STATE', state), \
+                     patch.dict(os.environ), patch.object(sys, 'argv', argv), \
+                     patch.object(sys, 'stdin', io.StringIO('')), redirect_stdout(output):
+                    launch.main()
+                self.assertIn('无需账号口令', output.getvalue())
+                self.assertEqual(json.loads((state / 'lan.json').read_text(encoding='utf-8')), {'port': 18516})
+            with closing(connect(root / 'data/platform.sqlite3')) as db:
+                self.assertEqual([tuple(r) for r in db.execute('SELECT * FROM users ORDER BY id')], before)
 
 @unittest.skipUnless(os.name == 'nt', 'Portable credentials use Windows DPAPI')
 class PortableGatewayTests(unittest.TestCase):
@@ -272,7 +256,7 @@ class PortableGatewayTests(unittest.TestCase):
 
 @unittest.skipUnless(os.name == 'nt', 'Portable terminal contract is Windows-only')
 class PortableEncodingTests(unittest.TestCase):
-    def test_utf8_private_pipe_configures_chinese_password_at_actual_cli_boundary(self):
+    def test_utf8_cli_preserves_existing_password_without_prompt(self):
         import subprocess
         import sys
         from platform_app.web import create_app
@@ -286,11 +270,11 @@ class PortableEncodingTests(unittest.TestCase):
             result = subprocess.run([sys.executable, '-c', helper, str(root), 'lan-configure', '--password-stdin'],
                 input=password+'\n'+password+'\n', text=True, encoding='utf-8', capture_output=True, timeout=30)
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn('设置成功', result.stdout)
+            self.assertIn('无需账号口令', result.stdout)
             self.assertNotIn(password, result.stdout+result.stderr)
             with closing(connect(root / 'data/platform.sqlite3')) as db:
                 stored = db.execute("SELECT password_hash FROM users WHERE username='admin'").fetchone()[0]
-            self.assertTrue(check_password_hash(stored, password))
+            self.assertTrue(check_password_hash(stored, 'LocalDemo2026!'))
 
 @unittest.skipUnless(os.name == 'nt', 'Portable credential storage is Windows-only')
 class PortableWizardTests(unittest.TestCase):

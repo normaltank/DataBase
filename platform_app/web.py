@@ -31,7 +31,9 @@ def relationship_ids(value):
     return list(dict.fromkeys(x.strip() for x in re.split(r"[|;,]", value) if x.strip()))
 
 
-def create_app(data_dir=None, testing=False, *, initialization_mode='demo', embedded_worker=True):
+def create_app(data_dir=None, testing=False, *, initialization_mode='demo', embedded_worker=True, portable_trial=False):
+    if portable_trial and initialization_mode == 'production':
+        raise ValueError('Portable trial admission is unavailable in production mode.')
     app = Flask(__name__, template_folder=str(ROOT / "templates"), static_folder=str(ROOT / "static"))
     data_dir = Path(data_dir or os.environ.get("RESEARCH_DATA_DIR", ROOT / "data"))
     initialize(data_dir, mode=initialization_mode)
@@ -47,6 +49,12 @@ def create_app(data_dir=None, testing=False, *, initialization_mode='demo', embe
                       TRUSTED_HOSTS=["127.0.0.1", "localhost"], DATA_DIR=data_dir,
                       DEMO_LOGIN=initialization_mode == 'demo',
                       PRODUCTION_PASSWORD_POLICY=initialization_mode == 'production')
+    if portable_trial:
+        from portable import trial
+        from .deployment import default_password_users
+        trial.initialize(data_dir)
+        public_credentials = {r['id']: r['password_hash'] for r in default_password_users(data_dir)}
+        app.config.update(PORTABLE_TRIAL=True, DEMO_LOGIN=False, PERMANENT_SESSION_LIFETIME=365 * 86400)
 
     def db():
         if "db" not in g:
@@ -61,10 +69,16 @@ def create_app(data_dir=None, testing=False, *, initialization_mode='demo', embe
 
     def user():
         uid = session.get("uid")
-        result = db().execute("SELECT id,username,name,role,credential_version FROM users WHERE id=? AND active=1", (uid,)).fetchone()
+        result = db().execute("SELECT id,username,name,role,credential_version,password_hash FROM users WHERE id=? AND active=1", (uid,)).fetchone()
         if not result or session.get("credential_version", 0) != result["credential_version"]:
             abort(401, "请先登录。")
-        return {k: result[k] for k in ["id", "username", "name", "role"]}
+        if portable_trial and public_credentials.get(result['id']) == result['password_hash']:
+            abort(401, '公开演示会话已停止使用，请刷新进入临时试用。')
+        if not portable_trial and (db().execute('SELECT 1 FROM settings WHERE key=?', ('portable_trial_member:' + result['id'],)).fetchone() or
+                                   db().execute("SELECT 1 FROM settings WHERE key='portable_trial_host_v1' AND value=?", (result['id'],)).fetchone()):
+            abort(401, '临时试用身份不能用于普通或正式应用。')
+        account = {k: result[k] for k in ["id", "username", "name", "role"]}
+        return trial.enrich(db(), account) if portable_trial else account
 
     def admin():
         if user()["role"] != "admin":
@@ -72,9 +86,14 @@ def create_app(data_dir=None, testing=False, *, initialization_mode='demo', embe
 
     @app.before_request
     def protect_request():
+        if portable_trial and any(k.startswith('HTTP_X_FORWARDED_') or k == 'HTTP_FORWARDED' for k in request.environ):
+            abort(400, 'Untrusted forwarding headers')
         if request.path.startswith("/api/"):
-            if request.path not in ["/api/session", "/api/login"]:
+            admission = ['/api/trial/host', '/api/trial/enter'] if portable_trial else []
+            if request.path not in ["/api/session", "/api/login", *admission]:
                 user()
+            if portable_trial and request.path == '/api/trial/enter' and session.get('uid'):
+                user()  # A disabled identity cannot silently replace itself.
             if request.method not in ["GET", "HEAD", "OPTIONS"]:
                 origin = request.headers.get("Origin")
                 if origin and origin != request.host_url.rstrip("/"):
@@ -112,12 +131,41 @@ def create_app(data_dir=None, testing=False, *, initialization_mode='demo', embe
 
     @app.get("/api/session")
     def get_session():
+        if portable_trial and session.get('uid') in public_credentials:
+            previous = db().execute('SELECT password_hash FROM users WHERE id=? AND active=1', (session['uid'],)).fetchone()
+            if previous and previous[0] == public_credentials[session['uid']]:
+                session.clear()  # Public demo cookies migrate to a new, unprivileged identity.
+        if portable_trial and not session.get('uid') and not session.get('trial_signed_out'):
+            trial.admit(db())
         session.setdefault("csrf", secrets.token_hex(24))
         account = None
         if session.get("uid"):
             row = db().execute("SELECT id,username,name,role,credential_version FROM users WHERE id=? AND active=1", (session["uid"],)).fetchone()
-            account = {k: row[k] for k in ["id", "username", "name", "role"]} if row and row["credential_version"] == session.get("credential_version", 0) else None
-        return jsonify(user=account, csrf=session["csrf"], demo_login=app.config['DEMO_LOGIN'])
+            account = user() if row and row["credential_version"] == session.get("credential_version", 0) else None
+        return jsonify(user=account, csrf=session["csrf"], demo_login=app.config['DEMO_LOGIN'],
+                       portable_trial=portable_trial, host_available=portable_trial and trial.local_request())
+
+    if portable_trial:
+        @app.put('/api/trial/nickname')
+        def trial_nickname():
+            account, name = user(), body().get('name')
+            if not account.get('temporary'):
+                abort(403, '此入口只修改临时身份的称呼。')
+            if not isinstance(name, str) or not name.strip() or len(name.strip()) > 40 or any(ord(c) < 32 for c in name):
+                abort(400, '请填写1—40字的称呼。')
+            with db():
+                db().execute('UPDATE users SET name=? WHERE id=?', (name.strip(), account['id']))
+            return jsonify(user=user())
+
+        @app.post('/api/trial/host')
+        def trial_host():
+            trial.host_sign_in(db())
+            return jsonify(user=user(), csrf=session['csrf'])
+
+        @app.post('/api/trial/enter')
+        def trial_enter():
+            trial.admit(db())
+            return jsonify(user=user(), csrf=session['csrf'])
 
     @app.get('/api/country-names')
     def country_names_list():
@@ -127,6 +175,8 @@ def create_app(data_dir=None, testing=False, *, initialization_mode='demo', embe
     @app.post("/api/login")
     def login():
         payload = body()
+        if portable_trial and payload.get('password') == 'LocalDemo2026!':
+            abort(403, '试用已免登录；公开演示口令不再用于入场。主机可使用本机维护入口。')
         row = db().execute("SELECT * FROM users WHERE username=? AND active=1", (str(payload.get("username", "")),)).fetchone()
         if not row or not check_password_hash(row["password_hash"], str(payload.get("password", ""))):
             abort(401, "账号或密码不正确。")
@@ -138,6 +188,8 @@ def create_app(data_dir=None, testing=False, *, initialization_mode='demo', embe
     @app.post("/api/logout")
     def logout():
         session.clear()
+        if portable_trial:
+            session['trial_signed_out'] = True
         return jsonify(ok=True)
 
     def body():

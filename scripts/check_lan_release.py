@@ -43,6 +43,11 @@ def check(package, evidence):
 
     try:
         local = command(one, env, 'start', '--no-browser')
+        if HTTP(local).request('/api/session').get('portable_trial'):
+            from check_portable_trial import lan
+            lan(one, two, env, evidence, result)
+            print(json.dumps({'ok': True, 'evidence': str(evidence), 'checks': result['checks']}, ensure_ascii=False))
+            return
         assert HTTP(local).request('/api/session')['demo_login']
         command(one, env, 'stop')
         configure(one)
