@@ -2,7 +2,7 @@
 <html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>北外中东欧研究中心内部使用 · 演示包使用说明</title>
 <style>body{font:18px/1.7 system-ui,"Microsoft YaHei",sans-serif;max-width:850px;margin:3em auto;padding:0 1.2em;color:#213943}h1,h2{line-height:1.4}code{background:#edf2f2;padding:.1em .3em}aside{padding:1em;border-left:4px solid #407985;background:#f0f6f5}li{margin:.5em 0}a{color:#216577}</style>
-<h1>北外中东欧研究中心内部使用 · 本机演示包</h1>
+<h1>北外中东欧研究中心内部使用 · 本机与校园网试用</h1>
 <p>面向研究中心，保存来源、原始资料和中心成果，支持主题编译与独立期刊编译的文件交接、审稿、版本和采用追溯。</p>
 <aside>主题／期刊协作、演示人物和中心成果为明确标记的虚构样例。另含历史17国的38个核心来源、27个辅助机构与56篇真实公开资料题录：56个历史机器译题，23组原摘要及机译独立节选，33篇未取得原摘要。机器结果未人工校订，完整摘要、全文及内部资料未随包。</aside>
 <h2>开始和结束</h2>
@@ -10,7 +10,15 @@
 <li>双击根目录 <code>start.bat</code>，等待首次初始化并打开浏览器。不用安装 Python、pip、Git，也不用管理员权限。</li>
 <li>结束时双击 <code>stop.bat</code>。只关网页不会停止服务。再次启动保留新增内容、上传原件和历史；不会重置演示库。</li></ol>
 <p>仅监听 <code>127.0.0.1</code>；端口自动选择，避开 8848，并优先复用本包上次端口。重复启动打开同一实例。每份解压副本保存自己的 data 与登录会话，停止只控制这一份。</p>
-<h2>三个演示账号</h2>
+<h2>校园网临时试用</h2>
+<ol><li>先用 <code>stop.bat</code> 停止本副本，再双击 <code>lan-configure.bat</code>。首次按提示两次隐藏输入新的管理员密码（12—200字符），替换公开演示口令；仍使用默认口令的 researcher／colleague 会停用。资料、原件、历史及已有自设口令保留。之后启动不重置账号。</li>
+<li>双击 <code>lan-start.bat</code>。窗口显示当前主机实际 IPv4 地址与端口，例如 <code>http://校园网IP:端口</code>；把窗口显示的地址给同事。浏览器默认打开主机本机地址。不要填写 0.0.0.0，它只表示监听方式。</li>
+<li>用 admin 与新密码登录，进入“维护界面→成员”，为每位同事新建独立账号。也可给原 researcher／colleague 分别设置新密码并勾选“账号有效”；原 colleague 的负责人资格仍保留。为新成员分配负责人资格沿现有入口，管理员不会自动取得私人正文编辑权。</li>
+<li>结束使用 <code>stop.bat</code>；再次 <code>lan-start.bat</code> 优先复用上次端口，冲突时显示实际新端口。切换回 <code>start.bat</code> 先停止；原新口令及停用状态继续保留，不恢复快捷登录。再次设置端口可在命令提示符运行 <code>lan-configure.bat --port 8851</code>，0表示自动选择，避开8848。</li></ol>
+<p>这是临时校园网 <strong>HTTP</strong> 试用，只在同一可信、可互访网络使用。正式服务器应按 <a href="docs/portable-preview.md">部署说明入口</a> 使用 HTTPS；本包不会开通公网、改路由器或自动修改防火墙。校园Wi-Fi的客户端隔离、访客网或不同网段策略可能阻止互访；先核对电脑当前IP，再请校园网络管理员确认。IP随网络变化时先停止再启动，重新分享窗口中的地址。</p>
+<p>Windows防火墙如需放行，请由主机使用者在“高级安全 Windows Defender 防火墙→入站规则→新建规则→自定义”中选择<strong>本包 runtime\python.exe</strong>、TCP及启动窗口显示的端口；远程地址只填实际试用网段／具体同事IP，只勾选实际受信的校园网络配置文件，规则起可辨认名称。不要放行所有程序、所有端口或所有远程地址。端口变化需更新规则；试用结束停服务并禁用／删除这条规则。若校园网络被标为公共网络，请先咨询网络管理员确认受限范围，勿直接全局开放。此处只提供操作说明，软件不执行放行。</p>
+<p>主机须保持联网、开机且不休眠；关盖休眠、关机或切网会中断同事访问。LAN页面没有演示快捷登录，远程设备不能调用本机停止控制。首次设置可能停用示例成员，恢复协作演示请按上面成员管理步骤分别设新口令。</p>
+<h2>三个演示账号（全新本机模式）</h2>
 <p>密码均为 <code>LocalDemo2026!</code>，这是公开的试用密码。</p>
 <ul><li><code>researcher</code>：研究员 · 林，阅读、贡献来源、交稿及上传个人成果。</li>
 <li><code>colleague</code>：研究员 · 周，已登记业务负责人资格，可开期、记录会议、退回与确认定稿；仍是研究员角色，没有系统管理权限。</li>
@@ -27,5 +35,5 @@
 <p>核心阅读、录入、上传、下载、协作和导出可离线使用。真实样本来自既有批次的辅助RIS整理和历史DeepSeek结果，不能据此认为38站持续接通。本包不启动采集、AI 或后台处理，AI保持暂停且无调用／费用，不携带开发机凭据。访问外部原站仍需网络；此次历史平台取得曾因保留地址解析而受阻。</p>
 <p><code>data</code> 首启才创建，是本包的持续资料；<code>.portable</code> 保存本实例控制状态与启动日志。移动或重新解压到新路径会改变本机登录身份；请先停止。转发原始 ZIP 可得到全新的独立演示，不要直接压缩使用后的文件夹。</p>
 <p>根目录“项目介绍.html”（旧版也支持PDF）适合首次了解项目；<code>platform_app</code>、<code>templates</code>、<code>static</code> 与 <code>portable</code> 保存运行源码。源码与长期规则另见 <a href="PRODUCT.md">产品宪章</a>、<a href="GLOSSARY.md">术语表</a>及<a href="https://github.com/normaltank/DataBase">公开仓库</a>。<code>app.py</code> 是开发入口，便携使用始终双击根目录 BAT。</p>
-<p>内嵌 CPython 3.12.10 x64 与固定依赖供本轮兼容验证。该 Python 版本已有后续安全修订；运行时升级需要重新构建和验证。当前是本机演示，未证明所有 Windows 10/11 配置或正式生产环境均已适配。第三方许可与文件摘要分别见 <code>THIRD-PARTY-NOTICES.txt</code>、<code>manifest.json</code> 与 <code>portable/runtime-lock.json</code>。</p>
+<p>内嵌 CPython 3.14.10 x64、Waitress 与固定依赖，版本和官方构件hash已锁定。运行时升级需要重新构建和验证。当前支持本机演示和明确启动的临时LAN试用，未证明所有 Windows 10/11 配置或正式生产环境均已适配。第三方许可与文件摘要分别见 <code>THIRD-PARTY-NOTICES.txt</code>、<code>manifest.json</code> 与 <code>portable/runtime-lock.json</code>。</p>
 </html>

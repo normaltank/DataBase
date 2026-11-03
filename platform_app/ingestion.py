@@ -348,7 +348,7 @@ def _feed(db, run):
             (json.dumps(coverage,ensure_ascii=False),document['bytes'],result['sha256'],run['id']))
 
 
-def run_pending(data_dir, limit=1):
+def run_pending(data_dir, limit=1, stopping=lambda: False):
     """Process at most limit durable runs. No Flask session, member token or AI call."""
     from .record_revisions import RecordRevisions
     data_dir = Path(data_dir)
@@ -356,6 +356,8 @@ def run_pending(data_dir, limit=1):
     totals = dict(runs=0,saved=0,failed=0,excluded=0,blocked=0)
     try:
         for _ in range(limit):
+            if stopping():
+                break
             run = _claim(db)
             if not run:
                 break
@@ -369,7 +371,11 @@ def run_pending(data_dir, limit=1):
                     _feed(db,run)
                 entries = db.execute("SELECT * FROM ingestion_entries WHERE run_id=? AND stage IN ('queued','acquiring','failed') ORDER BY rowid",(run['id'],)).fetchall()
                 backoff = None
+                interrupted = False
                 for entry in entries:
+                    if stopping():
+                        interrupted = True
+                        break
                     _renew(db,run)
                     with db:
                         db.execute("UPDATE ingestion_entries SET stage='acquiring',attempts=attempts+1,error='' WHERE id=?",(entry['id'],))
@@ -399,6 +405,11 @@ def run_pending(data_dir, limit=1):
                     if _owns(db,run):
                         counts = {r['stage']:r['n'] for r in db.execute('SELECT stage,COUNT(*) n FROM ingestion_entries WHERE run_id=? GROUP BY stage',(run['id'],))}
                         failed = counts.get('failed',0)
+                        if interrupted:
+                            # A cooperative stop leaves the same run immediately
+                            # resumable, with completed entries and feed bytes intact.
+                            db.execute("UPDATE ingestion_runs SET status='queued',stage='entries',finished_at='',lease_token='',lease_until='' WHERE id=?", (run['id'],))
+                            continue
                         error = ('站点返回 HTTP '+str(backoff['http_status'])+'；已退避至 '+backoff['retry_at']+
                                  ('（等待值已限定为最多七天）。' if backoff['bounded'] else '。')) if backoff else (
                                      str(failed)+' 条取得或保存失败，可重跑。' if failed else '')
@@ -541,26 +552,38 @@ def main():
     args = parser.parse_args()
     if not 1 <= args.poll_seconds <= 3600:
         parser.error('poll-seconds must be between 1 and 3600')
-    store.initialize(args.data_dir)
+    store.initialize(args.data_dir, mode='production')
+    run_worker(args.data_dir, args.poll_seconds, args.once)
+
+
+def run_worker(data_dir, poll_seconds=30, once=False, stopping=lambda: False, heartbeat=lambda: None):
     logging.basicConfig(level=logging.INFO,format='%(asctime)s %(message)s')
-    while True:
-        db = store.connect(args.data_dir/'platform.sqlite3')
+    while not stopping():
+        heartbeat()
+        db = store.connect(data_dir/'platform.sqlite3')
         try:
             with db:
                 db.execute("INSERT OR REPLACE INTO settings VALUES ('ingestion_worker_heartbeat',?)",(store.now(),))
         finally:
             db.close()
-        result = run_pending(args.data_dir,limit=5)
+        result = run_pending(data_dir,limit=5,stopping=stopping)
+        if stopping():
+            return
         from .automatic_processing import run_pending as process_pending
-        result['chinese_processing'] = process_pending(args.data_dir,limit=5)
+        result['chinese_processing'] = process_pending(data_dir,limit=5,stopping=stopping)
+        if stopping():
+            return
         from .archive_suggestions import run_pending as archive_pending
-        result['archive_suggestions'] = archive_pending(args.data_dir,limit=2)
+        result['archive_suggestions'] = archive_pending(data_dir,limit=2,stopping=stopping)
         if result['runs']:
             logging.info('public_ingestion %s',json.dumps(result))
-        if args.once:
+        if once:
             print(json.dumps(result))
             return
-        time.sleep(args.poll_seconds)
+        for _ in range(poll_seconds):
+            if stopping():
+                return
+            time.sleep(1)
 
 
 if __name__ == '__main__':

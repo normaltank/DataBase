@@ -16,6 +16,50 @@ class AutomaticProcessingTests(unittest.TestCase):
     source = ingestion_fixture.IngestionTests.source
     run_worker = ingestion_fixture.IngestionTests.run_worker
 
+    def test_worker_stop_during_translation_settles_current_call_and_leaves_later_queues(self):
+        import threading
+        from platform_app.ingestion import run_worker
+        from platform_app.automatic_processing import run_pending
+        sid = self.source()
+        self.call('/api/sources/'+sid+'/ingestion', {'enabled': True}, user='admin', method='PUT')
+        self.run_worker()
+        archive = self.call('/api/archive-jobs', {'source_ids': [sid], 'request_id': 'stop-after-translation'})
+        self.assertEqual(archive.status_code, 201, archive.json)
+        self.call('/api/admin/ai/config', {'cap': '1', 'currency': 'USD'}, user='admin')
+        stop = threading.Event()
+        sent = []
+        def respond(request, **kwargs):
+            sent.append(json.loads(request.data))
+            stop.set()
+            response = MagicMock()
+            response.__enter__.return_value = response
+            response.geturl.return_value = request.full_url
+            response.read.return_value = json.dumps({'model': 'deepseek-flash',
+                'usage': {'prompt_tokens': 23, 'completion_tokens': 7, 'total_tokens': 30},
+                'choices': [{'finish_reason': 'stop', 'message': {'content': json.dumps({'title': '合成译题', 'abstract': ''})}}]}).encode()
+            return response
+        # The first acquisition already set the source's next poll in the future.
+        from platform_app.store import connect
+        from contextlib import closing
+        with closing(connect(self.app.config['DATA_DIR']/'platform.sqlite3')) as db, db:
+            db.execute("UPDATE ingestion_sources SET next_run='2099-01-01T00:00:00+00:00'")
+        with patch.dict('os.environ', {**ENV, 'DEEPSEEK_API_KEY': 'synthetic-only'}), \
+             patch('platform_app.intake.fetch_document', side_effect=AssertionError('later archive queue must not fetch')), \
+             patch('urllib.request.OpenerDirector.open', side_effect=respond):
+            run_worker(self.app.config['DATA_DIR'], once=True, stopping=stop.is_set)
+        self.assertEqual(len(sent), 1)
+        state = self.clients['admin'].get('/api/admin/ai').json
+        self.assertEqual(len(state['attempts']), 1)
+        self.assertEqual(state['attempts'][0]['status'], 'settled')
+        self.assertEqual(state['held_units'], 0)
+        self.assertEqual(state['task_counts'], {'succeeded': 1, 'queued': 4})
+        jobs = self.clients['researcher'].get('/api/sources/'+sid+'/suggestions').json['jobs']
+        self.assertEqual([job['status'] for job in jobs], ['queued'])
+        # Missing credentials pause the remaining tasks without sending anything.
+        with patch.dict('os.environ', {'DEEPSEEK_API_KEY': ''}):
+            self.assertEqual(run_pending(self.app.config['DATA_DIR'])['tasks'], 3)
+
+
     def test_schema19_restore_rejects_missing_required_task_table_despite_valid_manifest(self):
         import hashlib,sqlite3
         from platform_app.maintenance import restore_backup

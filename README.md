@@ -552,3 +552,7 @@ CSV 与可读内容包包含有权读取的原译对应、机器来源及版本�
 定向浏览器验证使用 `python scripts/check_translation_browser.py`，需 Playwright 和 Chromium；通过 `DATABASE_BROWSER_EXECUTABLE` 指定浏览器，可用 `DATABASE_TRANSLATION_EVIDENCE` 指定截图和结果目录。脚本使用临时合成库、动态本机端口和外部 HTTP mock，覆盖 1366／390 宽度的创建、执行、校订采用、冲突保留输入和晚到响应。
 
 阅读稳定性的定向验证为 `python scripts/check_reading_stability_browser.py`，默认占用空闲端口8904并新建临时合成目录；覆盖空访问后的刷新／重登、补译分页与精确确认、撤权后保留条件重读，以及390px与200%放大。可用 `DATABASE_BROWSER_PORT` 更换端口。
+
+## 发行与部署
+
+正式服务器源码发行、原生Waitress、管理员初始化、独立后台、TLS及运维步骤见[服务器部署说明](docs/server-deployment.md)。Windows便携包默认本机演示，明确启用的校园网临时试用与构建／恢复见[便携说明](docs/portable-preview.md)。两包必须基于同一最终审查提交，真实发行hash与验收范围由对应Issue／PR记录。

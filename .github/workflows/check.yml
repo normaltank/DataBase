@@ -8,6 +8,42 @@ permissions:
   contents: read
 
 jobs:
+  native_release:
+    name: Source ZIP / Python 3.14 / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            lock: linux
+          - os: windows-latest
+            lock: windows
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: "3.14.10"
+      - name: Install the exact target lock
+        run: python -m pip install --require-hashes -r server/requirements-${{ matrix.lock }}-cp314.lock
+      - name: Check deployment CLI and HTTP contracts
+        run: python -m unittest tests.test_deployment -v
+      - name: Build and exercise the actual source ZIP
+        shell: python
+        run: |
+          import json, os, pathlib, subprocess, sys, tempfile
+          root = pathlib.Path.cwd()
+          work = pathlib.Path(tempfile.mkdtemp(prefix='source-release-ci-'))
+          built = subprocess.check_output([sys.executable, 'scripts/build_server.py', '--output', str(work / 'output'), '--cache', str(work / 'cache')], text=True)
+          info = json.loads(built)
+          sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          assert info['source_commit'] == sha == os.environ['GITHUB_SHA'] and not info['source_dirty']
+          subprocess.run([sys.executable, 'scripts/verify_server.py', info['zip']], check=True)
+          subprocess.run([sys.executable, 'scripts/check_server_release.py', '--package', info['zip'], '--evidence', str(work / '中文 空格验收')], check=True)
+
   check:
     name: Python 3.12 / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -17,7 +53,7 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            timeout_minutes: 10
+            timeout_minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

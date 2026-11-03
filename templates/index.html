@@ -65,7 +65,7 @@
   <link rel="stylesheet" href="/static/workbench.css">
   <script src="/static/workbench.js" defer></script>
 </head>
-<body>
+<body data-demo-login="{{ 'true' if config.DEMO_LOGIN else 'false' }}">
   <div id="app"><div class="boot">正在打开平台…</div></div>
   <div id="modal-root"></div>
   <div id="toast" role="status" aria-live="polite"></div>

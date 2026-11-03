@@ -31,10 +31,10 @@ def relationship_ids(value):
     return list(dict.fromkeys(x.strip() for x in re.split(r"[|;,]", value) if x.strip()))
 
 
-def create_app(data_dir=None, testing=False):
+def create_app(data_dir=None, testing=False, *, initialization_mode='demo', embedded_worker=True):
     app = Flask(__name__, template_folder=str(ROOT / "templates"), static_folder=str(ROOT / "static"))
     data_dir = Path(data_dir or os.environ.get("RESEARCH_DATA_DIR", ROOT / "data"))
-    initialize(data_dir)
+    initialize(data_dir, mode=initialization_mode)
     key_path = data_dir / ".session-key"
     if not key_path.exists():
         key_path.write_text(secrets.token_hex(32), encoding="ascii")
@@ -44,7 +44,9 @@ def create_app(data_dir=None, testing=False):
                       # Parallel read responses may arrive after logout. Only
                       # actual session changes may issue a replacement cookie.
                       SESSION_REFRESH_EACH_REQUEST=False,
-                      TRUSTED_HOSTS=["127.0.0.1", "localhost"], DATA_DIR=data_dir)
+                      TRUSTED_HOSTS=["127.0.0.1", "localhost"], DATA_DIR=data_dir,
+                      DEMO_LOGIN=initialization_mode == 'demo',
+                      PRODUCTION_PASSWORD_POLICY=initialization_mode == 'production')
 
     def db():
         if "db" not in g:
@@ -115,7 +117,7 @@ def create_app(data_dir=None, testing=False):
         if session.get("uid"):
             row = db().execute("SELECT id,username,name,role,credential_version FROM users WHERE id=? AND active=1", (session["uid"],)).fetchone()
             account = {k: row[k] for k in ["id", "username", "name", "role"]} if row and row["credential_version"] == session.get("credential_version", 0) else None
-        return jsonify(user=account, csrf=session["csrf"])
+        return jsonify(user=account, csrf=session["csrf"], demo_login=app.config['DEMO_LOGIN'])
 
     @app.get('/api/country-names')
     def country_names_list():
@@ -877,7 +879,7 @@ def create_app(data_dir=None, testing=False):
     from . import author_suggestions
     author_suggestions.register(app, SimpleNamespace(db=db, user=user, body=body, admin=admin,
                                                     records=records, data_dir=data_dir))
-    if not testing:
+    if not testing and embedded_worker:
         archive_suggestions.start_worker(data_dir)
     translations.register(app, SimpleNamespace(db=db, user=user, body=body, records=records))
     bulk.register(app, SimpleNamespace(db=db, user=user, body=body, visible=visible, get_collection=get_collection, export_csv=export_csv))

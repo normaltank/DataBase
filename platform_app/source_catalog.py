@@ -15,6 +15,7 @@ DEFAULTS = {
     "international_status": "unknown", "international_evidence": "",
 }
 TEXT_FIELDS = [k for k in DEFAULTS if k not in {"institution_types", "relationships"}]
+MIGRATION_ACTOR = 'system-source-catalog-migration'
 
 
 def ids(value):
@@ -111,11 +112,15 @@ def migrate(data_dir):
                 values = initial_metadata(row)
                 if not any(values[k] != DEFAULTS[k] for k in values):
                     continue
+                # Automatic schema work must not claim an absent or uninvolved
+                # human administrator performed the change.
+                db.execute("INSERT OR IGNORE INTO users(id,username,name,password_hash,role,active) VALUES (?,?,?,'!','system',0)",
+                           (MIGRATION_ACTOR, MIGRATION_ACTOR, '系统 · 来源目录升级'))
                 if not db.execute("SELECT 1 FROM revisions WHERE target_type='source' AND target_id=?", (row["id"],)).fetchone():
-                    save_revision(db, "source", row["id"], "目录升级前版本", "admin")
+                    save_revision(db, "source", row["id"], "目录升级前版本", MIGRATION_ACTOR)
                 values.update(version=row["version"] + 1, updated_at=now(), status="pending")
                 db.execute(f"UPDATE sources SET {','.join(k+'=?' for k in values)} WHERE id=?", [*values.values(), row["id"]])
-                save_revision(db, "source", row["id"], "目录升级：补充登记依据与类型", "admin")
+                save_revision(db, "source", row["id"], "目录升级：补充登记依据与类型", MIGRATION_ACTOR)
             db.execute("UPDATE settings SET value='2' WHERE key='schema_version'")
             if backup:
                 db.execute("INSERT OR REPLACE INTO settings VALUES ('source_catalog_migration_backup',?)", (str(backup),))

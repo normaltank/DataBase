@@ -9,7 +9,7 @@ import uuid
 import zipfile
 from pathlib import Path
 
-from flask import abort, jsonify, request, send_file, session
+from flask import abort, current_app, jsonify, request, send_file, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from . import workflow, identity, content_export, bylines, affiliations, reading, reviews, collection_scope, saved_searches
@@ -46,6 +46,8 @@ def collection_values(data, base=None):
 def password(value):
     if not isinstance(value, str) or not 12 <= len(value) <= 200:
         abort(400, "密码需要 12—200 个字符。")
+    if current_app.config['PRODUCTION_PASSWORD_POLICY'] and value == 'LocalDemo2026!':
+        abort(400, "正式部署与校园网试用不可使用默认演示密码。")
     return generate_password_hash(value)
 
 

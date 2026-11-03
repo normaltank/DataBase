@@ -1,0 +1,801 @@
+{
+  "format": 1,
+  "python": "CPython 3.14.10, standard GIL, x64",
+  "platforms": {
+    "windows": [
+      {
+        "name": "blinker",
+        "version": "1.9.0",
+        "filename": "blinker-1.9.0-py3-none-any.whl",
+        "path": "download-windows/blinker-1.9.0-py3-none-any.whl",
+        "sha256": "ba0efaa9080b619ff2f3459d1d500c57bddea4a6b424b60a91141db6fd2f08bc",
+        "bytes": 8458,
+        "requires_python": ">=3.9",
+        "requires_dist": [],
+        "tags": [
+          "py3-none-any"
+        ],
+        "license_expression": null,
+        "license_classifiers": [
+          "License :: OSI Approved :: MIT License"
+        ],
+        "license_text_files": [
+          {
+            "wheel_path": "blinker-1.9.0.dist-info/LICENSE.txt",
+            "saved_path": "licenses/windows/blinker/blinker-1.9.0.dist-info/LICENSE.txt",
+            "bytes": 1054,
+            "sha256": "9eb73a1f38597a4aa17025d2ae1be3839624c795e985d4f0e9769ce29faca467"
+          }
+        ],
+        "metadata_url": "https://pypi.org/pypi/blinker/1.9.0/json",
+        "download_url": "https://files.pythonhosted.org/packages/10/cb/f2ad4230dc2eb1a74edf38f1a38b9b52277f75bef262d8908e60d957e13c/blinker-1.9.0-py3-none-any.whl",
+        "pypi_sha256": "ba0efaa9080b619ff2f3459d1d500c57bddea4a6b424b60a91141db6fd2f08bc",
+        "pypi_size": 8458,
+        "upload_time": "2024-11-08T17:25:46.184412Z",
+        "yanked": false,
+        "pypi_license_expression": null,
+        "pypi_license": null
+      },
+      {
+        "name": "click",
+        "version": "8.5.0",
+        "filename": "click-8.5.0-py3-none-any.whl",
+        "path": "download-windows/click-8.5.0-py3-none-any.whl",
+        "sha256": "255bc9599cf7748b4b1a446ccc735421bd08a2ae529a8b88597d3de5664ee360",
+        "bytes": 125251,
+        "requires_python": ">=3.10",
+        "requires_dist": [],
+        "tags": [
+          "py3-none-any"
+        ],
+        "license_expression": "BSD-3-Clause",
+        "license_classifiers": [],
+        "license_text_files": [
+          {
+            "wheel_path": "click-8.5.0.dist-info/licenses/LICENSE.txt",
+            "saved_path": "licenses/windows/click/click-8.5.0.dist-info/licenses/LICENSE.txt",
+            "bytes": 1475,
+            "sha256": "9a8ad106a394e853bfe21f42f4e72d592819a22805d991b5f3275029292b658d"
+          }
+        ],
+        "metadata_url": "https://pypi.org/pypi/click/8.5.0/json",
+        "download_url": "https://files.pythonhosted.org/packages/58/50/6c0d534c5f134586a8e1ba4e330569e32f057e33372ae556463212fb4cd3/click-8.5.0-py3-none-any.whl",
+        "pypi_sha256": "255bc9599cf7748b4b1a446ccc735421bd08a2ae529a8b88597d3de5664ee360",
+        "pypi_size": 125251,
+        "upload_time": "2026-08-26T13:33:12.928043Z",
+        "yanked": false,
+        "pypi_license_expression": "BSD-3-Clause",
+        "pypi_license": null
+      },
+      {
+        "name": "Flask",
+        "version": "3.1.3",
+        "filename": "flask-3.1.3-py3-none-any.whl",
+        "path": "download-windows/flask-3.1.3-py3-none-any.whl",
+        "sha256": "f4bcbefc124291925f1a26446da31a5178f9483862233b23c0c96a20701f670c",
+        "bytes": 103424,
+        "requires_python": ">=3.9",
+        "requires_dist": [
+          "blinker>=1.9.0",
+          "click>=8.1.3",
+          "importlib-metadata>=3.6.0; python_version < '3.10'",
+          "itsdangerous>=2.2.0",
+          "jinja2>=3.1.2",
+          "markupsafe>=2.1.1",
+          "werkzeug>=3.1.0",
+          "asgiref>=3.2 ; extra == \"async\"",
+          "python-dotenv ; extra == \"dotenv\""
+        ],
+        "tags": [
+          "py3-none-any"
+        ],
+        "license_expression": "BSD-3-Clause",
+        "license_classifiers": [],
+        "license_text_files": [
+          {
+            "wheel_path": "flask-3.1.3.dist-info/licenses/LICENSE.txt",
+            "saved_path": "licenses/windows/flask/flask-3.1.3.dist-info/licenses/LICENSE.txt",
+            "bytes": 1475,
+            "sha256": "489a8e1108509ed98a37bb983e11e0f7e1d31f0bd8f99a79c8448e7ff37d07ea"
+          }
+        ],
+        "metadata_url": "https://pypi.org/pypi/Flask/3.1.3/json",
+        "download_url": "https://files.pythonhosted.org/packages/7f/9c/34f6962f9b9e9c71f6e5ed806e0d0ff03c9d1b0b2340088a0cf4bce09b18/flask-3.1.3-py3-none-any.whl",
+        "pypi_sha256": "f4bcbefc124291925f1a26446da31a5178f9483862233b23c0c96a20701f670c",
+        "pypi_size": 103424,
+        "upload_time": "2026-02-19T05:00:56.027585Z",
+        "yanked": false,
+        "pypi_license_expression": "BSD-3-Clause",
+        "pypi_license": null
+      },
+      {
+        "name": "itsdangerous",
+        "version": "2.2.0",
+        "filename": "itsdangerous-2.2.0-py3-none-any.whl",
+        "path": "download-windows/itsdangerous-2.2.0-py3-none-any.whl",
+        "sha256": "c6242fc49e35958c8b15141343aa660db5fc54d4f13a1db01a3f5891b98700ef",
+        "bytes": 16234,
+        "requires_python": ">=3.8",
+        "requires_dist": [],
+        "tags": [
+          "py3-none-any"
+        ],
+        "license_expression": null,
+        "license_classifiers": [
+          "License :: OSI Approved :: BSD License"
+        ],
+        "license_text_files": [
+          {
+            "wheel_path": "itsdangerous-2.2.0.dist-info/LICENSE.txt",
+            "saved_path": "licenses/windows/itsdangerous/itsdangerous-2.2.0.dist-info/LICENSE.txt",
+            "bytes": 1475,
+            "sha256": "63af09891b6be8ad1a4252ed43af0f4efba7fc948e228367bed7f3c5ae0b09d7"
+          }
+        ],
+        "metadata_url": "https://pypi.org/pypi/itsdangerous/2.2.0/json",
+        "download_url": "https://files.pythonhosted.org/packages/04/96/92447566d16df59b2a776c0fb82dbc4d9e07cd95062562af01e408583fc4/itsdangerous-2.2.0-py3-none-any.whl",
+        "pypi_sha256": "c6242fc49e35958c8b15141343aa660db5fc54d4f13a1db01a3f5891b98700ef",
+        "pypi_size": 16234,
+        "upload_time": "2024-04-16T21:28:14.499616Z",
+        "yanked": false,
+        "pypi_license_expression": null,
+        "pypi_license": null
+      },
+      {
+        "name": "Jinja2",
+        "version": "3.1.6",
+        "filename": "jinja2-3.1.6-py3-none-any.whl",
+        "path": "download-windows/jinja2-3.1.6-py3-none-any.whl",
+        "sha256": "85ece4451f492d0c13c5dd7c13a64681a86afae63a5f347908daf103ce6d2f67",
+        "bytes": 134899,
+        "requires_python": ">=3.7",
+        "requires_dist": [
+          "MarkupSafe>=2.0",
+          "Babel>=2.7 ; extra == \"i18n\""
+        ],
+        "tags": [
+          "py3-none-any"
+        ],
+        "license_expression": null,
+        "license_classifiers": [
+          "License :: OSI Approved :: BSD License"
+        ],
+        "license_text_files": [
+          {
+            "wheel_path": "jinja2-3.1.6.dist-info/licenses/LICENSE.txt",
+            "saved_path": "licenses/windows/jinja2/jinja2-3.1.6.dist-info/licenses/LICENSE.txt",
+            "bytes": 1475,
+            "sha256": "3b49dcee4105eb37bac10faf1be260408fe85d252b8e9df2e0979fc1e094437b"
+          }
+        ],
+        "metadata_url": "https://pypi.org/pypi/Jinja2/3.1.6/json",
+        "download_url": "https://files.pythonhosted.org/packages/62/a1/3d680cbfd5f4b8f15abc1d571870c5fc3e594bb582bc3b64ea099db13e56/jinja2-3.1.6-py3-none-any.whl",
+        "pypi_sha256": "85ece4451f492d0c13c5dd7c13a64681a86afae63a5f347908daf103ce6d2f67",
+        "pypi_size": 134899,
+        "upload_time": "2025-03-05T20:05:00.369721Z",
+        "yanked": false,
+        "pypi_license_expression": null,
+        "pypi_license": null
+      },
+      {
+        "name": "MarkupSafe",
+        "version": "3.0.4",
+        "filename": "markupsafe-3.0.4-cp314-cp314-win_amd64.whl",
+        "path": "download-windows/markupsafe-3.0.4-cp314-cp314-win_amd64.whl",
+        "sha256": "c1bc67752d5f21013cfe430df4062441714eab79f65a6a05e01505957e9c35fe",
+        "bytes": 14501,
+        "requires_python": ">=3.9",
+        "requires_dist": [],
+        "tags": [
+          "cp314-cp314-win_amd64"
+        ],
+        "license_expression": "BSD-3-Clause",
+        "license_classifiers": [],
+        "license_text_files": [
+          {
+            "wheel_path": "markupsafe-3.0.4.dist-info/licenses/LICENSE.txt",
+            "saved_path": "licenses/windows/markupsafe/markupsafe-3.0.4.dist-info/licenses/LICENSE.txt",
+            "bytes": 1503,
+            "sha256": "4631ec0db5fd90a547e336817264c6798214338146f8ac94b4a57f96ee8c9ec4"
+          }
+        ],
+        "metadata_url": "https://pypi.org/pypi/MarkupSafe/3.0.4/json",
+        "download_url": "https://files.pythonhosted.org/packages/80/f0/5792ff768a410f93ee3f84fc19345295ffc352d2c936b424cb37e514714c/markupsafe-3.0.4-cp314-cp314-win_amd64.whl",
+        "pypi_sha256": "c1bc67752d5f21013cfe430df4062441714eab79f65a6a05e01505957e9c35fe",
+        "pypi_size": 14501,
+        "upload_time": "2026-10-02T23:05:50.788834Z",
+        "yanked": false,
+        "pypi_license_expression": "BSD-3-Clause",
+        "pypi_license": null
+      },
+      {
+        "name": "pillow",
+        "version": "13.0.0",
+        "filename": "pillow-13.0.0-cp314-cp314-win_amd64.whl",
+        "path": "download-windows/pillow-13.0.0-cp314-cp314-win_amd64.whl",
+        "sha256": "f7cbb7a64e7ec664775195e4f81923bc8a93d9451b963f844e59118f63147a7a",
+        "bytes": 7281830,
+        "requires_python": ">=3.11",
+        "requires_dist": [
+          "furo; extra == \"docs\"",
+          "olefile; extra == \"docs\"",
+          "sphinx>=8.2; extra == \"docs\"",
+          "sphinx-autobuild; extra == \"docs\"",
+          "sphinx-copybutton; extra == \"docs\"",
+          "sphinx-inline-tabs; extra == \"docs\"",
+          "sphinxext-opengraph; extra == \"docs\"",
+          "olefile; extra == \"fpx\"",
+          "olefile; extra == \"mic\"",
+          "arro3-compute; extra == \"test-arrow\"",
+          "arro3-core; extra == \"test-arrow\"",
+          "nanoarrow; extra == \"test-arrow\"",
+          "pyarrow; extra == \"test-arrow\"",
+          "coverage>=7.4.2; extra == \"tests\"",
+          "defusedxml; extra == \"tests\"",
+          "markdown2; extra == \"tests\"",
+          "olefile; extra == \"tests\"",
+          "packaging; extra == \"tests\"",
+          "psutil; (sys_platform == \"linux\" or sys_platform == \"darwin\") and extra == \"tests\"",
+          "pytest; extra == \"tests\"",
+          "pytest-cov; extra == \"tests\"",
+          "pytest-timeout; extra == \"tests\"",
+          "pytest-xdist; extra == \"tests\"",
+          "setuptools; extra == \"tests\"",
+          "trove-classifiers>=2024.10.12; extra == \"tests\"",
+          "defusedxml; extra == \"xmp\""
+        ],
+        "tags": [
+          "cp314-cp314-win_amd64"
+        ],
+        "license_expression": "MIT-CMU",
+        "license_classifiers": [],
+        "license_text_files": [
+          {
+            "wheel_path": "pillow-13.0.0.dist-info/licenses/LICENSE",
+            "saved_path": "licenses/windows/pillow/pillow-13.0.0.dist-info/licenses/LICENSE",
+            "bytes": 78481,
+            "sha256": "988ffe8ab3480b0f4e9a0ab2702bffd73d9fb6b47198043fb3ba101a62fac236"
+          }
+        ],
+        "metadata_url": "https://pypi.org/pypi/pillow/13.0.0/json",
+        "download_url": "https://files.pythonhosted.org/packages/50/e2/7ad17747517e4c813dca78257d6bb593466f8231baf1384bc98d92745edb/pillow-13.0.0-cp314-cp314-win_amd64.whl",
+        "pypi_sha256": "f7cbb7a64e7ec664775195e4f81923bc8a93d9451b963f844e59118f63147a7a",
+        "pypi_size": 7281830,
+        "upload_time": "2026-10-16T22:16:47.725904Z",
+        "yanked": false,
+        "pypi_license_expression": "MIT-CMU",
+        "pypi_license": null
+      },
+      {
+        "name": "pypdf",
+        "version": "6.21.4",
+        "filename": "pypdf-6.21.4-py3-none-any.whl",
+        "path": "download-windows/pypdf-6.21.4-py3-none-any.whl",
+        "sha256": "33e4fb41ca352810eb4e9838aa0d82d6888a5f8bf682f43e99cce5faa666255c",
+        "bytes": 410430,
+        "requires_python": ">=3.9",
+        "requires_dist": [
+          "typing_extensions >= 4.0; python_version < '3.11'",
+          "brotli>=1.2.0 ; extra == \"brotli\"",
+          "cryptography>3.0 ; extra == \"crypto\"",
+          "PyCryptodome ; extra == \"cryptodome\"",
+          "flit ; extra == \"dev\"",
+          "pip-tools ; extra == \"dev\"",
+          "pre-commit ; extra == \"dev\"",
+          "pytest-cov ; extra == \"dev\"",
+          "pytest-socket ; extra == \"dev\"",
+          "pytest-timeout ; extra == \"dev\"",
+          "pytest-xdist ; extra == \"dev\"",
+          "wheel ; extra == \"dev\"",
+          "myst_parser ; extra == \"docs\"",
+          "sphinx ; extra == \"docs\"",
+          "sphinx_rtd_theme ; extra == \"docs\"",
+          "fonttools ; extra == \"fonts\"",
+          "arabic-reshaper ; extra == \"full\"",
+          "brotli>=1.2.0 ; extra == \"full\"",
+          "cryptography>3.0 ; extra == \"full\"",
+          "fonttools ; extra == \"full\"",
+          "Pillow>=8.0.0 ; extra == \"full\"",
+          "python-bidi ; extra == \"full\"",
+          "Pillow>=8.0.0 ; extra == \"image\"",
+          "arabic-reshaper ; extra == \"rtl-text\"",
+          "python-bidi ; extra == \"rtl-text\""
+        ],
+        "tags": [
+          "py3-none-any"
+        ],
+        "license_expression": "BSD-3-Clause",
+        "license_classifiers": [],
+        "license_text_files": [
+          {
+            "wheel_path": "pypdf-6.21.4.dist-info/licenses/LICENSE",
+            "saved_path": "licenses/windows/pypdf/pypdf-6.21.4.dist-info/licenses/LICENSE",
+            "bytes": 1605,
+            "sha256": "a97ac230e5f33ef10a5367a850eb01f91f1a0b064e34742c7794d2294557f524"
+          }
+        ],
+        "metadata_url": "https://pypi.org/pypi/pypdf/6.21.4/json",
+        "download_url": "https://files.pythonhosted.org/packages/3f/4b/77e8ad4ac42c9d93600f40541a50e9feb3a61d2bbee2d76f659346072051/pypdf-6.21.4-py3-none-any.whl",
+        "pypi_sha256": "33e4fb41ca352810eb4e9838aa0d82d6888a5f8bf682f43e99cce5faa666255c",
+        "pypi_size": 410430,
+        "upload_time": "2026-10-28T17:00:53.146109Z",
+        "yanked": false,
+        "pypi_license_expression": "BSD-3-Clause",
+        "pypi_license": null
+      },
+      {
+        "name": "waitress",
+        "version": "3.0.2",
+        "filename": "waitress-3.0.2-py3-none-any.whl",
+        "path": "download-windows/waitress-3.0.2-py3-none-any.whl",
+        "sha256": "c56d67fd6e87c2ee598b76abdd4e96cfad1f24cacdea5078d382b1f9d7b5ed2e",
+        "bytes": 56232,
+        "requires_python": ">=3.9.0",
+        "requires_dist": [
+          "Sphinx >=1.8.1 ; extra == 'docs'",
+          "docutils ; extra == 'docs'",
+          "pylons-sphinx-themes >=1.0.9 ; extra == 'docs'",
+          "pytest ; extra == 'testing'",
+          "pytest-cov ; extra == 'testing'",
+          "coverage >=7.6.0 ; extra == 'testing'"
+        ],
+        "tags": [
+          "py3-none-any"
+        ],
+        "license_expression": null,
+        "license_classifiers": [
+          "License :: OSI Approved :: Zope Public License"
+        ],
+        "license_text_files": [
+          {
+            "wheel_path": "waitress-3.0.2.dist-info/LICENSE.txt",
+            "saved_path": "licenses/windows/waitress/waitress-3.0.2.dist-info/LICENSE.txt",
+            "bytes": 2070,
+            "sha256": "3e671db11df687516cc1db5b3d65e4aa383eaca3c20cea3faf53a0f7335d0a3c"
+          }
+        ],
+        "metadata_url": "https://pypi.org/pypi/waitress/3.0.2/json",
+        "download_url": "https://files.pythonhosted.org/packages/8d/57/a27182528c90ef38d82b636a11f606b0cbb0e17588ed205435f8affe3368/waitress-3.0.2-py3-none-any.whl",
+        "pypi_sha256": "c56d67fd6e87c2ee598b76abdd4e96cfad1f24cacdea5078d382b1f9d7b5ed2e",
+        "pypi_size": 56232,
+        "upload_time": "2024-11-16T20:02:33.858165Z",
+        "yanked": false,
+        "pypi_license_expression": null,
+        "pypi_license": "ZPL 2.1"
+      },
+      {
+        "name": "Werkzeug",
+        "version": "3.1.9",
+        "filename": "werkzeug-3.1.9-py3-none-any.whl",
+        "path": "download-windows/werkzeug-3.1.9-py3-none-any.whl",
+        "sha256": "6392e50c78460ba618e5b21f08a71f59c99ce99cdc6cf6e3dd7e6ccca8754fab",
+        "bytes": 228700,
+        "requires_python": ">=3.9",
+        "requires_dist": [
+          "markupsafe>=2.1.1",
+          "watchdog>=2.3 ; extra == \"watchdog\""
+        ],
+        "tags": [
+          "py3-none-any"
+        ],
+        "license_expression": "BSD-3-Clause",
+        "license_classifiers": [],
+        "license_text_files": [
+          {
+            "wheel_path": "werkzeug-3.1.9.dist-info/licenses/LICENSE.txt",
+            "saved_path": "licenses/windows/werkzeug/werkzeug-3.1.9.dist-info/licenses/LICENSE.txt",
+            "bytes": 1475,
+            "sha256": "3b49dcee4105eb37bac10faf1be260408fe85d252b8e9df2e0979fc1e094437b"
+          }
+        ],
+        "metadata_url": "https://pypi.org/pypi/Werkzeug/3.1.9/json",
+        "download_url": "https://files.pythonhosted.org/packages/a1/38/df03f564f43cec2684823f3cccae1a652ee7face1cbaa76fb223096e64d7/werkzeug-3.1.9-py3-none-any.whl",
+        "pypi_sha256": "6392e50c78460ba618e5b21f08a71f59c99ce99cdc6cf6e3dd7e6ccca8754fab",
+        "pypi_size": 228700,
+        "upload_time": "2026-09-27T18:33:39.685530Z",
+        "yanked": false,
+        "pypi_license_expression": "BSD-3-Clause",
+        "pypi_license": null
+      }
+    ],
+    "linux": [
+      {
+        "name": "blinker",
+        "version": "1.9.0",
+        "filename": "blinker-1.9.0-py3-none-any.whl",
+        "path": "download-linux/blinker-1.9.0-py3-none-any.whl",
+        "sha256": "ba0efaa9080b619ff2f3459d1d500c57bddea4a6b424b60a91141db6fd2f08bc",
+        "bytes": 8458,
+        "requires_python": ">=3.9",
+        "requires_dist": [],
+        "tags": [
+          "py3-none-any"
+        ],
+        "license_expression": null,
+        "license_classifiers": [
+          "License :: OSI Approved :: MIT License"
+        ],
+        "license_text_files": [
+          {
+            "wheel_path": "blinker-1.9.0.dist-info/LICENSE.txt",
+            "saved_path": "licenses/linux/blinker/blinker-1.9.0.dist-info/LICENSE.txt",
+            "bytes": 1054,
+            "sha256": "9eb73a1f38597a4aa17025d2ae1be3839624c795e985d4f0e9769ce29faca467"
+          }
+        ],
+        "metadata_url": "https://pypi.org/pypi/blinker/1.9.0/json",
+        "download_url": "https://files.pythonhosted.org/packages/10/cb/f2ad4230dc2eb1a74edf38f1a38b9b52277f75bef262d8908e60d957e13c/blinker-1.9.0-py3-none-any.whl",
+        "pypi_sha256": "ba0efaa9080b619ff2f3459d1d500c57bddea4a6b424b60a91141db6fd2f08bc",
+        "pypi_size": 8458,
+        "upload_time": "2024-11-08T17:25:46.184412Z",
+        "yanked": false,
+        "pypi_license_expression": null,
+        "pypi_license": null
+      },
+      {
+        "name": "click",
+        "version": "8.5.0",
+        "filename": "click-8.5.0-py3-none-any.whl",
+        "path": "download-linux/click-8.5.0-py3-none-any.whl",
+        "sha256": "255bc9599cf7748b4b1a446ccc735421bd08a2ae529a8b88597d3de5664ee360",
+        "bytes": 125251,
+        "requires_python": ">=3.10",
+        "requires_dist": [],
+        "tags": [
+          "py3-none-any"
+        ],
+        "license_expression": "BSD-3-Clause",
+        "license_classifiers": [],
+        "license_text_files": [
+          {
+            "wheel_path": "click-8.5.0.dist-info/licenses/LICENSE.txt",
+            "saved_path": "licenses/linux/click/click-8.5.0.dist-info/licenses/LICENSE.txt",
+            "bytes": 1475,
+            "sha256": "9a8ad106a394e853bfe21f42f4e72d592819a22805d991b5f3275029292b658d"
+          }
+        ],
+        "metadata_url": "https://pypi.org/pypi/click/8.5.0/json",
+        "download_url": "https://files.pythonhosted.org/packages/58/50/6c0d534c5f134586a8e1ba4e330569e32f057e33372ae556463212fb4cd3/click-8.5.0-py3-none-any.whl",
+        "pypi_sha256": "255bc9599cf7748b4b1a446ccc735421bd08a2ae529a8b88597d3de5664ee360",
+        "pypi_size": 125251,
+        "upload_time": "2026-08-26T13:33:12.928043Z",
+        "yanked": false,
+        "pypi_license_expression": "BSD-3-Clause",
+        "pypi_license": null
+      },
+      {
+        "name": "Flask",
+        "version": "3.1.3",
+        "filename": "flask-3.1.3-py3-none-any.whl",
+        "path": "download-linux/flask-3.1.3-py3-none-any.whl",
+        "sha256": "f4bcbefc124291925f1a26446da31a5178f9483862233b23c0c96a20701f670c",
+        "bytes": 103424,
+        "requires_python": ">=3.9",
+        "requires_dist": [
+          "blinker>=1.9.0",
+          "click>=8.1.3",
+          "importlib-metadata>=3.6.0; python_version < '3.10'",
+          "itsdangerous>=2.2.0",
+          "jinja2>=3.1.2",
+          "markupsafe>=2.1.1",
+          "werkzeug>=3.1.0",
+          "asgiref>=3.2 ; extra == \"async\"",
+          "python-dotenv ; extra == \"dotenv\""
+        ],
+        "tags": [
+          "py3-none-any"
+        ],
+        "license_expression": "BSD-3-Clause",
+        "license_classifiers": [],
+        "license_text_files": [
+          {
+            "wheel_path": "flask-3.1.3.dist-info/licenses/LICENSE.txt",
+            "saved_path": "licenses/linux/flask/flask-3.1.3.dist-info/licenses/LICENSE.txt",
+            "bytes": 1475,
+            "sha256": "489a8e1108509ed98a37bb983e11e0f7e1d31f0bd8f99a79c8448e7ff37d07ea"
+          }
+        ],
+        "metadata_url": "https://pypi.org/pypi/Flask/3.1.3/json",
+        "download_url": "https://files.pythonhosted.org/packages/7f/9c/34f6962f9b9e9c71f6e5ed806e0d0ff03c9d1b0b2340088a0cf4bce09b18/flask-3.1.3-py3-none-any.whl",
+        "pypi_sha256": "f4bcbefc124291925f1a26446da31a5178f9483862233b23c0c96a20701f670c",
+        "pypi_size": 103424,
+        "upload_time": "2026-02-19T05:00:56.027585Z",
+        "yanked": false,
+        "pypi_license_expression": "BSD-3-Clause",
+        "pypi_license": null
+      },
+      {
+        "name": "itsdangerous",
+        "version": "2.2.0",
+        "filename": "itsdangerous-2.2.0-py3-none-any.whl",
+        "path": "download-linux/itsdangerous-2.2.0-py3-none-any.whl",
+        "sha256": "c6242fc49e35958c8b15141343aa660db5fc54d4f13a1db01a3f5891b98700ef",
+        "bytes": 16234,
+        "requires_python": ">=3.8",
+        "requires_dist": [],
+        "tags": [
+          "py3-none-any"
+        ],
+        "license_expression": null,
+        "license_classifiers": [
+          "License :: OSI Approved :: BSD License"
+        ],
+        "license_text_files": [
+          {
+            "wheel_path": "itsdangerous-2.2.0.dist-info/LICENSE.txt",
+            "saved_path": "licenses/linux/itsdangerous/itsdangerous-2.2.0.dist-info/LICENSE.txt",
+            "bytes": 1475,
+            "sha256": "63af09891b6be8ad1a4252ed43af0f4efba7fc948e228367bed7f3c5ae0b09d7"
+          }
+        ],
+        "metadata_url": "https://pypi.org/pypi/itsdangerous/2.2.0/json",
+        "download_url": "https://files.pythonhosted.org/packages/04/96/92447566d16df59b2a776c0fb82dbc4d9e07cd95062562af01e408583fc4/itsdangerous-2.2.0-py3-none-any.whl",
+        "pypi_sha256": "c6242fc49e35958c8b15141343aa660db5fc54d4f13a1db01a3f5891b98700ef",
+        "pypi_size": 16234,
+        "upload_time": "2024-04-16T21:28:14.499616Z",
+        "yanked": false,
+        "pypi_license_expression": null,
+        "pypi_license": null
+      },
+      {
+        "name": "Jinja2",
+        "version": "3.1.6",
+        "filename": "jinja2-3.1.6-py3-none-any.whl",
+        "path": "download-linux/jinja2-3.1.6-py3-none-any.whl",
+        "sha256": "85ece4451f492d0c13c5dd7c13a64681a86afae63a5f347908daf103ce6d2f67",
+        "bytes": 134899,
+        "requires_python": ">=3.7",
+        "requires_dist": [
+          "MarkupSafe>=2.0",
+          "Babel>=2.7 ; extra == \"i18n\""
+        ],
+        "tags": [
+          "py3-none-any"
+        ],
+        "license_expression": null,
+        "license_classifiers": [
+          "License :: OSI Approved :: BSD License"
+        ],
+        "license_text_files": [
+          {
+            "wheel_path": "jinja2-3.1.6.dist-info/licenses/LICENSE.txt",
+            "saved_path": "licenses/linux/jinja2/jinja2-3.1.6.dist-info/licenses/LICENSE.txt",
+            "bytes": 1475,
+            "sha256": "3b49dcee4105eb37bac10faf1be260408fe85d252b8e9df2e0979fc1e094437b"
+          }
+        ],
+        "metadata_url": "https://pypi.org/pypi/Jinja2/3.1.6/json",
+        "download_url": "https://files.pythonhosted.org/packages/62/a1/3d680cbfd5f4b8f15abc1d571870c5fc3e594bb582bc3b64ea099db13e56/jinja2-3.1.6-py3-none-any.whl",
+        "pypi_sha256": "85ece4451f492d0c13c5dd7c13a64681a86afae63a5f347908daf103ce6d2f67",
+        "pypi_size": 134899,
+        "upload_time": "2025-03-05T20:05:00.369721Z",
+        "yanked": false,
+        "pypi_license_expression": null,
+        "pypi_license": null
+      },
+      {
+        "name": "MarkupSafe",
+        "version": "3.0.4",
+        "filename": "markupsafe-3.0.4-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+        "path": "download-linux/markupsafe-3.0.4-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+        "sha256": "a8e9f292fcda89b324f2f5c91d13f1424a153e40fc2756f38ee23b15835ff300",
+        "bytes": 23049,
+        "requires_python": ">=3.9",
+        "requires_dist": [],
+        "tags": [
+          "cp314-cp314-manylinux2014_x86_64",
+          "cp314-cp314-manylinux_2_17_x86_64",
+          "cp314-cp314-manylinux_2_28_x86_64"
+        ],
+        "license_expression": "BSD-3-Clause",
+        "license_classifiers": [],
+        "license_text_files": [
+          {
+            "wheel_path": "markupsafe-3.0.4.dist-info/licenses/LICENSE.txt",
+            "saved_path": "licenses/linux/markupsafe/markupsafe-3.0.4.dist-info/licenses/LICENSE.txt",
+            "bytes": 1475,
+            "sha256": "489a8e1108509ed98a37bb983e11e0f7e1d31f0bd8f99a79c8448e7ff37d07ea"
+          }
+        ],
+        "metadata_url": "https://pypi.org/pypi/MarkupSafe/3.0.4/json",
+        "download_url": "https://files.pythonhosted.org/packages/8f/db/d7282caf7ab03af44d5d6fdbaa019b35c7d7f1c90588b839c07cba640d6a/markupsafe-3.0.4-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+        "pypi_sha256": "a8e9f292fcda89b324f2f5c91d13f1424a153e40fc2756f38ee23b15835ff300",
+        "pypi_size": 23049,
+        "upload_time": "2026-10-02T23:05:41.864507Z",
+        "yanked": false,
+        "pypi_license_expression": "BSD-3-Clause",
+        "pypi_license": null
+      },
+      {
+        "name": "pillow",
+        "version": "13.0.0",
+        "filename": "pillow-13.0.0-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+        "path": "download-linux/pillow-13.0.0-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+        "sha256": "e91c2b1cbeae768c98752e67e717e283d68dae45717b41f2d91eaee648e37b7d",
+        "bytes": 7142574,
+        "requires_python": ">=3.11",
+        "requires_dist": [
+          "furo; extra == \"docs\"",
+          "olefile; extra == \"docs\"",
+          "sphinx>=8.2; extra == \"docs\"",
+          "sphinx-autobuild; extra == \"docs\"",
+          "sphinx-copybutton; extra == \"docs\"",
+          "sphinx-inline-tabs; extra == \"docs\"",
+          "sphinxext-opengraph; extra == \"docs\"",
+          "olefile; extra == \"fpx\"",
+          "olefile; extra == \"mic\"",
+          "arro3-compute; extra == \"test-arrow\"",
+          "arro3-core; extra == \"test-arrow\"",
+          "nanoarrow; extra == \"test-arrow\"",
+          "pyarrow; extra == \"test-arrow\"",
+          "coverage>=7.4.2; extra == \"tests\"",
+          "defusedxml; extra == \"tests\"",
+          "markdown2; extra == \"tests\"",
+          "olefile; extra == \"tests\"",
+          "packaging; extra == \"tests\"",
+          "psutil; (sys_platform == \"linux\" or sys_platform == \"darwin\") and extra == \"tests\"",
+          "pytest; extra == \"tests\"",
+          "pytest-cov; extra == \"tests\"",
+          "pytest-timeout; extra == \"tests\"",
+          "pytest-xdist; extra == \"tests\"",
+          "setuptools; extra == \"tests\"",
+          "trove-classifiers>=2024.10.12; extra == \"tests\"",
+          "defusedxml; extra == \"xmp\""
+        ],
+        "tags": [
+          "cp314-cp314-manylinux_2_27_x86_64",
+          "cp314-cp314-manylinux_2_28_x86_64"
+        ],
+        "license_expression": "MIT-CMU",
+        "license_classifiers": [],
+        "license_text_files": [
+          {
+            "wheel_path": "pillow-13.0.0.dist-info/licenses/LICENSE",
+            "saved_path": "licenses/linux/pillow/pillow-13.0.0.dist-info/licenses/LICENSE",
+            "bytes": 70307,
+            "sha256": "dda12a98c1979cf3d94df1cff45d27a4cb3f04a60c76f76902ac54cac03ec0ce"
+          }
+        ],
+        "metadata_url": "https://pypi.org/pypi/pillow/13.0.0/json",
+        "download_url": "https://files.pythonhosted.org/packages/1d/f2/1371707ce438ba9a43f9d24089828494ec6f9396e28cd7903aa704dd6306/pillow-13.0.0-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+        "pypi_sha256": "e91c2b1cbeae768c98752e67e717e283d68dae45717b41f2d91eaee648e37b7d",
+        "pypi_size": 7142574,
+        "upload_time": "2026-10-16T22:16:39.172695Z",
+        "yanked": false,
+        "pypi_license_expression": "MIT-CMU",
+        "pypi_license": null
+      },
+      {
+        "name": "pypdf",
+        "version": "6.21.4",
+        "filename": "pypdf-6.21.4-py3-none-any.whl",
+        "path": "download-linux/pypdf-6.21.4-py3-none-any.whl",
+        "sha256": "33e4fb41ca352810eb4e9838aa0d82d6888a5f8bf682f43e99cce5faa666255c",
+        "bytes": 410430,
+        "requires_python": ">=3.9",
+        "requires_dist": [
+          "typing_extensions >= 4.0; python_version < '3.11'",
+          "brotli>=1.2.0 ; extra == \"brotli\"",
+          "cryptography>3.0 ; extra == \"crypto\"",
+          "PyCryptodome ; extra == \"cryptodome\"",
+          "flit ; extra == \"dev\"",
+          "pip-tools ; extra == \"dev\"",
+          "pre-commit ; extra == \"dev\"",
+          "pytest-cov ; extra == \"dev\"",
+          "pytest-socket ; extra == \"dev\"",
+          "pytest-timeout ; extra == \"dev\"",
+          "pytest-xdist ; extra == \"dev\"",
+          "wheel ; extra == \"dev\"",
+          "myst_parser ; extra == \"docs\"",
+          "sphinx ; extra == \"docs\"",
+          "sphinx_rtd_theme ; extra == \"docs\"",
+          "fonttools ; extra == \"fonts\"",
+          "arabic-reshaper ; extra == \"full\"",
+          "brotli>=1.2.0 ; extra == \"full\"",
+          "cryptography>3.0 ; extra == \"full\"",
+          "fonttools ; extra == \"full\"",
+          "Pillow>=8.0.0 ; extra == \"full\"",
+          "python-bidi ; extra == \"full\"",
+          "Pillow>=8.0.0 ; extra == \"image\"",
+          "arabic-reshaper ; extra == \"rtl-text\"",
+          "python-bidi ; extra == \"rtl-text\""
+        ],
+        "tags": [
+          "py3-none-any"
+        ],
+        "license_expression": "BSD-3-Clause",
+        "license_classifiers": [],
+        "license_text_files": [
+          {
+            "wheel_path": "pypdf-6.21.4.dist-info/licenses/LICENSE",
+            "saved_path": "licenses/linux/pypdf/pypdf-6.21.4.dist-info/licenses/LICENSE",
+            "bytes": 1605,
+            "sha256": "a97ac230e5f33ef10a5367a850eb01f91f1a0b064e34742c7794d2294557f524"
+          }
+        ],
+        "metadata_url": "https://pypi.org/pypi/pypdf/6.21.4/json",
+        "download_url": "https://files.pythonhosted.org/packages/3f/4b/77e8ad4ac42c9d93600f40541a50e9feb3a61d2bbee2d76f659346072051/pypdf-6.21.4-py3-none-any.whl",
+        "pypi_sha256": "33e4fb41ca352810eb4e9838aa0d82d6888a5f8bf682f43e99cce5faa666255c",
+        "pypi_size": 410430,
+        "upload_time": "2026-10-28T17:00:53.146109Z",
+        "yanked": false,
+        "pypi_license_expression": "BSD-3-Clause",
+        "pypi_license": null
+      },
+      {
+        "name": "waitress",
+        "version": "3.0.2",
+        "filename": "waitress-3.0.2-py3-none-any.whl",
+        "path": "download-linux/waitress-3.0.2-py3-none-any.whl",
+        "sha256": "c56d67fd6e87c2ee598b76abdd4e96cfad1f24cacdea5078d382b1f9d7b5ed2e",
+        "bytes": 56232,
+        "requires_python": ">=3.9.0",
+        "requires_dist": [
+          "Sphinx >=1.8.1 ; extra == 'docs'",
+          "docutils ; extra == 'docs'",
+          "pylons-sphinx-themes >=1.0.9 ; extra == 'docs'",
+          "pytest ; extra == 'testing'",
+          "pytest-cov ; extra == 'testing'",
+          "coverage >=7.6.0 ; extra == 'testing'"
+        ],
+        "tags": [
+          "py3-none-any"
+        ],
+        "license_expression": null,
+        "license_classifiers": [
+          "License :: OSI Approved :: Zope Public License"
+        ],
+        "license_text_files": [
+          {
+            "wheel_path": "waitress-3.0.2.dist-info/LICENSE.txt",
+            "saved_path": "licenses/linux/waitress/waitress-3.0.2.dist-info/LICENSE.txt",
+            "bytes": 2070,
+            "sha256": "3e671db11df687516cc1db5b3d65e4aa383eaca3c20cea3faf53a0f7335d0a3c"
+          }
+        ],
+        "metadata_url": "https://pypi.org/pypi/waitress/3.0.2/json",
+        "download_url": "https://files.pythonhosted.org/packages/8d/57/a27182528c90ef38d82b636a11f606b0cbb0e17588ed205435f8affe3368/waitress-3.0.2-py3-none-any.whl",
+        "pypi_sha256": "c56d67fd6e87c2ee598b76abdd4e96cfad1f24cacdea5078d382b1f9d7b5ed2e",
+        "pypi_size": 56232,
+        "upload_time": "2024-11-16T20:02:33.858165Z",
+        "yanked": false,
+        "pypi_license_expression": null,
+        "pypi_license": "ZPL 2.1"
+      },
+      {
+        "name": "Werkzeug",
+        "version": "3.1.9",
+        "filename": "werkzeug-3.1.9-py3-none-any.whl",
+        "path": "download-linux/werkzeug-3.1.9-py3-none-any.whl",
+        "sha256": "6392e50c78460ba618e5b21f08a71f59c99ce99cdc6cf6e3dd7e6ccca8754fab",
+        "bytes": 228700,
+        "requires_python": ">=3.9",
+        "requires_dist": [
+          "markupsafe>=2.1.1",
+          "watchdog>=2.3 ; extra == \"watchdog\""
+        ],
+        "tags": [
+          "py3-none-any"
+        ],
+        "license_expression": "BSD-3-Clause",
+        "license_classifiers": [],
+        "license_text_files": [
+          {
+            "wheel_path": "werkzeug-3.1.9.dist-info/licenses/LICENSE.txt",
+            "saved_path": "licenses/linux/werkzeug/werkzeug-3.1.9.dist-info/licenses/LICENSE.txt",
+            "bytes": 1475,
+            "sha256": "3b49dcee4105eb37bac10faf1be260408fe85d252b8e9df2e0979fc1e094437b"
+          }
+        ],
+        "metadata_url": "https://pypi.org/pypi/Werkzeug/3.1.9/json",
+        "download_url": "https://files.pythonhosted.org/packages/a1/38/df03f564f43cec2684823f3cccae1a652ee7face1cbaa76fb223096e64d7/werkzeug-3.1.9-py3-none-any.whl",
+        "pypi_sha256": "6392e50c78460ba618e5b21f08a71f59c99ce99cdc6cf6e3dd7e6ccca8754fab",
+        "pypi_size": 228700,
+        "upload_time": "2026-09-27T18:33:39.685530Z",
+        "yanked": false,
+        "pypi_license_expression": "BSD-3-Clause",
+        "pypi_license": null
+      }
+    ]
+  }
+}

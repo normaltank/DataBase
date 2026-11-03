@@ -1,0 +1,9 @@
+{
+  "data_dir": "/srv/research/data",
+  "log_dir": "/srv/research/logs",
+  "hosts": [
+    "center.example.edu"
+  ],
+  "listen": "127.0.0.1:8850",
+  "trusted_proxy": "127.0.0.1"
+}

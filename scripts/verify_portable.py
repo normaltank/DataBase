@@ -10,7 +10,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 SAMPLE_SHA256 = '8aed2928d8a757236ee73cfa20746c357c6b76b9caffcc4fa8f66473a56bef3e'
-PTH = b'python312.zip\n.\nLib/site-packages\n..\n'
+PTH = b'python314.zip\n.\nLib/site-packages\n..\n'
 
 
 def sha(raw):
@@ -37,7 +37,7 @@ def verify(read, names, require_intro=True):
     expected = set(manifest['files']) | {'manifest.json'}
     if set(names) != expected:
         raise ValueError('Package inventory differs from manifest')
-    fixed = SOURCE_FILES | {'start.bat', 'stop.bat', '使用说明.html', 'THIRD-PARTY-NOTICES.txt', 'manifest.json'}
+    fixed = SOURCE_FILES | {'start.bat', 'stop.bat', 'lan-start.bat', 'lan-configure.bat', '使用说明.html', 'THIRD-PARTY-NOTICES.txt', 'manifest.json'}
     introductions = set(names) & {'项目介绍.pdf', '项目介绍.html'}
     if len(introductions) > 1:
         raise ValueError('Choose exactly one project introduction.')
@@ -53,7 +53,7 @@ def verify(read, names, require_intro=True):
         raise ValueError('Required source or entry missing: ' + str(fixed - expected))
     lock = json.loads(read('portable/runtime-lock.json'))
     runtime_files = {'runtime/' + name: digest for name, digest in lock['python']['installed_files'].items()}
-    runtime_files['runtime/python312._pth'] = sha(PTH)
+    runtime_files['runtime/python314._pth'] = sha(PTH)
     for wheel in lock['wheels']:
         for name, digest in wheel['installed_files'].items():
             key = 'runtime/Lib/site-packages/' + name

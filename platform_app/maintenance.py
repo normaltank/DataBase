@@ -5,6 +5,7 @@ import json
 import re
 import shutil
 import sqlite3
+import sys
 import tempfile
 import uuid
 import zipfile
@@ -205,6 +206,9 @@ def restore_backup(archive_path, target_dir):
 
 
 def main():
+    # Keep the terminal/pipe encoding; an unrepresentable result path must not
+    # turn a completed backup or restore into a reported command failure.
+    sys.stdout.reconfigure(errors='backslashreplace')
     parser = argparse.ArgumentParser(description="平台备份/恢复（恢复到新目录）")
     parser.add_argument("--backup", type=Path)
     parser.add_argument("--restore", type=Path)
