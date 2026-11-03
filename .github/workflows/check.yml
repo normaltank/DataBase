@@ -53,7 +53,7 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            timeout_minutes: 15
+            timeout_minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -72,13 +72,14 @@ jobs:
           node check_search_recovery.js
           node check_reading_attention.js
           python check_selection_http.py
+          python check_handoffs_http.py
       - name: Check syntax and synthetic tests
         run: python scripts/check.py
 
   windows_one:
     name: Python 3.12 / windows-latest / shard 1 of 2
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     outputs:
       plan_digest: ${{ steps.plan.outputs.plan_digest }}
       checked_sha: ${{ steps.plan.outputs.checked_sha }}
@@ -108,7 +109,7 @@ jobs:
   windows_two:
     name: Python 3.12 / windows-latest / shard 2 of 2
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     outputs:
       plan_digest: ${{ steps.plan.outputs.plan_digest }}
       checked_sha: ${{ steps.plan.outputs.checked_sha }}

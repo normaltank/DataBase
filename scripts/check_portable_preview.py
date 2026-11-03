@@ -129,7 +129,7 @@ def verify_seed(root, client, admin):
         '7741f4bccc1af656846497bfdadf9b69e2fceea7bf7e68cb249643a9b2df5748',
         '46f9f62d0a71bec7f22b386155ba1207fcee7f2b8322277d46bdb394c65807c9',
         'd3faf5703f5603f02224d16214a7bcc84ccaa99ce2d39048bab60b26df19a319',
-        '96b7f0e91449b62639ebe7b9e9045a50f3fa9395c03c5c368473a36a7e5480b2',
+        '250cbc7c223b8f25267f2dfa59d9f939516864a88be804d6fc210e791ff0c18b',
         '5ade15e130d9041879060dfda9a802539c4dcb7c31c2723a8317fc82ff6029cc',
         '409fd91477fefd63f373c4a8cf4c3954da9051518a0422c15209d98ace36221c',
     }
@@ -281,39 +281,25 @@ def continue_work(researcher, lead, admin, seed):
     assert researcher.request('/api/sources/' + source)['status'] == 'verified'
 
     prefix = '/api/collaboration/topics/' + seed['active_topic']
-    candidate = researcher.request(prefix + '/candidates', {'request_id': 'http-candidate-2',
-        'version': 1, 'topic_version': 1, 'note': '真实HTTP提交继续演示'},
-        file=('验收候选-v2.txt', b'DEMO HTTP candidate v2'))['id']
-    lead.request(prefix + '/meetings', {'request_id': 'http-meeting', 'version': 0,
-        'topic_version': 1, 'note': '负责人实际接续研究员候选v2', 'assignments': [{
-            'title': '演示｜验收继续编译', 'candidate_id': candidate,
-            'candidate_item': '第1项', 'record_id': seed['article_ids'][1],
-            'author_id': 'researcher', 'country': '拉脱维亚'}]},
-        file=('验收会议.txt', b'DEMO HTTP meeting adopts candidate v2'))
-    lead.request(prefix + '/enter-compilation', {'request_id': 'http-enter-compilation', 'stage_version': 1, 'topic_version': 1, 'meeting_version': 1})
-    assignment = prefix + '/assignments/' + researcher.request(prefix + '/workflow')['assignments'][0]['id']
-    first = researcher.request(assignment + '/submissions', {'request_id': 'http-draft-1',
-        'version': 0, 'topic_version': 1, 'meeting_version': 1},
-        file=('验收初稿.txt', b'DEMO HTTP manuscript v1'))['id']
-    lead.request(assignment + '/returns', {'request_id': 'http-return', 'submission_id': first,
-        'topic_version': 1, 'meeting_version': 1, 'note': '演示审稿：补齐第1段出处'})
-    revised = b'DEMO HTTP revised manuscript v2; synthetic paragraph 1'
-    second = researcher.request(assignment + '/submissions', {'request_id': 'http-draft-2',
-        'version': 1, 'topic_version': 1, 'meeting_version': 1},
-        file=('验收返修.txt', revised))['id']
-    final = lead.request(assignment + '/finals', {'request_id': 'http-final',
-        'submission_id': second, 'version': 2, 'topic_version': 1, 'meeting_version': 1,
-        'status': 'pending', 'visibility': 'shared', 'sharing_confirmed': True})
-    researcher.request('/api/records/' + final['record_id'] + '/author', {'version': 1, 'confirm': True})
-    researcher.request(prefix + '/summaries', {'request_id': 'http-summary', 'version': 0,
-        'topic_version': 1, 'author_id': 'researcher', 'final_ids': [final['id']]},
-        file=('验收汇总.txt', b'DEMO HTTP summary adopts exact revised manuscript v2'))
-    workflow = researcher.request(prefix + '/workflow')
-    row = workflow['assignments'][0]
-    assert [s['version'] for s in row['submissions']] == [2, 1]
-    assert row['returns'][0]['submission_id'] == first
-    assert workflow['summaries'][0]['adoptions'][0]['submission_id'] == second
-    assert researcher.request(row['submissions'][0]['file_url'], raw=True) == revised
+    board=researcher.request(prefix+'/handoffs')
+    material=next(m for m in board['materials'] if m['owner_id']=='researcher')
+    researcher.request(prefix+'/handoffs',{'request_id':'http-selection-revision','stage':'selection','token':board['token'],'material_ref':material['ref']},file=('验收选题-v2.txt',b'DEMO HTTP selection v2'))
+    def decide(decision, stage):
+        board=lead.request(prefix+'/handoffs')
+        m=next(m for m in board['materials'] if m['stage']==stage)
+        return lead.request(prefix+'/handoff-reviews',{'request_id':'http-review-'+m['versions'][0]['id'],'token':board['token'],'version_ref':m['versions'][0]['ref'],'decision':decision})
+    decide('approved','selection')
+    lead.request(prefix+'/enter-compilation',{'request_id':'http-direct-advance','stage_version':1,'topic_version':1})
+    draft=researcher.request(prefix+'/handoffs',{'request_id':'http-direct-draft','stage':'compilation','token':researcher.request(prefix+'/handoffs')['token']},file=('验收初稿.txt',b'DEMO HTTP manuscript v1'))
+    decide('returned','compilation')
+    revised=b'DEMO HTTP revised manuscript v2; synthetic paragraph 1'
+    researcher.request(prefix+'/handoffs',{'request_id':'http-direct-revision','stage':'compilation','token':researcher.request(prefix+'/handoffs')['token'],'material_ref':draft['material_ref']},file=('验收返修.txt',revised))
+    decide('approved','compilation')
+    workflow=researcher.request(prefix+'/handoffs')
+    row=next(m for m in workflow['materials'] if m['stage']=='compilation')
+    assert [s['version'] for s in row['versions']]==[2,1]
+    assert row['versions'][1]['status']=='returned' and row['status']=='approved'
+    assert researcher.request(row['versions'][0]['file_url'],raw=True)==revised
 
     path = '/api/collaboration/journals/' + seed['journal']
     previous = researcher.request(path)
@@ -378,7 +364,7 @@ def main():
         result['checks'].append('public preview: 65 sources / 38 core; shared collection with 56 machine titles, 23 independent abstract excerpts / 33 title-only; historical provenance and separate input hashes; zero local calls/tasks/fees')
         result['checks'].append('first start: exact synthetic account/source/person/record/original inventory; role login; avatar; PDF/TXT parser; exact topic v2 adoption; independent journal v2')
         active_workflow, journal = continue_work(researcher, lead, admin, seed)
-        result['checks'].append('real HTTP continuation: member source contribution/admin metadata review; candidate v2/lead meeting/return/revision/exact final/summary; shared journal v3 explicitly adopted')
+        result['checks'].append('real HTTP continuation: member source contribution/admin metadata review; selection review/direct stage advance/return/revision/version approval; shared journal v3 explicitly adopted')
         for kind, wid in [('topic', seed['complete_topic']), ('journal', seed['journal'])]:
             raw = researcher.request(f'/api/collaboration/materials/{kind}/{wid}?scope=all', raw=True)
             path = evidence / f'{kind}-materials.zip'
@@ -416,7 +402,7 @@ def main():
         restored_reader = HTTP(second_base)
         restored_reader.login('researcher')
         assert restored_reader.request('/api/collaboration/topics/' + seed['complete_topic'] + '/workflow') == workflow
-        assert restored_reader.request('/api/collaboration/topics/' + seed['active_topic'] + '/workflow') == active_workflow
+        assert restored_reader.request('/api/collaboration/topics/' + seed['active_topic'] + '/handoffs') == active_workflow
         assert restored_reader.request('/api/collaboration/journals/' + seed['journal']) == journal
         restored_admin = HTTP(second_base)
         restored_admin.login('admin')

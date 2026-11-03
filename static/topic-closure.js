@@ -9,7 +9,7 @@ function topicClosureActions(t){
 function topicClosureHistory(t){
   const events=t.lifecycle_events||[];
   if(!events.length)return '';
-  return '<details class="panel"><summary>结束与重开记录 · '+events.length+' 次</summary>'+events.map(e=>'<article><h3>'+(e.action==='end'?'结束本期':'重新开启本期')+' · '+esc(e.actor_name)+'</h3><p>'+dateTime(e.created_at)+' · '+(e.stage==='compilation'?'编译阶段':'选题阶段')+'</p>'+(e.action==='end'?'<p>确认时有 '+e.incomplete.length+' 项未完成分工；结束不等于定稿。</p>'+topicClosureGaps(e.incomplete):'')+'</article>').join('')+'</details>';
+  return '<details class="panel"><summary>结束与重开记录 · '+events.length+' 次</summary>'+events.map(e=>'<article><h3>'+(e.action==='end'?'结束本期':'重新开启本期')+' · '+esc(e.actor_name)+'</h3><p>'+dateTime(e.created_at)+' · '+(e.stage==='compilation'?'编译阶段':'选题阶段')+'</p>'+(e.action==='end'&&e.basis?.format_version!==2?'<p>当时未完成分工：'+e.incomplete.length+' 项</p>'+topicClosureGaps(e.incomplete):'')+'</article>').join('')+'</details>';
 }
 function topicClosureGaps(items){
   return items.length?'<ul class="meeting-assignments">'+items.map(a=>{
@@ -18,13 +18,15 @@ function topicClosureGaps(items){
   }).join('')+'</ul>':'';
 }
 function topicClosurePreview(p){
-  return '<p>'+(p.incomplete.length?'当前有 '+p.incomplete.length+' 项未完成分工，仍可确认结束。':'当前有效分工没有待交、待审或返修项。')+'</p>'+topicClosureGaps(p.incomplete)+'<p>结束后保留材料，锁定期内写入；负责人可重开。结束不等于定稿。</p>';
+  return '<p>结束后暂停本期上传和审阅，材料继续可读。负责人可重开。</p>'+(p.incomplete.length?topicClosureGaps(p.incomplete):'');
 }
 async function topicClosureForm(tid,reopen=false){
-  const root='/api/collaboration/topics/'+encodeURIComponent(tid),t=await api(root);
+  const account=state.me?.id,root='/api/collaboration/topics/'+encodeURIComponent(tid),t=await api(root);
+  if(account!==state.me?.id)return;
   if(reopen?!t.can_reopen:!t.can_end)throw new Error('当前状态或负责人资格不允许此操作。');
   const p=reopen?null:await api(root+'/closure-preview');
-  modal(reopen?'重新开启本期':'结束本期','<form data-form="topic-closure" data-topic="'+esc(tid)+'" data-operation="'+(reopen?'reopen':'end')+'" data-version="'+(p?.lifecycle_version||t.lifecycle_version)+'" data-request="'+crypto.randomUUID()+'"><div data-closure-preview>'+(reopen?'<p>恢复'+(t.closed_stage==='compilation'?'编译':'选题')+'阶段，保留现有稿件、决定及固定采用版本。</p>':topicClosurePreview(p))+'</div><div class="form-error" role="alert"></div><div data-closure-conflict></div><div class="form-actions"><button class="button primary" type="submit">'+(reopen?'确认重新开启':'确认结束本期')+'</button></div></form>',true);
+  if(account!==state.me?.id)return;
+  modal(reopen?'重新开启本期':'结束本期','<form data-form="topic-closure" data-account="'+esc(account)+'" data-topic="'+esc(tid)+'" data-operation="'+(reopen?'reopen':'end')+'" data-version="'+(p?.lifecycle_version||t.lifecycle_version)+'" data-request="'+crypto.randomUUID()+'"><div data-closure-preview>'+(reopen?'<p>恢复'+(t.closed_stage==='compilation'?'编译':'选题')+'阶段，保留全部材料。</p>':topicClosurePreview(p))+'</div><div class="form-error" role="alert"></div><div data-closure-conflict></div><div class="form-actions"><button class="button primary" type="submit">'+(reopen?'确认重新开启':'确认结束本期')+'</button></div></form>',true);
   document.querySelector('[data-form="topic-closure"]')._preview=p;
 }
 document.addEventListener('click',async event=>{
@@ -33,19 +35,19 @@ document.addEventListener('click',async event=>{
     if(b.dataset.action==='topic-closure-refresh'){
       const form=b.closest('form'),p=await api('/api/collaboration/topics/'+encodeURIComponent(form.dataset.topic)+'/closure-preview');
       form._preview=p;form.dataset.version=p.lifecycle_version;form.dataset.request=crypto.randomUUID();form._conflict=false;
-      form.querySelector('[data-closure-preview]').innerHTML=topicClosurePreview(p);form.querySelector('[data-closure-conflict]').innerHTML='';form.querySelector('.form-error').textContent='已读取当前缺项，请核对后再次确认。';
+      form.querySelector('[data-closure-preview]').innerHTML=topicClosurePreview(p);form.querySelector('[data-closure-conflict]').innerHTML='';form.querySelector('.form-error').textContent='已刷新本期状态，请再次确认。';
     }else await topicClosureForm(b.dataset.id,b.dataset.action==='topic-closure-reopen');
   }catch(e){toast(e.message);}
 });
 document.addEventListener('submit',async event=>{
   const form=event.target;if(form.dataset.form!=='topic-closure')return;
-  event.preventDefault();const button=form.querySelector('[type=submit]'),error=form.querySelector('.form-error'),account=state.me?.id;button.disabled=true;error.textContent='';
+  event.preventDefault();if(form.dataset.saving==='true'||form.dataset.account!==state.me?.id)return;form.dataset.saving='true';const button=form.querySelector('[type=submit]'),error=form.querySelector('.form-error'),account=state.me?.id;button.disabled=true;error.textContent='';
   try{
-    if(form._conflict)throw new Error('请先重新核对当前缺项后确认。');
+    if(form._conflict)throw new Error('请先刷新本期状态后确认。');
     const operation=form.dataset.operation,data={request_id:form.dataset.request,lifecycle_version:Number(form.dataset.version)};
     if(operation==='end'){data.basis_token=form._preview.basis_token;data.confirm=true;}
     const result=await api('/api/collaboration/topics/'+encodeURIComponent(form.dataset.topic)+'/'+operation,{method:'POST',body:data});
     if(account!==state.me?.id||!form.isConnected)return;
     closeModal();await route();toast(result.reused?'操作已记录，已显示当前状态':operation==='end'?'本期已结束，材料继续保留':'本期已重新开启');
-  }catch(e){if(form.isConnected){error.textContent=e.message;if(e.status===409){form._conflict=true;form.querySelector('[data-closure-conflict]').innerHTML=form.dataset.operation==='end'?'<button type="button" class="button" data-action="topic-closure-refresh">重新核对结束内容</button>':'';}button.disabled=false;}}
+  }catch(e){if(form.isConnected){error.textContent=e.message;if(e.status===409){form._conflict=true;form.querySelector('[data-closure-conflict]').innerHTML=form.dataset.operation==='end'?'<button type="button" class="button" data-action="topic-closure-refresh">重新核对结束内容</button>':'';}button.disabled=false;}}finally{form.dataset.saving='false';}
 });

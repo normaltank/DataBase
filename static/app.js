@@ -227,7 +227,7 @@ function trialSignedOut(){
 }
 function trialWelcome(compact=false){
   if(!state.me?.temporary)return '';
-  const body='<p>当前是独立临时身份：'+esc(state.me.name)+'。'+(state.me.trial_sample_topics?.length?'示例供只读查阅。':'未发现可确认的演示样例。')+'开启一期主题后，您就是本期负责人，可单人练习或邀请已入场成员交材料。</p><div class="row wrap">'+linkButton('开启我的练习主题','collaboration-new','','button primary')+linkButton('修改我的称呼','nav','personal')+(state.hostAvailable?linkButton('主机本机维护','trial-host'):'')+'</div>';
+  const body='<p>开启练习主题，体验上传、审阅与进入编译；也可邀请已入场成员。现有示例供查阅。</p><div class="row wrap">'+linkButton('开启我的练习主题','collaboration-new','','button primary')+linkButton('修改我的称呼','nav','personal')+(state.hostAvailable?linkButton('主机本机维护','trial-host'):'')+'</div>';
   return compact?'<details class="trial-context"><summary>临时身份：'+esc(state.me.name)+' · 试用说明与入口</summary><div>'+body+'</div></details>':'<section class="notice" aria-label="试用说明"><h2>从自己的实践开始</h2>'+body+'</section>';
 }
 document.addEventListener('click',async event=>{
@@ -240,6 +240,6 @@ document.addEventListener('click',async event=>{
 document.addEventListener('submit',async event=>{
   const form=event.target.closest('[data-form="trial-nickname"]');if(!form)return;event.preventDefault();
   const button=form.querySelector('button[type="submit"]');button.disabled=true;
-  try{const r=await api('/api/trial/nickname',{method:'PUT',body:{name:form.elements.name.value}});state.me=r.user;announceAccount();await route();toast('称呼已保存；原署名身份保持。');}
+  try{const r=await api('/api/trial/nickname',{method:'PUT',body:{name:form.elements.name.value}});state.me=r.user;announceAccount();await route();toast('称呼已保存。');}
   catch(error){form.querySelector('.form-error').textContent=error.message;}finally{button.disabled=false;}
 });

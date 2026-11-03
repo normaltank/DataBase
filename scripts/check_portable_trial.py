@@ -36,11 +36,31 @@ def practice(base):
     rejected(second, '/api/collaboration/topics/' + single, expected=404)
     tid = first.request('/api/collaboration/topics', {'theme': '验收｜双人实践', 'participant_ids': [b['user']['id']]})['id']
     prefix = '/api/collaboration/topics/' + tid
-    second.request(prefix + '/candidates', {'request_id': 'portable-trial-candidate', 'version': 0, 'topic_version': 1, 'sharing_confirmed': True},
-                   file=('合成练习.txt', b'SYNTHETIC portable trial report'))
-    detail, saved = first.request(prefix), first.request(prefix + '/candidates')['items'][0]
-    assert detail['lead_id'] == a['user']['id'] and saved['author_id'] == b['user']['id']
-    assert first.request(saved['file_url'], raw=True) == b'SYNTHETIC portable trial report'
+    def upload(client, stage, material=None, key='portable-trial-material'):
+        data = {'request_id':key,'stage':stage,'token':client.request(prefix+'/handoffs')['token']}
+        if material:
+            data['material_ref']=material
+        return client.request(prefix+'/handoffs',data,file=('合成练习.txt',b'SYNTHETIC portable trial report'))
+    def decide(decision):
+        board=first.request(prefix+'/handoffs')
+        material=next(m for m in board['materials'] if m['status']=='pending')
+        first.request(prefix+'/handoff-reviews',{'request_id':'portable-review-'+material['versions'][0]['id'],'token':board['token'],'version_ref':material['versions'][0]['ref'],'decision':decision})
+    saved=upload(second,'selection')
+    decide('returned')
+    upload(second,'selection',saved['material_ref'],'portable-trial-revision')
+    decide('approved')
+    first.request(prefix+'/enter-compilation',{'request_id':'portable-direct-advance','stage_version':1,'topic_version':1})
+    upload(second,'compilation',key='portable-compilation-material')
+    decide('approved')
+    board=first.request(prefix+'/handoffs')
+    assert board['lead_id']==a['user']['id'] and board['materials'][0]['owner_id']==b['user']['id']
+    assert first.request(board['materials'][0]['versions'][0]['file_url'],raw=True)==b'SYNTHETIC portable trial report'
+    # One-person lead/author does not need a meeting or assignment.
+    solo='/api/collaboration/topics/'+single
+    own=first.request(solo+'/handoffs',{'request_id':'portable-solo-material','stage':'selection','token':first.request(solo+'/handoffs')['token']},file=('单人.txt',b'SYNTHETIC solo lead author'))
+    board=first.request(solo+'/handoffs')
+    first.request(solo+'/handoff-reviews',{'request_id':'portable-solo-review','token':board['token'],'version_ref':board['materials'][0]['versions'][0]['ref'],'decision':'approved'})
+    first.request(solo+'/enter-compilation',{'request_id':'portable-solo-advance','stage_version':1,'topic_version':1})
     samples = [w for w in first.request('/api/collaboration/works?scope=all')['items'] if w.get('trial_sample')]
     assert any(w['business'] == 'topic' for w in samples)
     for sample in samples:
@@ -173,11 +193,14 @@ def browser_admission(base, evidence):
             page.get_by_role('button', name='开启我的练习主题', exact=True).click()
             page.get_by_label('本期主题').fill('浏览器合成练习 ' + secrets.token_hex(4))
             page.get_by_role('button', name='保存本期信息', exact=True).click()
-            expect(page.get_by_role('heading', name='我的选题报告')).to_be_visible()
-            page.get_by_text('提交我的选题报告', exact=True).click()
-            page.get_by_label('选题报告文件').set_input_files({'name': '浏览器合成.txt', 'mimeType': 'text/plain', 'buffer': b'SYNTHETIC browser report'})
-            page.get_by_role('button', name='提交为版本 1', exact=True).click()
-            expect(page.get_by_text('已交 v1', exact=True)).to_be_visible()
+            expect(page.locator('[data-form=handoff-upload]')).to_be_visible()
+            page.get_by_label('文件', exact=True).set_input_files({'name': '浏览器合成.txt', 'mimeType': 'text/plain', 'buffer': b'SYNTHETIC browser report'})
+            page.get_by_role('button', name='上传材料', exact=True).click()
+            expect(page.locator('[data-material-ref]')).to_be_visible()
+            expect(page.get_by_text('待审', exact=True)).to_be_visible()
+            page.get_by_role('button', name='进入编译', exact=True).click()
+            page.locator('[data-form=topic-stage-enter]').get_by_role('button', name='进入编译', exact=True).click()
+            expect(page.locator('.workbench-detail-meta')).to_contain_text('编译阶段')
             page.screenshot(path=str(evidence / 'trial-browser-admission.png'), full_page=True)
             assert not errors, errors
         finally:

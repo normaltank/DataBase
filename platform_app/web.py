@@ -951,6 +951,8 @@ def create_app(data_dir=None, testing=False, *, initialization_mode='demo', embe
     topic_closure.register(app, SimpleNamespace(db=db, user=user, body=body, data_dir=data_dir))
     from . import topic_stages
     topic_stages.register(app, SimpleNamespace(db=db, user=user, body=body, data_dir=data_dir))
+    from . import topic_handoffs
+    topic_handoffs.register(app, SimpleNamespace(db=db, user=user, body=body, data_dir=data_dir))
     collaboration.register(app, SimpleNamespace(db=db, user=user, body=body, admin=admin, data_dir=data_dir))
     from . import topic_review
     topic_review.register(app, SimpleNamespace(db=db, user=user, body=body, data_dir=data_dir))
