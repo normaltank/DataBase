@@ -17,6 +17,7 @@ from . import ai_gateway, affiliations, bylines, identity, intake, people, store
 from .record_revisions import RecordRevisions
 
 RULE = 'record-authors-v1'
+EXTRACTION = 'record-authors-v2'
 MAX_DOCUMENTS = 6
 
 
@@ -164,10 +165,36 @@ def current_authority(db, job):
     actor = db.execute('SELECT * FROM users WHERE id=? AND active=1', (job['actor_id'],)).fetchone()
     if not actor or actor['credential_version'] != job['credential_version'] or actor['role'] not in {'researcher', 'admin'}:
         return False
+    if job['request_id'].startswith('ingestion-new:'):
+        from . import discovery
+        sid = job['request_id'].split(':')[1]
+        config = db.execute('SELECT * FROM ingestion_sources WHERE source_id=? AND enabled=1', (sid,)).fetchone()
+        source = identity.resolve(db, 'sources', sid)
+        if not config or config['updated_by'] != actor['id'] or actor['role'] != 'admin' or not source or source['id'] != sid or not discovery.supported(source):
+            return False
     try:
         return snapshot(db, actor, job['target_id']) == json.loads(job['base_json'])
     except Exception:
         return False
+
+
+def enqueue(db, actor, rid, request_id):
+    """Queue with existing authority/idempotency; caller owns the transaction."""
+    current = db.execute('SELECT * FROM users WHERE id=? AND active=1', (actor['id'],)).fetchone()
+    if not current or current['role'] not in {'researcher', 'admin'}:
+        abort(403, '当前账号不能取得作者建议。')
+    base = snapshot(db, current, rid)
+    if not intake.normalize_doi(base['doi']) and not intake.normalize_url(base['url']):
+        abort(400, '资料缺少公开文章网址或 DOI；原始署名继续保留。')
+    existing = db.execute("SELECT * FROM archive_jobs WHERE actor_id=? AND request_id=? AND target_type='record' AND target_id=?", (current['id'], request_id, base['id'])).fetchone()
+    if existing:
+        return {'id': existing['id'], 'target_id': base['id'], 'status': existing['status']}
+    jid = uuid.uuid4().hex
+    db.execute('''INSERT INTO archive_jobs(id,target_type,target_id,base_version,base_json,actor_id,credential_version,request_id,status,next_run,created_at)
+        VALUES(?,'record',?,?,?,?,?,?,'queued',?,?)''', (jid, base['id'], base['version'], json.dumps(base, ensure_ascii=False), current['id'], current['credential_version'], request_id, store.now(), store.now()))
+    job = db.execute('SELECT * FROM archive_jobs WHERE id=?', (jid,)).fetchone()
+    archive().event(db, job, 'queued', current['id'])
+    return {'id': jid, 'target_id': base['id'], 'status': 'queued'}
 
 
 def queue(ctx, data):
@@ -182,21 +209,8 @@ def queue(ctx, data):
     with db:
         db.execute('BEGIN IMMEDIATE')
         actor = ctx.user()
-        credential = db.execute('SELECT credential_version FROM users WHERE id=?', (actor['id'],)).fetchone()[0]
         for rid in ids:
-            base = snapshot(db, actor, rid)
-            if not intake.normalize_doi(base['doi']) and not intake.normalize_url(base['url']):
-                abort(400, '资料缺少公开文章网址或 DOI；原始署名继续保留。')
-            existing = db.execute("SELECT * FROM archive_jobs WHERE actor_id=? AND request_id=? AND target_type='record' AND target_id=?", (actor['id'], request_id, base['id'])).fetchone()
-            if existing:
-                items.append({'id': existing['id'], 'target_id': base['id'], 'status': existing['status']})
-                continue
-            jid = uuid.uuid4().hex
-            db.execute('''INSERT INTO archive_jobs(id,target_type,target_id,base_version,base_json,actor_id,credential_version,request_id,status,next_run,created_at)
-                VALUES(?,'record',?,?,?,?,?,?,'queued',?,?)''', (jid, base['id'], base['version'], json.dumps(base, ensure_ascii=False), actor['id'], credential, request_id, store.now(), store.now()))
-            job = db.execute('SELECT * FROM archive_jobs WHERE id=?', (jid,)).fetchone()
-            archive().event(db, job, 'queued', actor['id'])
-            items.append({'id': jid, 'target_id': base['id'], 'status': 'queued'})
+            items.append(enqueue(db, actor, rid, request_id))
     return jsonify(items=items), 201
 
 
@@ -212,7 +226,10 @@ def save_document(db, job, document, method):
     if not 0 < len(raw) <= intake.MAX_BYTES:
         raise ValueError('身份材料超过取得上限。')
     sha = hashlib.sha256(raw).hexdigest()
-    eid = archive().digest({'type': 'record', 'target': job['target_id'], 'url': document['url'], 'sha256': sha})
+    identity = {'type': 'record', 'target': job['target_id'], 'url': document['url'], 'sha256': sha}
+    if method == 'article-authors-v2':
+        identity['method'] = method
+    eid = archive().digest(identity)
     encoding = document.get('encoding', 'utf-8')
     text = document_text(raw, encoding, document['content_type'])
     with db:
@@ -225,8 +242,10 @@ def save_document(db, job, document, method):
     return {'id': eid, 'url': document['url'], 'sha256': sha, 'text': text}
 
 
-def native_authors(document, base):
+def native_authors(document, base, extraction=EXTRACTION):
     """Exact per-author metadata binding; an unrelated name/ORCID in a quote is insufficient."""
+    if extraction not in {RULE, EXTRACTION}:
+        raise ValueError('作者材料提取版本无效。')
     text, kind = document['text'], document['content_type']
     result = []
     if 'json' in kind:
@@ -246,6 +265,11 @@ def native_authors(document, base):
             return result
         raise ValueError('未取得适用的正式作者题录。')
     metadata = intake.page_metadata(document)
+    from .source_adapters import bound_authors
+    bindings = bound_authors(document) if extraction == EXTRACTION else []
+    if bindings and (not metadata[1] or [a['raw_name'] for a in bindings] == [a['raw_name'] for a in metadata[1]]):
+        return [dict(raw_name=a['raw_name'], kind='person', orcid=intake._orcid(a),
+                     profile_url=a.get('profile_url',''), native=a, affiliations=a.get('affiliations',[])) for a in bindings]
     for author in metadata[1]:
         result.append({'raw_name': author['raw_name'], 'kind': 'person', 'orcid': intake._orcid(author),
                        'profile_url': '', 'native': author, 'affiliations': author.get('affiliations', [])})
@@ -271,7 +295,7 @@ def native_authors(document, base):
     return result
 
 
-def native_author_count(document, base):
+def native_author_count(document, base, extraction=EXTRACTION):
     if 'json' in document['content_type']:
         value = json.loads(document['text']).get('message', {})
         return len(value.get('author', []))
@@ -283,7 +307,7 @@ def native_author_count(document, base):
     if len(articles) == 1:
         authors = articles[0].get('author', [])
         return len(authors) if isinstance(authors, list) else int(bool(authors))
-    return len(parser.meta.get('citation_author') or parser.meta.get('dc.creator') or native_authors(document, base))
+    return len(parser.meta.get('citation_author') or parser.meta.get('dc.creator') or native_authors(document, base, extraction))
 
 
 def native_quote(native, text, fallback):
@@ -299,9 +323,9 @@ def native_quote(native, text, fallback):
     return fallback
 
 
-def facts_from_document(document, base, evidence):
+def facts_from_document(document, base, evidence, extraction=EXTRACTION):
     result = []
-    for index, author in enumerate(native_authors(document, base)):
+    for index, author in enumerate(native_authors(document, base, extraction)):
         if not author['raw_name']:
             continue
         # The precise identifier belongs to this parsed author object, even if the displayed quote is shared.
@@ -332,9 +356,12 @@ def acquire(db, job):
     base = json.loads(job['base_json'])
     deadline = time.monotonic() + archive().MAX_SECONDS
     doi = intake.normalize_doi(base['doi'])
-    url = 'https://api.crossref.org/works/' + quote(doi, safe='') if doi else intake.normalize_url(base['url'])
+    from .source_adapters import ADAPTERS, article_url
+    official_article = any(a['id'] != 'liia-opinions-v1' and article_url(a, base['url']) for a in ADAPTERS)
+    use_crossref = bool(doi and not official_article)
+    url = 'https://api.crossref.org/works/' + quote(doi, safe='') if use_crossref else intake.normalize_url(base['url'])
     document = intake.fetch_document(url, deadline)
-    evidence = save_document(db, job, document, 'crossref-authors-v1' if doi else 'article-authors-v1')
+    evidence = save_document(db, job, document, 'crossref-authors-v1' if use_crossref else 'article-authors-v2')
     requests = 1
     documents, facts, total, profiles = [evidence], facts_from_document(document, base, evidence), len(document['bytes']), {}
     actor = db.execute('SELECT * FROM users WHERE id=?', (job['actor_id'],)).fetchone()
@@ -482,7 +509,7 @@ def execute(db, job):
         if not job['input_hash']:
             documents, facts, total_authors = acquire(db, job)
             value = {'target_type': 'record', 'target_id': job['target_id'], 'base_version': job['base_version'],
-                'rule_version': RULE, 'documents': documents, 'author_facts': facts, 'total_authors': total_authors}
+                'rule_version': RULE, 'extraction_version': EXTRACTION, 'documents': documents, 'author_facts': facts, 'total_authors': total_authors}
             with db:
                 db.execute('UPDATE archive_jobs SET input_hash=?,input_json=? WHERE id=? AND lease_token=?',
                     (archive().digest(value), json.dumps(value, ensure_ascii=False), job['id'], job['lease_token']))
@@ -536,7 +563,8 @@ def check_candidate(db, candidate):
     value, fact, patch = json.loads(job['input_json']), json.loads(candidate['value_json']), json.loads(candidate['patch_json'])
     validate_output({'suggestions': [fact]}, value)
     parsed = {'text': document['raw'].decode(document['encoding'], errors='replace'), 'content_type': document['content_type'], 'url': document['url']}
-    actual = facts_from_document(parsed, json.loads(job['base_json']), dict(document))
+    # Unversioned inputs retain the parser that originally produced their facts.
+    actual = facts_from_document(parsed, json.loads(job['base_json']), dict(document), value.get('extraction_version', RULE))
     original_fact = {k: v for k, v in fact.items() if k not in {'profile_evidence_id', 'profile_quote', 'limitation', 'employments', 'orcid_evidence_id', 'orcid_name', 'identity_conflict', 'profile_attempted'}}
     if original_fact not in actual or candidate['fingerprint'] not in {candidate_fingerprint(job['target_id'], fact, patch), candidate_fingerprint(job['target_id'], fact, patch, json.loads(job['base_json']))}:
         raise ValueError('作者对象、标识或候选采用内容校验失败。')
@@ -618,10 +646,13 @@ def export_projection(db, actor, record_ids):
 
 
 def validate_evidence(db, row):
+    identity = {'type': 'record', 'target': row['target_id'], 'url': row['url'], 'sha256': row['sha256']}
+    if row['method'] == 'article-authors-v2':
+        identity['method'] = row['method']
     if (not db.execute('SELECT 1 FROM records WHERE id=?', (row['target_id'],)).fetchone()
             or not intake.normalize_url(row['url']) or not 0 < len(row['raw']) <= intake.MAX_BYTES
             or hashlib.sha256(row['raw']).hexdigest() != row['sha256']
-            or row['id'] != archive().digest({'type': 'record', 'target': row['target_id'], 'url': row['url'], 'sha256': row['sha256']})
+            or row['id'] != archive().digest(identity)
             or row['text'] != document_text(row['raw'], row['encoding'], row['content_type'])):
         raise ValueError('作者实际响应或目标无效。')
     datetime.fromisoformat(row['fetched_at'])
@@ -641,12 +672,13 @@ def validate_job(db, row):
     if row['input_hash']:
         if (row['input_hash'] != archive().digest(value) or value.get('target_type') != 'record'
                 or value.get('target_id') != row['target_id'] or value.get('base_version') != row['base_version']
-                or value.get('rule_version') != RULE or not isinstance(value.get('author_facts'), list)
+                or value.get('rule_version') != RULE or value.get('extraction_version', RULE) not in {RULE, EXTRACTION}
+                or not isinstance(value.get('author_facts'), list)
                 or not isinstance(value.get('documents'), list) or not 1 <= len(value['documents']) <= MAX_DOCUMENTS):
             raise ValueError('作者输入版本绑定无效。')
         first = value['documents'][0]
         first_document = db.execute('SELECT * FROM archive_evidence WHERE id=?', (first.get('id'),)).fetchone()
-        if not first_document or type(value.get('total_authors')) is not int or value['total_authors'] != native_author_count(dict(first_document), base):
+        if not first_document or type(value.get('total_authors')) is not int or value['total_authors'] != native_author_count(dict(first_document), base, value.get('extraction_version', RULE)):
             raise ValueError('作者覆盖数量与实际材料不一致。')
         if sum(len(db.execute('SELECT raw FROM archive_evidence WHERE id=?', (d.get('id'),)).fetchone()[0]) for d in value['documents']) > archive().MAX_TOTAL_BYTES:
             raise ValueError('作者材料总量超过取得边界。')

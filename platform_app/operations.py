@@ -260,7 +260,8 @@ def register(app, ctx):
         from .archive_suggestions import export_projection as archive_export
         try:
             payload['archive_suggestions'] = archive_export(db(), [source['id'] for source in sources],
-                [r['id'] for r in records.values() if r['kind'] not in workflow.CONTENT_KINDS], user())
+                [r['id'] for r in records.values() if r['kind'] not in workflow.CONTENT_KINDS], user(),
+                [pid for person in people for pid in [person['id'], *person.get('previous_ids', [])]])
         except ValueError as error:
             abort(409, str(error))
         coverage = content_export.evidence_coverage(records, attachments, sources)
@@ -312,7 +313,11 @@ def register(app, ctx):
             index = '<p><a href="review.html">研究复核与证据留存范围</a></p>' + index
             for person in people:
                 index += '<li><a href="' + person["path"] + '">人物档案：' + html.escape(person["name"]) + '</a></li>'
-                archive.writestr(person["path"], page(person["name"], content_export.person_html(person, prose, paths, source_paths)))
+                from .person_profile_suggestions import export_html as person_suggestions_html
+                supplements = ''.join(person_suggestions_html(target) for target in payload['archive_suggestions']['targets']
+                    if target['target_type'] == 'person' and target['target_id'] in [person['id'], *person.get('previous_ids', [])]
+                    and (target['materials'] or target['candidates']))
+                archive.writestr(person["path"], page(person["name"], content_export.person_html(person, prose, paths, source_paths) + supplements))
             for item in records.values():
                 rid = item["id"]
                 index += '<li><a href="' + paths[rid] + '">' + html.escape(item["title"]) + "</a></li>"
@@ -345,7 +350,8 @@ def register(app, ctx):
                     for snapshot in item['automatic_acquisition']['snapshots']:
                         if snapshot['path'] not in archive.namelist():
                             archive.writestr(snapshot['path'],base64.b64decode(snapshot['raw_base64']))
-                        content += prose('网页说明快照（未验证作品全文）',snapshot['page_text'])
+                        content += prose('作品 HTML 正文快照（待人工核对）' if snapshot.get('work_body_available') else
+                                         '网页说明快照／原摘要（未取得作品全文）',snapshot['page_text'])
                         content += prose('快照出处与版本',snapshot['url']+'\n'+snapshot['retrieved_at']+'\nSHA256: '+snapshot['sha256']+'\n'+snapshot['reason'])
                         content += '<p>原始响应字节：'+html.escape(snapshot['path'])+'（仅供下载核对，含未执行的原站代码）</p>'
                 content += content_export.record_relations_html(item, prose, source_paths, people)

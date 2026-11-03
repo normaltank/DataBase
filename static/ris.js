@@ -69,7 +69,7 @@ async function risOpenDraft(key=risDraftKey(),emptyQueue=null){
 }
 async function risShowQueue(queue){
   const discovery=queue?.format==='discovery';
-  if(modal(discovery?'LIIA 近期资料发现':'RIS 题录导入','<form data-form="ris-upload">'+(queue?risQueueHtml(queue):'')+(discovery?discoveryControls(queue):risUploadHtml())+'<div class="form-error" role="alert"></div><div class="form-actions"><button type="button" class="button" data-action="close">关闭并保留草稿</button></div></form>')===false)return;
+  if(modal(discovery?discoveryContext(queue).title:'RIS 题录导入','<form data-form="ris-upload">'+(queue?risQueueHtml(queue):'')+(discovery?discoveryControls(queue):risUploadHtml())+'<div class="form-error" role="alert"></div><div class="form-actions"><button type="button" class="button" data-action="close">关闭并保留草稿</button></div></form>')===false)return;
   const form=document.querySelector('[data-form=ris-upload]');
   await enableEditorDraft(form,{type:discovery?'discovery':'ris',id:'',original:{kind:'other'}},'ris-upload-'+crypto.randomUUID());
   form.querySelector('.draft-offer')?.remove();form._draftOffer=null;
@@ -86,7 +86,7 @@ async function risEdit(form,index){
   const editor=await workflowRecordForm('',item.edit?.kind||item.fields.kind,'ris-item-'+crypto.randomUUID(),'','',{...item.fields});
   if(!editor?.isConnected||editor!==currentEditorForm()||actor!==state.me?.id)return;
   // The standard editor owns field, source, identity, draft and validation UI.
-  const metadata={format:queue.format==='discovery'?'LIIA RSS':'RIS',input:queue.filename+' · 第 '+item.index+' 条',retrieved_at:item.evidence.retrieved_at||item.evidence.imported_at,fields:item.fields,
+  const metadata={format:queue.format==='discovery'?discoveryContext(queue,item).format:'RIS',input:(queue.filename||'近期资料发现')+' · 第 '+item.index+' 条',retrieved_at:item.evidence.retrieved_at||item.evidence.imported_at,fields:item.fields,
     authors:item.authors,identifiers:{},provenance:queue.format==='discovery'?item.evidence.provenance:Object.fromEntries(Object.keys(item.fields).map(k=>[k,'RIS'])),
     warnings:item.warnings,duplicates:item.duplicates,candidates:item.candidates,token:item.token,sources:[]};
   setIntakePreview(editor,metadata);fillIntakeBlanks(editor);

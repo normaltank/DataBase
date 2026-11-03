@@ -1,4 +1,4 @@
-"""Application-local Windows launcher. No development launcher or worker imports."""
+"""Application-local Windows launcher with an explicitly opted-in existing worker."""
 import argparse
 from contextlib import contextmanager
 import hashlib
@@ -132,7 +132,7 @@ def lan_config():
             return value
     except (OSError, ValueError, KeyError, TypeError):
         pass
-    raise RuntimeError('Run lan-configure.bat before starting LAN trial.')
+    raise RuntimeError('请先运行 lan-configure.bat 完成设置，再启动局域网试用。')
 
 
 def serve(mode='local'):
@@ -142,19 +142,26 @@ def serve(mode='local'):
     from platform_app.deployment import default_password_users
     with lock('server.lock', timeout=0):
         app = initialize_data()
+        from portable.ai_settings import LocalAISettings
+        from portable.worker import PortableWorker, prepare_runtime, install_runtime_guard
+        settings = LocalAISettings(ROOT)
+        prepare_runtime(ROOT / 'data', settings)
+        install_runtime_guard(app, settings)
         addresses = lan_addresses() if mode == 'lan' else []
         if mode == 'lan':
             config = lan_config()
             if default_password_users(ROOT / 'data'):
-                raise RuntimeError('Default demo accounts remain active. Run lan-configure.bat or update/disable them in member management.')
+                raise RuntimeError('仍有公开口令的演示账号有效。请运行 lan-configure.bat，或在成员管理中修改／停用这些账号。')
             if not addresses:
-                raise RuntimeError('No usable host IPv4 found. Connect to the campus network and try again.')
+                raise RuntimeError('尚未找到可用IPv4地址。请连接校园网络后重试。')
         app.config.update(SESSION_COOKIE_NAME='preview_' + IDENTITY[:24],
                           TRUSTED_HOSTS=['127.0.0.1', 'localhost', *addresses],
                           DEMO_LOGIN=mode == 'local' and bool(default_password_users(ROOT / 'data')),
                           PRODUCTION_PASSWORD_POLICY=mode == 'lan')
         token, instance = secrets.token_hex(32), secrets.token_hex(16)
         stopping = threading.Event()
+        worker = PortableWorker(ROOT / 'data', STATE, settings, stopping)
+        app.config['PORTABLE_AI_STATUS'] = worker.status
 
         def application(environ, start_response):
             path = environ.get('PATH_INFO', '')
@@ -200,12 +207,20 @@ def serve(mode='local'):
                 'urls': [f'http://{address}:{port}' for address in addresses]}
         (STATE / ('last-port-' + mode)).write_text(str(port), encoding='ascii')
         write_json(STATE / 'server.json', info)
+        try:
+            worker.start()
+        except Exception:
+            server.close()
+            (STATE / 'server.json').unlink(missing_ok=True)
+            raise
         runner = threading.Thread(target=server.run, daemon=True)
         runner.start()
         try:
             while runner.is_alive() and not stopping.wait(.2):
                 pass
         finally:
+            stopping.set()
+            worker.stop()  # settle in-flight provider work before releasing this copy's lock
             time.sleep(.2)  # let the authenticated stop response flush
             server.task_dispatcher.shutdown(timeout=5)
             server.close()
@@ -215,14 +230,52 @@ def serve(mode='local'):
                 (STATE / 'server.json').unlink(missing_ok=True)
 
 
+def prompt_admin_password(password_stdin=False):
+    """Read a new password at the terminal boundary, with unmistakable feedback."""
+    import getpass
+    from portable.terminal import hidden_input
+    from platform_app.deployment import validate_password
+    print('设置管理员口令：12—200字符。键入时不会显示字符或星号，并非卡住；输入后按回车。', flush=True)
+    print('按 Ctrl+C 取消；不会显示或记录口令。', flush=True)
+    while True:
+        try:
+            def read(prompt):
+                if not password_stdin:
+                    return hidden_input(prompt)
+                value = sys.stdin.readline()
+                if not value:
+                    raise EOFError
+                return value.rstrip('\r\n')
+            password = read('新管理员口令：')
+            try:
+                validate_password(password)
+            except ValueError:
+                print('口令无效：请使用12—200字符的新口令，不能使用公开演示口令。请重试。', flush=True)
+                continue
+            print('已收到新口令，请再次输入确认（仍为隐藏输入）。', flush=True)
+            repeated = read('再次输入口令：')
+            if password != repeated:
+                print('两次口令不一致，请重新输入。', flush=True)
+                continue
+            print('口令确认一致，正在保存设置……', flush=True)
+            return password
+        except (KeyboardInterrupt, EOFError):
+            print('\n已取消口令设置；现有账号和口令未改变。', flush=True)
+            return None
+
+
 def main():
     parser = argparse.ArgumentParser(description='Start or stop this portable copy only.')
-    parser.add_argument('action', choices=['start', 'lan-start', 'lan-configure', 'stop', 'status', 'diagnose', '_serve'])
+    parser.add_argument('action', choices=['start', 'lan-start', 'lan-configure', 'stop', 'status', 'diagnose', 'ai-configure', 'ai-enable', 'ai-disable', '_serve'])
     parser.add_argument('--no-browser', action='store_true')
     parser.add_argument('--mode', choices=['local', 'lan'], default='local')
     parser.add_argument('--port', type=int, default=0)
     parser.add_argument('--password-stdin', action='store_true', help='Explicit private pipe for automated configuration only.')
     args = parser.parse_args()
+    # Windows console uses its native Unicode interface; redirected logs remain UTF-8.
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        if hasattr(stream, 'reconfigure'):
+            stream.reconfigure(encoding='utf-8', errors='replace')
     STATE.mkdir(exist_ok=True)
     (STATE / 'tmp').mkdir(exist_ok=True)
     env = isolated_environment()
@@ -247,44 +300,70 @@ def main():
         info = read_state()
         active = contact(info)
         mode = 'lan' if args.action == 'lan-start' else 'local'
+        if args.action.startswith('ai-'):
+            from portable.ai_settings import LocalAISettings
+            from portable.ai_configure import prompt_configuration, enable, disable
+            from platform_app.deployment import default_password_users
+            settings = LocalAISettings(ROOT)
+            if args.action != 'ai-disable' and active:
+                raise RuntimeError('请先运行 stop.bat 停止本副本，再配置或启用AI。')
+            initialize_data()
+            if args.action != 'ai-disable' and default_password_users(ROOT / 'data'):
+                raise RuntimeError('请先运行 lan-configure.bat 设置管理员私有口令并停用默认账号，然后再配置AI；本机模式也适用。')
+            if args.action == 'ai-configure':
+                prompt_configuration(settings, ROOT / 'data')
+            elif args.action == 'ai-enable':
+                enable(settings, ROOT / 'data')
+            else:
+                disable(settings, ROOT / 'data')
+            return
         if args.action == 'lan-configure':
             if active:
-                raise RuntimeError('Stop this copy before changing LAN configuration.')
+                raise RuntimeError('请先运行 stop.bat 停止本副本，再调整局域网设置。')
             if args.port != 0 and (not 1024 <= args.port <= 65535 or args.port == 8848):
-                raise RuntimeError('Choose port 1024–65535 other than 8848, or 0 for automatic.')
+                raise RuntimeError('端口请选择1024—65535且避开8848，或用0自动选择。')
             initialize_data()
             from platform_app.deployment import default_password_users, configure_lan_admin
             defaults = default_password_users(ROOT / 'data')
             if defaults:
                 if not any(row['role'] == 'admin' for row in defaults):
-                    raise RuntimeError('Admin is already configured. Start local mode, use member management to replace/disable remaining default passwords, then stop and configure LAN again.')
-                import getpass
-                print('Set the admin password. Other still-default demo accounts will be disabled; manage members after login.')
-                password = sys.stdin.readline().rstrip('\r\n') if args.password_stdin else getpass.getpass('New admin password (12-200 characters): ')
-                repeated = sys.stdin.readline().rstrip('\r\n') if args.password_stdin else getpass.getpass('Repeat password: ')
-                if password != repeated:
-                    raise RuntimeError('Passwords differ.')
+                    raise RuntimeError('管理员已有自设口令。请启动本机模式，在成员管理中修改或停用其余仍用公开口令的账号，再停机重试局域网设置。')
+                print('首次设置将替换默认管理员口令，停用其余仍用公开口令的演示成员；已有自设账号和资料保留。', flush=True)
+                password = prompt_admin_password(args.password_stdin)
+                if password is None:
+                    return
                 configure_lan_admin(ROOT / 'data', password)
+            else:
+                print('已有自设账号已保留，无需再次设置口令。', flush=True)
             if default_password_users(ROOT / 'data'):
-                raise RuntimeError('Replace or disable all remaining default credentials in member management.')
+                raise RuntimeError('请在成员管理中修改或停用所有仍使用公开口令的账号。')
             write_json(STATE / 'lan.json', {'port': args.port})
             (STATE / 'last-port-lan').unlink(missing_ok=True)
-            print('LAN configured. Use lan-start.bat. Existing accounts and data were retained.')
+            print('局域网设置成功。请用 lan-start.bat 启动；已有账号和资料已保留。')
             return
         if args.action == 'status':
-            print(json.dumps({'running': active, 'mode': info.get('mode') if active else None, 'urls': info.get('urls', []) if active else [], 'url': f"http://127.0.0.1:{info['port']}" if active else None}))
+            from portable.ai_settings import LocalAISettings
+            ai = LocalAISettings(ROOT).status()
+            ai['worker_state'] = 'stopped'
+            if active:
+                try:
+                    ai.update(json.loads((STATE / 'worker-status.json').read_text(encoding='utf-8')))
+                except (OSError, ValueError):
+                    ai['worker_state'] = 'not_started'
+            print(json.dumps({'running': active, 'portable_ai': ai, 'mode': info.get('mode') if active else None, 'urls': info.get('urls', []) if active else [], 'url': f"http://127.0.0.1:{info['port']}" if active else None}))
             return
         if args.action == 'stop':
             if active:
                 if not contact(info, stop=True):
                     raise RuntimeError('Could not stop this instance. No other process was touched.')
-                for _ in range(100):
+                print('正在停止本副本，等待当前任务与费用结算；请保留窗口……', flush=True)
+                for _ in range(1800):
                     if not contact(info):
                         break
                     time.sleep(.1)
                 else:
                     raise RuntimeError('This instance is still stopping; try again.')
-            with lock('server.lock', timeout=10):
+            with lock('server.lock', timeout=180):
                 pass
             print('This portable copy is stopped. Saved data is retained.')
             return

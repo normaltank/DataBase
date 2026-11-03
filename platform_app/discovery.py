@@ -1,4 +1,4 @@
-"""One fixed official RSS adapter; previews never write records or follow item URLs."""
+"""Fixed official listing adapters; previews never write records or follow item URLs."""
 import hashlib
 import re
 import time
@@ -10,7 +10,7 @@ import xml.etree.ElementTree as ET
 from flask import abort, current_app, jsonify
 from itsdangerous import BadSignature, URLSafeSerializer
 
-from . import identity, intake, store
+from . import identity, intake, store, source_adapters
 
 FEED = 'https://liia.lv/en/opinions/rss.xml'
 COLUMN = 'https://liia.lv/en/opinions'
@@ -20,10 +20,7 @@ MAX_ITEMS = 100
 
 
 def supported(source):
-    url = intake.normalize_url(source['website'])
-    p = urlsplit(url)
-    return (source['kind'] in {'institution', 'think_tank'} and p.hostname in HOSTS
-            and p.scheme == 'https' and p.port in {None, 443} and p.path in {'/', '/en', '/en/'} and not p.query)
+    return source_adapters.for_source(source) is not None
 
 
 def source_for(db, sid):
@@ -55,11 +52,7 @@ def saved_record(db, entry_id):
 
 
 def article_key(value):
-    url = intake.normalize_url(value)
-    p = urlsplit(url)
-    if p.hostname in HOSTS and p.scheme == 'https':
-        return url.replace('https://www.liia.lv/', 'https://liia.lv/').rstrip('/')
-    return url
+    return source_adapters.canonical(value)
 
 
 def _duplicates(db, access, fields):
@@ -75,30 +68,33 @@ def _duplicates(db, access, fields):
     return dict(duplicates=visible, blocked=hidden)
 
 
-def _parse(content, retrieved_at, source_id, actor=None, *, previously_seen=None, admitted_urls=()):
+def _parse(content, retrieved_at, source_id, actor=None, *, previously_seen=None, admitted_urls=(), adapter=None, backfill_days=30):
+    adapter = adapter or source_adapters.ADAPTERS[0]
     # Parse bytes to respect the XML encoding declaration. ASCII-compatible and
     # UTF-16/32 encodings are screened before parsing, so declarations cannot hide
     # behind zero bytes. No DTD or declared entity ever reaches ElementTree.
     screened = content.replace(b'\x00', b'').upper()
-    if b'<!DOCTYPE' in screened or b'<!ENTITY' in screened:
+    if adapter['mode'] == 'rss' and (b'<!DOCTYPE' in screened or b'<!ENTITY' in screened):
         raise intake.AcquisitionError('RSS 含 DTD 或实体声明，已拒绝解析。')
     try:
-        root = ET.fromstring(content)
+        root = ET.fromstring(content) if adapter['mode'] == 'rss' else None
     except (ET.ParseError, ValueError, LookupError):
         raise intake.AcquisitionError('RSS XML 格式无效，已有草稿仍保留。') from None
-    channel = root.find('channel') if root.tag == 'rss' else None
-    if channel is None:
+    channel = root.find('channel') if root is not None and root.tag == 'rss' else None
+    if channel is None and adapter['mode'] == 'rss':
         raise intake.AcquisitionError('未取得有效的 RSS channel。')
-    nodes = channel.findall('item')
-    if len(nodes) > MAX_ITEMS or sum(1 for _ in root.iter()) > 5000:
+    nodes = channel.findall('item') if channel is not None else source_adapters.listing_nodes(content)
+    if len(nodes) > MAX_ITEMS or root is not None and sum(1 for _ in root.iter()) > 5000:
         raise intake.AcquisitionError('RSS 条目或结构超出解析限制。')
     end = datetime.fromisoformat(retrieved_at).astimezone(timezone.utc).date()
-    start = end - timedelta(days=29)
+    start = end - timedelta(days=backfill_days - 1)
     window = dict(start=start.isoformat(), end=end.isoformat())
     counts = dict(missing_date=0, invalid_date=0, outside_window=0, future=0, invalid_item=0, duplicate_url=0, duplicate_guid=0)
     items, dates, exclusions, urls, guids = [], [], [], set(), set()
     for index, node in enumerate(nodes, 1):
         raw = {key: node.findtext(key, '') for key in ['title', 'link', 'pubDate', 'guid', 'description']}
+        if adapter['mode'] == 'html':
+            raw.update({key: node.findtext(key, '') for key in ['displayed_date', 'authors']})
         reason = ''
         try:
             parsed = parsedate_to_datetime(raw['pubDate'])
@@ -120,16 +116,14 @@ def _parse(content, retrieved_at, source_id, actor=None, *, previously_seen=None
         title = intake.plain(raw['title'])
         if not reason and (not title or len(raw['title']) > 4000 or len(raw['description']) > 40000 or
                            len(raw['link']) > 4000 or len(raw['guid']) > 4000 or
-                           p.scheme != 'https' or p.hostname not in HOSTS or p.port not in {None, 443} or
-                           p.query or not re.fullmatch(r'/en/opinions/[A-Za-z0-9_-]+/?', p.path) or
-                           p.path.endswith('/rss.xml')):
+                           not source_adapters.article_url(adapter, url) or p.path.endswith('/rss.xml')):
             reason = 'invalid_item'
         if reason:
             counts[reason] += 1
             exclusions.append(dict(index=index, reason=reason))
             continue
         # www and bare official aliases denote the same article identity.
-        url = url.replace('https://www.liia.lv/', 'https://liia.lv/').rstrip('/')
+        url = article_key(url)
         if url in urls:
             counts['duplicate_url'] += 1
             exclusions.append(dict(index=index, reason='duplicate_url'))
@@ -139,10 +133,15 @@ def _parse(content, retrieved_at, source_id, actor=None, *, previously_seen=None
             counts['duplicate_guid'] += 1
         guids.add(raw['guid'])
         fields = dict(kind='other', title=title, url=url, published_on=published.isoformat(), source_id=source_id)
+        if adapter['kinds'] == {'journal'}:
+            fields.pop('source_id')
+            fields['serial_id'] = source_id
+        if raw.get('authors'):
+            fields['authors'] = raw['authors']
         description = intake.plain(raw['description'], 40000)
-        entry_id = hashlib.sha256((FEED+':'+url).encode()).hexdigest()
-        evidence = dict(format='LIIA RSS', version=1, adapter='liia-opinions-v1', source_id=source_id,
-                        feed_url=FEED, column_url=COLUMN, retrieved_at=retrieved_at, window=window,
+        entry_id = hashlib.sha256((adapter['feed']+':'+url).encode()).hexdigest()
+        evidence = dict(format=adapter['format'], version=1, adapter=adapter['id'], source_id=source_id,
+                        feed_url=adapter['feed'], column_url=adapter['column'], retrieved_at=retrieved_at, window=window,
                         raw=raw, description=description, fields=fields, authors=[], entry_id=entry_id,
                         provenance=dict(title='item.title', url='item.link', published_on='item.pubDate', description='item.description'))
         if previously_seen is not None:
@@ -155,15 +154,18 @@ def _parse(content, retrieved_at, source_id, actor=None, *, previously_seen=None
             item['token'] = _signer().dumps(dict(actor_id=actor['id'], evidence=evidence))
         items.append(item)
     earliest = min(dates).isoformat() if dates else None
-    warnings = ['仅列当前 RSS 返回的内容；该订阅通常只返回最近 20 条，不代表栏目全部覆盖。']
+    warnings = ['仅列当前 RSS 返回的内容；该订阅通常只返回最近 20 条，不代表栏目全部覆盖。'] if adapter['id'] == 'liia-opinions-v1' else [adapter['scope']]
     if not dates or min(dates) >= start or len(nodes) >= 20 or any(counts.values()) or dates != sorted(dates, reverse=True):
-        warnings.append('当前结果可能遗漏窗口内内容：订阅截断、日期或条目异常、乱序及最早日期均需人工核对。')
-    result = dict(format='discovery', source_id=source_id, filename='LIIA Opinions 近期发现', sha256=hashlib.sha256(content).hexdigest(),
-                feed_url=FEED, column_url=COLUMN, retrieved_at=retrieved_at, window=window, returned=len(nodes),
+        warnings.append('当前结果可能遗漏窗口内内容：入口截断、日期或条目异常、乱序及最早日期均需人工核对。')
+    result = dict(format='discovery', source_id=source_id, filename=adapter['name']+' 近期发现', sha256=hashlib.sha256(content).hexdigest(),
+                source_name=adapter['name'], entry_type=adapter['mode'],
+                date_basis='rss_online' if adapter['kinds'] == {'journal'} else 'published',
+                feed_url=adapter['feed'], column_url=adapter['column'], retrieved_at=retrieved_at, window=window, returned=len(nodes),
                 earliest=earliest, counts=counts, exclusions=exclusions, warnings=warnings, items=items)
+    result['window_role'] = ('RSS 上线／发布标签的日期窗口；不替代原文发表日期、引用年份或首次入库时间' if adapter['kinds']=={'journal'} else
+                             '首次发表日期窗口') if previously_seen is None else '参考日期窗口；本轮按新发现与已纳入身份取得，可包含较早文章'
     if actor is None:
         result['observed_urls'] = sorted({article_key(node.findtext('link','')) for node in nodes if article_key(node.findtext('link',''))})
-        result['window_role'] = '首次发表日期窗口' if previously_seen is None else '参考日期窗口；本轮按新发现与已纳入身份取得，可包含较早文章'
     return result
 
 
@@ -174,11 +176,12 @@ def register(app, ctx):
         if data:
             abort(400, '固定来源发现不接受网址或适配器参数。')
         source = source_for(ctx.db(), sid)
+        adapter = source_adapters.for_source(source)
         if not intake._slots.acquire(blocking=False):
             abort(429, '当前取得请求较多，请稍后重试。')
         try:
-            document = intake.fetch_document(FEED, time.monotonic()+intake.MAX_SECONDS, fixed_feed=FEEDS)
-            result = _parse(document['bytes'], store.now(), source['id'], ctx.user())
+            document = fetch_listing(adapter)
+            result = _parse(document['bytes'], store.now(), source['id'], ctx.user(), adapter=adapter)
             for item in result['items']:
                 item.update(_duplicates(ctx.db(), ctx.records(), item['fields']))
                 saved = saved_record(ctx.db(), item['evidence']['entry_id'])
@@ -206,3 +209,14 @@ def register(app, ctx):
         result = _duplicates(ctx.db(), ctx.records(), fields)
         result['blocked'] = result['blocked'] or row is not None
         return jsonify(saved=False, **result)
+
+
+def fetch_listing(adapter):
+    aliases = {adapter['feed']}
+    if adapter['id'] == 'liia-opinions-v1':
+        aliases = FEEDS
+    document = intake.fetch_document(adapter['feed'], time.monotonic()+intake.MAX_SECONDS,
+                                     **({'fixed_feed': aliases} if adapter['mode'] == 'rss' else {}))
+    if document['url'] not in aliases:
+        raise intake.AcquisitionError('发现响应离开固定官方入口，未纳入。')
+    return document
