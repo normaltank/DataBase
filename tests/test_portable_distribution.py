@@ -50,7 +50,8 @@ with launch.lock('server.lock', timeout=0):
                         capture_output=True, text=True, timeout=10)
                     self.assertNotEqual(busy.returncode, 0)
                     self.assertIn('This copy is busy', busy.stderr)
-                    self.assertNotIn('PermissionError', busy.stderr)
+                    self.assertEqual(busy.stderr.strip().splitlines()[-1],
+                                     'RuntimeError: This copy is busy. Wait and try again.')
                 stop = subprocess.Popen([sys.executable, '-I', '-B', str(launch), 'stop'],
                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
                 time.sleep(.8)
