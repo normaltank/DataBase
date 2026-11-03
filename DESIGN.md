@@ -1,0 +1,155 @@
+---
+name: 北外中东欧研究中心内部使用
+description: 紧凑清单与就地交接，保留资料、原件和具体版本
+colors:
+  primary: "#174e9c"
+  primary-hover: "#103d7d"
+  shell-navy: "#17395e"
+  shell-muted: "#d4e2f2"
+  accent-soft: "#fff4d3"
+  surface: "#ffffff"
+  surface-muted: "#f0f4f9"
+  surface-selected: "#eaf1fb"
+  text: "#243347"
+  text-muted: "#58697b"
+  border: "#d6e0eb"
+  control-border: "#aebdce"
+  pending-bg: "#fff0c5"
+  pending-text: "#795200"
+  verified-bg: "#eaf4ee"
+  verified-text: "#24634f"
+  focus: "#b47d00"
+typography:
+  page-title:
+    fontFamily: '"Noto Sans CJK SC", "Microsoft YaHei", "Segoe UI", sans-serif'
+    fontSize: "23px"
+    fontWeight: 600
+    lineHeight: 1.4
+  section-title:
+    fontFamily: '"Noto Sans CJK SC", "Microsoft YaHei", "Segoe UI", sans-serif'
+    fontSize: "19px"
+    fontWeight: 650
+    lineHeight: 1.5
+  list-title:
+    fontFamily: '"Noto Sans CJK SC", "Microsoft YaHei", "Segoe UI", sans-serif'
+    fontSize: "15px"
+    fontWeight: 600
+    lineHeight: 1.6
+  body:
+    fontFamily: '"Noto Sans CJK SC", "Microsoft YaHei", "Segoe UI", sans-serif'
+    fontSize: "14px"
+    fontWeight: 400
+    lineHeight: 1.6
+  record-heading:
+    fontSize: "17px"
+    fontWeight: 650
+    lineHeight: 1.6
+  detail-heading:
+    fontSize: "18px"
+    fontWeight: 600
+    lineHeight: 1.6
+  phone-title:
+    fontSize: "21px"
+    fontWeight: 600
+    lineHeight: 1.4
+  phone-detail:
+    fontSize: "20px"
+    fontWeight: 650
+    lineHeight: 1.5
+  login-title:
+    fontSize: "25px"
+    fontWeight: 600
+    lineHeight: 1.7
+  phone-login-title:
+    fontSize: "22px"
+    fontWeight: 600
+    lineHeight: 1.7
+  reading:
+    fontFamily: '"Noto Sans CJK SC", "Microsoft YaHei", "Segoe UI", sans-serif'
+    fontSize: "16px"
+    fontWeight: 400
+    lineHeight: 1.9
+rounded:
+  control: "4px"
+  badge: "3px"
+  login-frame: "6px"
+  retained-editor-group: "8px"
+spacing:
+  compact: "8px"
+  group: "12px"
+  row: "16px"
+  panel: "20px"
+  page: "24px"
+components:
+  button-primary:
+    backgroundColor: "{colors.primary}"
+    textColor: "{colors.surface}"
+    rounded: "{rounded.control}"
+    padding: "5px 12px"
+    height: "34px"
+  button-primary-hover:
+    backgroundColor: "{colors.primary-hover}"
+    textColor: "{colors.surface}"
+  work-selected:
+    backgroundColor: "{colors.surface-selected}"
+    textColor: "{colors.text}"
+    padding: "12px 16px"
+  pending-status:
+    backgroundColor: "{colors.pending-bg}"
+    textColor: "{colors.pending-text}"
+    rounded: "{rounded.badge}"
+    padding: "1px 7px"
+---
+
+# Design System: 北外中东欧研究中心内部使用
+
+## Overview
+
+采用“并列工作台”：研究员在稳定功能导航下查找工作或资料，并就地查看所选对象的具体内容。设计来源是研究档案的稳定身份、出版物的注释层级与审稿案卷的版本责任；表格、按钮、输入和导航使用熟悉的操作型产品形式。
+
+中心编译产出优先。主题和期刊分别组织；清单、当前工作、稿件版本和审稿动作之间有明确对应。资料检索、来源/人物档案、资料夹和个人功能延续相同的信息层级。密度来自缩减层级、按需展开和完整利用屏幕，正文及元数据至少14px。
+
+本文件记录 `static/workbench.css`、`static/workbench.js` 与实际浏览器渲染的现行规则。业务写入、权限及版本仍由领域模块和后端负责。
+
+## Colors
+
+深蓝顶栏标识研究界面；白色清单与冷色详情底面分出用途。主色用于当前导航、链接和主要动作。柔黄只表达待处理或提醒，绿色只表达有依据的完成；每个状态同时有文字。来源核对、稿件定稿、机器处理分别使用自己的业务标签。
+
+## Typography
+
+界面采用一套无衬线字体。页标题、章节和条目形成紧密的23/19/16/15/14px层级；窄屏页标题21px。长题名和文件名允许换行或就地展开，数字使用等宽数字对齐。正文阅读沿用已有17/19/21px偏好及衬线开关；界面标签不跟随阅读字号放大或缩小。
+
+## Layout
+
+桌面顶栏54px、侧导航180px。工作区左侧清单自适应，右侧交接栏450px；1600px以上交接栏510px。清单及详情独立滚动，标题、筛选、所选身份和操作按当前范围组织。首次进入选择首项供桌面预览；手机在明确选择后进入详情。
+
+1200px以下工作清单和交接详情成为连续的完整页面，提供“返回工作清单”；1000px以下侧栏改为可关闭的导航层；700px以下顶栏56px、正文两侧16px、触控按钮至少44px。资料阅读在1200px以下使用独立阅读区域。200%浏览器缩放使用相同的响应式结构，保持文字原本尺寸。
+
+来源、人物、资料夹和个人空间采用紧凑行；需要长期阅读的档案保留完整章节。维护界面与研究界面使用相同控件语言，导航根据真实角色分流。
+
+## Elevation & Depth
+
+清单、记录行和详情通过1px边界与底面区分，不使用装饰阴影。只有导航弹层、下拉动作菜单和受保护的编辑/确认对话框使用柔和阴影。默认没有页面入场动画；短暂悬停反馈不影响任务时序。
+
+## Shapes
+
+标准控件4px圆角，状态标签3px，登录整体边框6px。既有正文/依据编辑区保留8px的分组容器；新清单不使用这些容器。列表没有卡片外框；真实分组以留白、标题和分隔线表达。焦点使用3px金色描边，链接保留明显的悬停与键盘反馈。
+
+## Components
+
+- 工作行以题名、业务类型、负责人/原刊范围与适用日期表达身份；动态待审信息只来自实际工作流，未读取的工作不假定为零。点题名在右栏选择，桌面清单保留在视野内。
+- 主题右栏包含“选题与决定 / 稿件与审稿 / 成果”。稿件表选择具体分工，下面提供原件、提交说明、该版意见和适用动作；负责人权限不由系统管理员身份代替。完整档案仍可打开。
+- 期刊右栏保存其适用材料、版本和实际采用成品，不套用主题选题会。上传成品与明确采用是两个动作。
+- 资料列表默认中文题名与简短来源/日期，摘要在阅读区。附件搜索命中默认收起，保留真实命中位置入口。机器译文、原摘要、机器概述、中文待处理和无正文分别表达。
+- 筛选在所作用的清单上方，研究对象国与来源国别分开。批量整理和导出按需展开。手机阅读返回恢复条件、位置与焦点。
+- 保存失败/冲突保留文件和输入，提供读取最新状态后继续的动作。异步结果以账号与读取代次核对；失败显示可理解恢复入口。
+
+## Do's and Don'ts
+
+- 保留稳定身份、原文依据、提交原件、具体版本和权限边界；来源及人物使用适用字段。
+- 用记录行、清晰动作和按需展开取得密度；不要加欢迎大区、指标卡和空模块。
+- 未知保持未知；没有统一整期归档状态就不推断“整期完成”。
+- 不在平台重新填写Word报告模板，不增加在线Word/PDF写作器，不用颜色替代状态文字。
+- 新页面沿用同一导航、控件、最小字号和响应式规则。参考原则来自 [Zotero](https://www.zotero.org/support/quick_start_guide)、[Carbon](https://carbondesignsystem.com/components/data-table/usage/)、[GOV.UK](https://design-system.service.gov.uk/components/task-list/)、[Fluent 2](https://fluent2.microsoft.design/layout)、[PatternFly](https://www.patternfly.org/components/table/design-guidelines/)。
+
+平台名称统一为“北外中东欧研究中心内部使用”。手机顶栏显示完整名称，在“研究中心”后允许换行，保留至少44px的导航与退出操作目标。页面删除重复副标题和口号；权限、版本、核对、机器处理及操作后果继续在相关位置显示。

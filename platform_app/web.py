@@ -41,6 +41,9 @@ def create_app(data_dir=None, testing=False):
     app.config.update(SECRET_KEY=key_path.read_text(encoding="ascii"), TESTING=testing,
                       MAX_CONTENT_LENGTH=21 * 1024 * 1024, SESSION_COOKIE_HTTPONLY=True,
                       SESSION_COOKIE_SAMESITE="Strict", PERMANENT_SESSION_LIFETIME=28800,
+                      # Parallel read responses may arrive after logout. Only
+                      # actual session changes may issue a replacement cookie.
+                      SESSION_REFRESH_EACH_REQUEST=False,
                       TRUSTED_HOSTS=["127.0.0.1", "localhost"], DATA_DIR=data_dir)
 
     def db():

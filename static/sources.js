@@ -12,10 +12,7 @@ function evidenceHtml(text){
   const urls=[...new Set((text.match(/https?:\/\/[^\s|<>]+/g)||[]).map(u=>u.replace(/[。；），,)]+$/,'')))];
   return `<p class="prose evidence-text">${esc(text)}</p><div class="row wrap">${urls.map((u,i)=>externalLink(u,'依据链接 '+(i+1),'link-button')).join('')}</div>`;
 }
-function sourceCard(s){
-  const meta=isInstitution(s)?`${esc((s.country_labels||[]).join(' / ')||s.country||'国家待确认')} · ${esc(s.location||'所在地待补充')}`:s.kind==='journal'?`主办国别：${esc(countryText(s))}`:esc(serialTypes[s.classification]||'');
-  return `<article class="source-card"><div class="row wrap source-status"><span class="badge blue">${sourceLabel(s)}</span>${badge(s.status)}</div><div><h2>${s.kind==='portal'?linkButton(esc(s.name),'source-preview',s.id,'title-button'):`<a class="title-button" href="${sourceHref(s.id)}">${esc(s.name)}</a>`}</h2>${s.original_name?.trim()&&s.original_name.trim()!==s.name.trim()?`<p class="source-english">${esc(s.original_name)}</p>`:''}</div>${meta?`<p class="small muted">${meta}</p>`:''}<div class="row wrap">${isInstitution(s)?s.institution_types.map(t=>`<span class="badge neutral">${esc(institutionTypes[t])}</span>`).join(''):s.kind==='journal'?`<span class="badge neutral">国际定位：${esc(internationalLabels[s.international_status])}</span>`:''}</div>${s.search_snippet?`<p class="search-snippet">${esc(s.search_snippet)}</p>`:''}<div class="source-foot"><span class="small muted">${scopeLabel(s.scope_status)}</span>${linkButton('快速预览','source-preview',s.id,'link-button')}</div></article>`;
-}
+function sourceCard(s){return workbenchSourceCard(s);}
 function sourceAppliedFilters(p){
   const entries=[['q','关键词',p.get('q')],['institution_type','机构类型',institutionTypes[p.get('institution_type')]],['country',p.get('group')==='journal'?'主办国别':p.get('group')==='institution'?'机构国家':'国家／地区',p.get('country')==='__pending__'?'待确认':countryLabel(p.get('country'))],['international','国际定位',internationalLabels[p.get('international')]],['scope','收录范围',p.get('scope')==='active'?'当前收录范围':p.get('scope')]];
   const active=entries.filter(([key,,value])=>p.get(key)&&value);
