@@ -92,7 +92,7 @@ def initialize_data():
     from platform_app.web import create_app
     data = ROOT / 'data'
     if (data / 'platform.sqlite3').is_file():
-        return create_app(data, embedded_worker=False)
+        return create_app(data, embedded_worker=False, portable_trial=True)
     if data.exists() and any(data.iterdir()):
         raise RuntimeError('data is nonempty without a database. Preserve it and use a fresh extraction.')
     from portable.demo_seed import seed
@@ -112,7 +112,7 @@ def initialize_data():
     finally:
         if temporary.exists():
             shutil.rmtree(temporary)
-    return create_app(data, embedded_worker=False)
+    return create_app(data, embedded_worker=False, portable_trial=True)
 
 
 def lan_addresses():
@@ -126,20 +126,21 @@ def lan_addresses():
 
 
 def lan_config():
+    if not (STATE / 'lan.json').exists():
+        return {'port': 0}
     try:
         value = json.loads((STATE / 'lan.json').read_text(encoding='utf-8'))
         if type(value['port']) is int and (value['port'] == 0 or 1024 <= value['port'] <= 65535) and value['port'] != 8848:
             return value
     except (OSError, ValueError, KeyError, TypeError):
         pass
-    raise RuntimeError('请先运行 lan-configure.bat 完成设置，再启动局域网试用。')
+    raise RuntimeError('局域网端口设置无效，请运行 lan-configure.bat --port 0 重新设置。')
 
 
 def serve(mode='local'):
     from waitress.server import create_server
     from waitress import wasyncore
     from werkzeug.wrappers import Response
-    from platform_app.deployment import default_password_users
     with lock('server.lock', timeout=0):
         app = initialize_data()
         from portable.ai_settings import LocalAISettings
@@ -150,13 +151,11 @@ def serve(mode='local'):
         addresses = lan_addresses() if mode == 'lan' else []
         if mode == 'lan':
             config = lan_config()
-            if default_password_users(ROOT / 'data'):
-                raise RuntimeError('仍有公开口令的演示账号有效。请运行 lan-configure.bat，或在成员管理中修改／停用这些账号。')
             if not addresses:
                 raise RuntimeError('尚未找到可用IPv4地址。请连接校园网络后重试。')
         app.config.update(SESSION_COOKIE_NAME='preview_' + IDENTITY[:24],
                           TRUSTED_HOSTS=['127.0.0.1', 'localhost', *addresses],
-                          DEMO_LOGIN=mode == 'local' and bool(default_password_users(ROOT / 'data')),
+                          DEMO_LOGIN=False,
                           PRODUCTION_PASSWORD_POLICY=mode == 'lan')
         token, instance = secrets.token_hex(32), secrets.token_hex(16)
         stopping = threading.Event()
@@ -269,7 +268,7 @@ def main():
     parser.add_argument('action', choices=['start', 'lan-start', 'lan-configure', 'stop', 'status', 'diagnose', 'ai-configure', 'ai-enable', 'ai-disable', '_serve'])
     parser.add_argument('--no-browser', action='store_true')
     parser.add_argument('--mode', choices=['local', 'lan'], default='local')
-    parser.add_argument('--port', type=int, default=0)
+    parser.add_argument('--port', type=int, default=None)
     parser.add_argument('--password-stdin', action='store_true', help='Explicit private pipe for automated configuration only.')
     args = parser.parse_args()
     # Windows console uses its native Unicode interface; redirected logs remain UTF-8.
@@ -303,13 +302,10 @@ def main():
         if args.action.startswith('ai-'):
             from portable.ai_settings import LocalAISettings
             from portable.ai_configure import prompt_configuration, enable, disable
-            from platform_app.deployment import default_password_users
             settings = LocalAISettings(ROOT)
             if args.action != 'ai-disable' and active:
                 raise RuntimeError('请先运行 stop.bat 停止本副本，再配置或启用AI。')
             initialize_data()
-            if args.action != 'ai-disable' and default_password_users(ROOT / 'data'):
-                raise RuntimeError('请先运行 lan-configure.bat 设置管理员私有口令并停用默认账号，然后再配置AI；本机模式也适用。')
             if args.action == 'ai-configure':
                 prompt_configuration(settings, ROOT / 'data')
             elif args.action == 'ai-enable':
@@ -320,26 +316,14 @@ def main():
         if args.action == 'lan-configure':
             if active:
                 raise RuntimeError('请先运行 stop.bat 停止本副本，再调整局域网设置。')
-            if args.port != 0 and (not 1024 <= args.port <= 65535 or args.port == 8848):
+            if args.port is not None and args.port != 0 and (not 1024 <= args.port <= 65535 or args.port == 8848):
                 raise RuntimeError('端口请选择1024—65535且避开8848，或用0自动选择。')
             initialize_data()
-            from platform_app.deployment import default_password_users, configure_lan_admin
-            defaults = default_password_users(ROOT / 'data')
-            if defaults:
-                if not any(row['role'] == 'admin' for row in defaults):
-                    raise RuntimeError('管理员已有自设口令。请启动本机模式，在成员管理中修改或停用其余仍用公开口令的账号，再停机重试局域网设置。')
-                print('首次设置将替换默认管理员口令，停用其余仍用公开口令的演示成员；已有自设账号和资料保留。', flush=True)
-                password = prompt_admin_password(args.password_stdin)
-                if password is None:
-                    return
-                configure_lan_admin(ROOT / 'data', password)
-            else:
-                print('已有自设账号已保留，无需再次设置口令。', flush=True)
-            if default_password_users(ROOT / 'data'):
-                raise RuntimeError('请在成员管理中修改或停用所有仍使用公开口令的账号。')
-            write_json(STATE / 'lan.json', {'port': args.port})
-            (STATE / 'last-port-lan').unlink(missing_ok=True)
-            print('局域网设置成功。请用 lan-start.bat 启动；已有账号和资料已保留。')
+            config = lan_config() if args.port is None else {'port': args.port}
+            write_json(STATE / 'lan.json', config)
+            if args.port is not None:
+                (STATE / 'last-port-lan').unlink(missing_ok=True)
+            print('局域网试用无需账号口令。已有账号、口令、停用状态和资料保持；端口已保存。请用 lan-start.bat 启动。')
             return
         if args.action == 'status':
             from portable.ai_settings import LocalAISettings
