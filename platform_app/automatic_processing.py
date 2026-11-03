@@ -5,7 +5,7 @@ import uuid
 import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
-from . import ai_gateway, ingestion, store, translations, workflow
+from . import ai_gateway, ingestion, store, translations, workflow, source_adapters
 
 LEASE_SECONDS = 120
 RULE = 'public-chinese-v1'
@@ -34,11 +34,12 @@ def material(db, row, task='translation'):
     if automatic.get('actor_id')!=ingestion.SYSTEM_ID:
         return None
     evidence=next((e for e in reversed(raw.get('discovery_evidence',[]))
-        if e.get('processing_actor')==ingestion.SYSTEM_ID and e.get('processing_version')==ingestion.ADAPTER),None)
+        if e.get('processing_actor')==ingestion.SYSTEM_ID and e.get('processing_version') in
+            {ingestion.ADAPTER, *(a['id'] for a in source_adapters.ADAPTERS)}),None)
     if not evidence or not db.execute('SELECT 1 FROM ingestion_sources i JOIN sources s ON s.id=i.source_id WHERE i.source_id=? AND i.enabled=1 AND s.merged_into IS NULL',(evidence.get('source_id'),)).fetchone():
         return None
     # saved_fields/current row may contain human corrections. Only fetched fields are public input.
-    fields=evidence.get('fields',{})
+    fields=evidence.get('article_fields') or evidence.get('fields',{})
     title=fields.get('original_title') or fields.get('title','')
     abstract=fields.get('abstract','')
     if not isinstance(title,str) or not title.strip() or not isinstance(abstract,str):
@@ -241,8 +242,8 @@ def validate_backup(db):
                 or not 1<=row['source_version']<=record['version'] or not isinstance(result,dict) or not isinstance(evidence,dict)):
                 raise ValueError()
             raw=json.loads(record['raw_json'] or '{}')
-            if not any((e.get('fields',{}).get('original_title') or e.get('fields',{}).get('title',''))==value['title']
-                and e.get('fields',{}).get('abstract','')==value['abstract'] and e.get('processing_actor')==ingestion.SYSTEM_ID
+            if not any(((e.get('article_fields') or e.get('fields',{})).get('original_title') or (e.get('article_fields') or e.get('fields',{})).get('title',''))==value['title']
+                and (e.get('article_fields') or e.get('fields',{})).get('abstract','')==value['abstract'] and e.get('processing_actor')==ingestion.SYSTEM_ID
                 for e in raw.get('discovery_evidence',[])):
                 raise ValueError()
             if value.get('body') and not any(s.get('id')==value.get('snapshot_id') and s.get('sha256')==value.get('snapshot_sha256')

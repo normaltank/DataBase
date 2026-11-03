@@ -14,7 +14,7 @@ from pathlib import Path
 
 from flask import abort, jsonify, send_file
 
-from . import discovery, identity, intake, store, workflow
+from . import discovery, identity, intake, store, workflow, source_adapters
 
 SCHEMA_VERSION = 17
 SYSTEM_ID = 'system-public-ingestion'
@@ -116,7 +116,11 @@ def configuration(db, sid):
         coverage_json='{}', version=0)
     result['enabled'] = bool(result['enabled'])
     result['coverage'] = json.loads(result.pop('coverage_json'))
-    result.update(feed_url=discovery.FEED, column_url=discovery.COLUMN)
+    source = identity.resolve(db, 'sources', sid)
+    adapter = source_adapters.for_source(source) if source else None
+    if adapter:
+        result.update(feed_url=adapter['feed'], column_url=adapter['column'], adapter=adapter['id'], adapter_name=adapter['name'], scope=adapter['scope'])
+    result['backfill_days'] = result['coverage'].get('backfill_days', 30)
     result['runs'] = []
     for row in db.execute('SELECT * FROM ingestion_runs WHERE source_id=? ORDER BY created_at DESC,rowid DESC LIMIT 10',(sid,)):
         run = {k:row[k] for k in row.keys() if k not in {'feed_bytes','lease_token'}}
@@ -191,21 +195,29 @@ class PageParser(HTMLParser):
         self.handle_data('&#'+name+';')
 
 
-def page_snapshot(document):
+def page_snapshot(document, adapter=None):
     if document['content_type'] not in {'text/html','application/xhtml+xml'}:
         raise intake.AcquisitionError('文章页不是 HTML；未取得网页正文。')
     parser = PageParser()
     parser.feed(document['text'])
     cleaned, text = workflow.clean_rich(''.join(parser.fragments))
+    metadata, body_available, pdf_links = None, False, []
+    if adapter and adapter['id'] != 'liia-opinions-v1':
+        metadata, cleaned, text, body_available, pdf_links = source_adapters.article(document, adapter)
     content = document['bytes']
     return dict(id=hashlib.sha256(content).hexdigest(),url=document['url'],retrieved_at=store.now(),
         sha256=hashlib.sha256(content).hexdigest(),bytes=len(content),raw_base64=base64.b64encode(content).decode(),
-        content_type=document['content_type'],adapter=ADAPTER,page_html=cleaned,page_text=text,
-        sidebar_credit=intake.plain(' '.join(parser.credit_fragments or parser.author_fragments)),
+        content_type=document['content_type'],encoding=document.get('encoding','utf-8'),adapter=adapter['id'] if adapter and adapter['id']!='liia-opinions-v1' else ADAPTER,page_html=cleaned,page_text=text,
+        metadata=metadata, pdf_links=pdf_links,
+        sidebar_credit=metadata['fields'].get('authors','') if metadata else intake.plain(' '.join(parser.credit_fragments or parser.author_fragments)),
         sidebar_credit_raw=intake.plain(' '.join(parser.author_fragments)),
-        content_kind='webpage_description' if text else 'no_body',work_body_available=False,
-        work_body=None,work_body_basis='',
-        reason='已保存文章页原字节与清洗说明；未验证所指作品全文，不能据此生成观点概述。' if text else '文章页没有可辨认的正文容器。')
+        content_kind='work_body' if body_available else 'webpage_description' if text else 'no_body',work_body_available=body_available,
+        work_body=dict(html=cleaned,text=text) if body_available else None,
+        work_body_basis='.single-publication .content-block .text.excerpt' if body_available else '',
+        reason='已取得 GSSC 文章 HTML 正文（独立于导语和作者简介）。' if body_available else
+            '已取得期刊原摘要及题录；PDF仅保留链接，未下载或保全全文。' if metadata and adapter['mode']=='rss' else
+            '已取得 GSSC 题录；此页未辨认作品正文，不能生成正文概述。' if metadata else
+            '已保存文章页原字节与清洗说明；未验证所指作品全文，不能据此生成观点概述。' if text else '文章页没有可辨认的正文容器。')
 
 
 def acquisition_projection(row):
@@ -242,7 +254,8 @@ def validate_backup(db):
     if not actor or actor['active'] or actor['role'] != 'system' or actor['password_hash'] != '!':
         raise ValueError('自动取得系统主体不完整或可登录。')
     for row in db.execute('SELECT * FROM records'):
-        acquired = json.loads(row['raw_json'] or '{}').get('automatic_acquisition')
+        record_raw = json.loads(row['raw_json'] or '{}')
+        acquired = record_raw.get('automatic_acquisition')
         if not acquired:
             continue
         for snapshot in acquired.get('snapshots',[]):
@@ -259,8 +272,26 @@ def validate_backup(db):
                 clean_html, clean_text = workflow.clean_rich(snapshot['page_html'])
                 if clean_text != snapshot['page_text'] or clean_html != snapshot['page_html']:
                     raise ValueError()
-            except (ValueError,KeyError,TypeError):
+                adapter = next((a for a in source_adapters.ADAPTERS if a['id'] != 'liia-opinions-v1' and source_adapters.article_url(a, snapshot['url'])), None)
+                if adapter:
+                    document = dict(url=snapshot['url'],bytes=content,text=content.decode(snapshot.get('encoding','utf-8'),errors='replace'),content_type=snapshot['content_type'])
+                    metadata, html, text, available, links = source_adapters.article(document, adapter)
+                    if (snapshot['adapter'] != adapter['id'] or metadata != snapshot.get('metadata') or html != snapshot['page_html'] or text != snapshot['page_text']
+                            or available != snapshot['work_body_available'] or links != snapshot.get('pdf_links')
+                            or available and (snapshot['work_body'] != dict(html=html,text=text) or snapshot['work_body_basis'] != '.single-publication .content-block .text.excerpt')):
+                        raise ValueError()
+            except (ValueError,KeyError,TypeError,LookupError,intake.AcquisitionError):
                 raise ValueError('自动取得原文快照校验失败。') from None
+        for evidence in record_raw.get('discovery_evidence',[]):
+            if 'article_fields' not in evidence and 'article_snapshot_id' not in evidence:
+                continue
+            snapshot = next((s for s in acquired.get('snapshots',[]) if s['id']==evidence.get('article_snapshot_id')),None)
+            fields = evidence.get('article_fields')
+            # Identical response bytes can occur at two official DOI aliases;
+            # retain each URL while binding all content fields to the raw page.
+            if (not snapshot or not snapshot.get('metadata') or not isinstance(fields,dict)
+                    or {k:v for k,v in fields.items() if k!='url'} != {k:v for k,v in snapshot['metadata']['fields'].items() if k!='url'}):
+                raise ValueError('自动取得题录与文章原件绑定失败。')
     for run in db.execute('SELECT * FROM ingestion_runs'):
         if run['status'] not in {'queued','running','failed','partial','succeeded'}:
             raise ValueError('采集任务状态无效。')
@@ -269,6 +300,9 @@ def validate_backup(db):
     for row in db.execute('SELECT * FROM ingestion_sources'):
         if row['enabled'] not in {0,1} or not 1 <= row['frequency_hours'] <= 720 or row['initial_days'] != 30 or row['inclusion_rule'] not in {'research_only','all_opinions'}:
             raise ValueError('采集来源配置无效。')
+        days = json.loads(row['coverage_json']).get('backfill_days',30)
+        if type(days) is not int or not 30 <= days <= 3650:
+            raise ValueError('采集回溯窗口无效。')
 
 
 def _queue_run(db, sid, stamp):
@@ -322,14 +356,16 @@ def _renew(db, run):
 
 
 def _feed(db, run):
-    document = intake.fetch_document(discovery.FEED,time.monotonic()+intake.MAX_SECONDS,fixed_feed=discovery.FEEDS)
+    adapter = source_adapters.for_source(discovery.source_for(db, run['source_id']))
+    document = discovery.fetch_listing(adapter)
     config = configuration(db,run['source_id'])
     previous = json.loads(config['cursor']) if config['cursor'] else None
     seen = set(previous.get('seen_urls',[])) if previous is not None else None
     admitted = {json.loads(row[0])['fields']['url'] for row in db.execute("SELECT evidence_json FROM ingestion_entries WHERE source_id=? AND stage<>'excluded'",(run['source_id'],))}
-    result = discovery._parse(document['bytes'],store.now(),run['source_id'],previously_seen=seen,admitted_urls=admitted)
+    days = config['backfill_days']
+    result = discovery._parse(document['bytes'],store.now(),run['source_id'],previously_seen=seen,admitted_urls=admitted,adapter=adapter,backfill_days=days)
     coverage = {k:v for k,v in result.items() if k != 'items'}
-    coverage.update(scope='仅当前固定 RSS；没有遍历栏目或历史回填',coverage_complete=False,
+    coverage.update(scope=adapter['scope'],coverage_complete=False,backfill_days=days,
         zero_interpretation='零条只表示本次窗口未返回可纳入条目，不证明来源没有更新。' if not result['items'] else '',
         cursor=dict(kind='rss_response_and_seen_identities',sha256=result['sha256'],window=result['window'],returned=result['returned'],
             seen_urls=sorted((seen or set())|set(result['observed_urls']))))
@@ -343,7 +379,7 @@ def _feed(db, run):
             excluded = config['inclusion_rule'] == 'research_only' and any(word in title for word in ('vacancy','job opening','registration','annual general meeting','job vacancy'))
             db.execute('''INSERT OR IGNORE INTO ingestion_entries(id,run_id,source_id,entry_id,evidence_json,stage,reason)
                 VALUES (?,?,?,?,?,?,?)''',(uuid.uuid4().hex,run['id'],run['source_id'],evidence['entry_id'],json.dumps(evidence,ensure_ascii=False),
-                'excluded' if excluded else 'queued','规则排除一般事务通知；可调整为全部 Opinions 后重跑。' if excluded else '固定研究栏目；保留原文类别待分类'))
+                'excluded' if excluded else 'queued','规则排除一般事务通知；可调整为全部条目后重跑。' if excluded else '固定官方入口；保留原文类别待分类'))
         db.execute("UPDATE ingestion_runs SET stage='entries',coverage_json=?,feed_bytes=?,feed_sha256=? WHERE id=?",
             (json.dumps(coverage,ensure_ascii=False),document['bytes'],result['sha256'],run['id']))
 
@@ -383,7 +419,8 @@ def run_pending(data_dir, limit=1, stopping=lambda: False):
                     try:
                         evidence = json.loads(entry['evidence_json'])
                         document = intake.fetch_document(evidence['fields']['url'],time.monotonic()+intake.MAX_SECONDS)
-                        snapshot = page_snapshot(document)
+                        adapter = source_adapters.for_source(discovery.source_for(db, run['source_id']))
+                        snapshot = page_snapshot(document, adapter)
                     except (intake.AcquisitionError,ValueError) as failure:
                         error = str(failure)
                         backoff = network_backoff(failure)
@@ -501,9 +538,11 @@ def register(app, ctx):
         ctx.admin()
         run = ctx.db().execute('SELECT * FROM ingestion_runs WHERE id=?',(run_id,)).fetchone()
         if not run or run['feed_bytes'] is None:
-            abort(404,'本轮尚未成功取得 RSS 原字节。')
+            abort(404,'本轮尚未成功取得官方目录原字节。')
+        source = identity.resolve(ctx.db(), 'sources', run['source_id'])
+        adapter = source_adapters.for_source(source) if source else None
         return send_file(io.BytesIO(run['feed_bytes']),mimetype='application/octet-stream',as_attachment=True,
-            download_name='rss-'+run['feed_sha256'][:16]+'.xml')
+            download_name='discovery-'+run['feed_sha256'][:16]+('.html.txt' if adapter and adapter['mode']=='html' else '.xml'))
 
     @app.get('/api/ingestion')
     def ingestion_status():
@@ -522,18 +561,23 @@ def register(app, ctx):
     def configure_ingestion(sid):
         ctx.admin()
         data = ctx.body()
-        if set(data) - {'enabled', 'frequency_hours', 'inclusion_rule'}:
-            abort(400, '只可调整启用、频率和既有 Opinions 栏目纳入规则。')
+        if set(data) - {'enabled', 'frequency_hours', 'inclusion_rule', 'backfill_days'}:
+            abort(400, '只可调整启用、频率、当前条目纳入规则及日期回溯窗口。')
         if type(data.get('enabled')) is not bool or type(data.get('frequency_hours', 24)) is not int or not 1 <= data.get('frequency_hours',24) <= 720:
             abort(400, '启用状态或巡检频率无效。')
         if data.get('inclusion_rule','research_only') not in {'research_only','all_opinions'}:
             abort(400, '纳入规则无效。')
+        if type(data.get('backfill_days',30)) is not int or not 30 <= data.get('backfill_days',30) <= 3650:
+            abort(400, '回溯窗口须为30—3650天；只检查当前响应的有日期条目。')
         db = ctx.db()
         with db:
             db.execute('BEGIN IMMEDIATE')
             source = discovery.source_for(db, sid)
             previous = db.execute('SELECT * FROM ingestion_sources WHERE source_id=?',(source['id'],)).fetchone()
             backoff = pending_backoff(previous) if previous else None
+            coverage = json.loads(previous['coverage_json']) if previous else {}
+            old_days = coverage.get('backfill_days',30)
+            coverage['backfill_days'] = data.get('backfill_days',30)
             db.execute('''INSERT INTO ingestion_sources(source_id,enabled,frequency_hours,inclusion_rule,next_run,updated_at,updated_by)
                 VALUES (?,?,?,?,?,?,?) ON CONFLICT(source_id) DO UPDATE SET enabled=excluded.enabled,
                 frequency_hours=excluded.frequency_hours,inclusion_rule=excluded.inclusion_rule,
@@ -541,6 +585,11 @@ def register(app, ctx):
                 version=ingestion_sources.version+1,updated_at=excluded.updated_at,updated_by=excluded.updated_by''',
                 (source['id'],int(data['enabled']),data.get('frequency_hours',24),data.get('inclusion_rule','research_only'),
                  backoff['retry_at'] if backoff else store.now(),store.now(),ctx.user()['id']))
+            db.execute('UPDATE ingestion_sources SET coverage_json=? WHERE source_id=?', (json.dumps(coverage,ensure_ascii=False),source['id']))
+            if coverage['backfill_days'] != old_days:
+                # A deliberate wider window may admit previously observed old
+                # entries, without changing their original dates or identity.
+                db.execute("UPDATE ingestion_sources SET cursor='' WHERE source_id=?", (source['id'],))
         return jsonify(configuration(db, source['id']))
 
 

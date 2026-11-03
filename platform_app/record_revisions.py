@@ -376,7 +376,7 @@ class RecordRevisions:
         Existing records receive new provenance only; their fields and review
         state remain under the ordinary editing boundary.
         """
-        from . import ingestion, translations
+        from . import ingestion, translations, source_adapters, author_suggestions
         if self.actor['id'] != ingestion.SYSTEM_ID or self.actor['role'] != 'system':
             raise ValueError('后台取得只能由专属系统主体提交。')
         with self._transaction():
@@ -386,12 +386,15 @@ class RecordRevisions:
                 raise ValueError('任务租约或已启用来源无效。')
             acquired = json.loads(entry['evidence_json'])
             source = discovery.source_for(self.db, entry['source_id'])
-            if acquired['source_id'] != source['id'] or acquired['feed_url'] != discovery.FEED:
+            adapter = source_adapters.for_source(source)
+            if acquired['source_id'] != source['id'] or acquired['feed_url'] != adapter['feed'] or acquired['adapter'] != adapter['id']:
                 raise ValueError('取得依据不属于固定来源。')
             found = discovery.saved_record(self.db,acquired['entry_id'])
             if found is None:
                 for previous in self.db.execute('SELECT * FROM records'):
-                    if discovery.article_key(previous['url']) == discovery.article_key(acquired['fields']['url']):
+                    if (discovery.article_key(previous['url']) == discovery.article_key(acquired['fields']['url']) or
+                            snapshot and snapshot.get('metadata') and intake.normalize_doi(snapshot['metadata']['fields'].get('doi')) and
+                            intake.normalize_doi(previous['doi']) == intake.normalize_doi(snapshot['metadata']['fields']['doi'])):
                         found = identity.resolve(self.db,'records',previous['id'])
                         break
             if found is not None and (not self.visible(found) or found['visibility'] != 'shared'):
@@ -401,6 +404,8 @@ class RecordRevisions:
             if found is None:
                 data = dict(acquired['fields'], visibility='shared')
                 if snapshot:
+                    if snapshot.get('metadata'):
+                        data.update({key:value for key,value in snapshot['metadata']['fields'].items() if key in RECORD_FIELDS and key not in {'source_id','visibility'}})
                     data['authors'] = snapshot['sidebar_credit']
                 values, linked, associated, cited = self._values(data)
                 self._unique_doi(values['doi'])
@@ -415,13 +420,22 @@ class RecordRevisions:
             raw = json.loads(row['raw_json'] or '{}')
             evidence_items = raw.setdefault('discovery_evidence',[])
             evidence = dict(acquired,acquisition_id=acquired['entry_id'],saved_at=now(),
-                processing_actor=ingestion.SYSTEM_ID,processing_version=ingestion.ADAPTER,
+                processing_actor=ingestion.SYSTEM_ID,processing_version=ingestion.ADAPTER if adapter['id']=='liia-opinions-v1' else adapter['id'],
                 saved_fields={key:row[key] for key in acquired['fields'] if key in row.keys()})
-            evidence_changed = not any(e.get('raw') == acquired['raw'] and e.get('entry_id') == acquired['entry_id'] for e in evidence_items)
+            if snapshot and snapshot.get('metadata'):
+                evidence['article_fields'] = snapshot['metadata']['fields']
+                evidence['article_snapshot_id'] = snapshot['id']
+            evidence_changed = not any(e.get('raw') == acquired['raw'] and e.get('entry_id') == acquired['entry_id'] and
+                e.get('article_snapshot_id') == evidence.get('article_snapshot_id') for e in evidence_items)
             if evidence_changed:
                 evidence_items.append(evidence)
-            automatic = raw.setdefault('automatic_acquisition',dict(actor_id=ingestion.SYSTEM_ID,adapter=ingestion.ADAPTER,
+            automatic = raw.setdefault('automatic_acquisition',dict(actor_id=ingestion.SYSTEM_ID,adapter=adapter['id'],
                 chinese_status='pending_configuration',snapshots=[],attempts=[]))
+            if found is None:
+                config = self.db.execute('SELECT * FROM ingestion_sources WHERE source_id=? AND enabled=1', (source['id'],)).fetchone()
+                operator = self.db.execute("SELECT * FROM users WHERE id=? AND active=1 AND role='admin'", (config['updated_by'],)).fetchone() if config else None
+                if operator:
+                    automatic['new_article_author_request'] = dict(actor_id=operator['id'], credential_version=operator['credential_version'], source_id=source['id'])
             snapshots = automatic.setdefault('snapshots',[])
             snapshot_changed = snapshot is not None and not any(s['sha256']==snapshot['sha256'] for s in snapshots)
             if snapshot_changed:
@@ -443,6 +457,12 @@ class RecordRevisions:
                 (rid,current['version'],translations.digest(*translations.inputs(current)),now()))
             self.db.execute('UPDATE ingestion_entries SET stage=?,record_id=?,error=? WHERE id=?',
                 ('failed' if page_error else 'saved',rid,page_error,entry_id))
+            request = automatic.get('new_article_author_request')
+            if snapshot and request:
+                config = self.db.execute('SELECT * FROM ingestion_sources WHERE source_id=? AND enabled=1', (source['id'],)).fetchone()
+                operator = self.db.execute("SELECT * FROM users WHERE id=? AND active=1 AND role='admin'", (config['updated_by'],)).fetchone() if config else None
+                if operator and request == dict(actor_id=operator['id'], credential_version=operator['credential_version'], source_id=source['id']):
+                    author_suggestions.enqueue(self.db, operator, rid, 'ingestion-new:'+source['id']+':'+rid)
             return 'failed' if page_error else 'saved'
 
     def edit(self, rid, data, file=None):

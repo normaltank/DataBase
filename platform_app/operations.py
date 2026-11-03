@@ -350,7 +350,8 @@ def register(app, ctx):
                     for snapshot in item['automatic_acquisition']['snapshots']:
                         if snapshot['path'] not in archive.namelist():
                             archive.writestr(snapshot['path'],base64.b64decode(snapshot['raw_base64']))
-                        content += prose('网页说明快照（未验证作品全文）',snapshot['page_text'])
+                        content += prose('作品 HTML 正文快照（待人工核对）' if snapshot.get('work_body_available') else
+                                         '网页说明快照／原摘要（未取得作品全文）',snapshot['page_text'])
                         content += prose('快照出处与版本',snapshot['url']+'\n'+snapshot['retrieved_at']+'\nSHA256: '+snapshot['sha256']+'\n'+snapshot['reason'])
                         content += '<p>原始响应字节：'+html.escape(snapshot['path'])+'（仅供下载核对，含未执行的原站代码）</p>'
                 content += content_export.record_relations_html(item, prose, source_paths, people)
