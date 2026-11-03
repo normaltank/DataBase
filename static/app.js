@@ -225,7 +225,11 @@ function trialSignedOut(){
   document.body.classList.remove('navigation-open');closeModal();
   document.querySelector('#app').innerHTML='<div class="login-shell"><section class="login-box"><section class="login-story">'+brand()+'<h1>便携试用</h1><p>临时身份已退出，或原身份已停用。已有材料与署名继续保留。</p></section><section class="login-form"><h2>继续体验</h2><p>新体验身份可开启自己的练习主题。原身份被停用时，请联系主机维护者。</p>'+linkButton('以新临时身份进入','trial-enter','','button primary')+(state.hostAvailable?linkButton('主机本机维护','trial-host'):'')+'<div class="form-error" role="alert"></div><details><summary>使用已有账号</summary><form data-form="login"><label class="field">账号<input name="username" autocomplete="username" required></label><label class="field">密码<input name="password" type="password" autocomplete="current-password" required></label><button class="button" type="submit">登录已有账号</button><div class="form-error" role="alert"></div></form></details></section></section></div>';
 }
-function trialWelcome(){return state.me?.temporary?'<section class="notice" aria-label="试用说明"><h2>从自己的实践开始</h2><p>当前是独立临时身份：'+esc(state.me.name)+'。'+(state.me.trial_sample_topics?.length?'示例供只读查阅。':'未发现可确认的演示样例。')+'开启一期主题后，您就是本期负责人，可单人练习或邀请已入场成员交材料。</p><div class="row wrap">'+linkButton('开启我的练习主题','collaboration-new','','button primary')+linkButton('修改我的称呼','nav','personal')+(state.hostAvailable?linkButton('主机本机维护','trial-host'):'')+'</div></section>':'';}
+function trialWelcome(compact=false){
+  if(!state.me?.temporary)return '';
+  const body='<p>当前是独立临时身份：'+esc(state.me.name)+'。'+(state.me.trial_sample_topics?.length?'示例供只读查阅。':'未发现可确认的演示样例。')+'开启一期主题后，您就是本期负责人，可单人练习或邀请已入场成员交材料。</p><div class="row wrap">'+linkButton('开启我的练习主题','collaboration-new','','button primary')+linkButton('修改我的称呼','nav','personal')+(state.hostAvailable?linkButton('主机本机维护','trial-host'):'')+'</div>';
+  return compact?'<details class="trial-context"><summary>临时身份：'+esc(state.me.name)+' · 试用说明与入口</summary><div>'+body+'</div></details>':'<section class="notice" aria-label="试用说明"><h2>从自己的实践开始</h2>'+body+'</section>';
+}
 document.addEventListener('click',async event=>{
   const button=event.target.closest('[data-action="trial-host"],[data-action="trial-enter"]');if(!button)return;
   event.preventDefault();event.stopImmediatePropagation();button.disabled=true;

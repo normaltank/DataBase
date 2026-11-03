@@ -41,3 +41,6 @@ html{font-size:16px}body{font-family:"Noto Sans CJK SC","Microsoft YaHei","Segoe
 
 /* Protected dialogs cover the sticky shell, including their title and close action. */
 .overlay{z-index:100}
+
+.trial-context{padding:0 16px;border-bottom:1px solid var(--border);background:var(--surface)}.trial-context>summary{color:var(--text-muted)}.trial-context>div{padding:0 8px 16px}.trial-context p{margin-bottom:12px}.source-preview .source-content-empty{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 12px;padding:12px 0;border-bottom:1px solid var(--border)}.source-preview .source-content-empty h4{font-size:15px;margin:0}.source-content-empty h4 span{font-weight:400;margin-left:8px}.source-empty-note{margin-top:12px}
+@media(max-width:700px){.sources-page .tabs>.tab,.sources-page [data-action="source-preview"],.reading-library .reading-quick>.button,.workbench-role [data-action="collaboration-new"]{min-height:44px}.sources-page [data-action="source-preview"]{padding:8px 12px}.trial-context{padding-inline:10px}}
