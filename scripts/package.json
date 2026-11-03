@@ -3,5 +3,5 @@
   "private": true,
   "engines": { "node": ">=20" },
   "devDependencies": { "jsdom": "26.1.0" },
-  "scripts": { "check:selection": "node check_selection_entry.js", "check:search-recovery": "node check_search_recovery.js" }
+  "scripts": { "check:selection": "node check_selection_entry.js", "check:search-recovery": "node check_search_recovery.js", "check:reading-attention": "node check_reading_attention.js" }
 }

@@ -70,6 +70,7 @@ jobs:
           npm ci --ignore-scripts
           node check_selection_entry.js
           node check_search_recovery.js
+          node check_reading_attention.js
           python check_selection_http.py
           python check_handoffs_http.py
       - name: Check syntax and synthetic tests

@@ -48,6 +48,19 @@
 .ux-bibliography p+p{margin-top:3px}
 .ux-bibliography .link-button{font:inherit;line-height:inherit}
 .ux-reader .ux-reading-toolbar{margin:14px 0;padding:8px 12px;background:var(--surface-muted);border:1px solid var(--border);border-radius:8px}
+.ux-reader.ux-reader .ux-reading-toolbar{padding:0;margin:12px 0 16px;border:0;border-radius:0;background:transparent;align-items:start}
+.ux-reader-tools{padding:0;border:0;background:transparent;min-width:0}
+.ux-reader-tools>summary{min-height:36px;padding:6px 4px;font-size:14px}
+.ux-reader-tools[open]{flex-basis:100%}
+.ux-reader-tools>.ux-reading-actions{padding:8px 0;gap:8px}
+.ux-reader.ux-reader .ux-author-details,.ux-reader.ux-reader .ux-acquisition{margin:0;padding:10px 0;border:0;border-top:1px solid var(--border);background:transparent}
+.library-reader .library-reader-body.ux-reader{background:var(--surface)}
+.ux-reader.ux-reader .ux-bibliography{font-size:14px;line-height:1.6}
+.ux-reader.ux-reader .detail-title{font-size:23px;line-height:1.4}
+@media(max-width:700px){
+  .ux-reader.ux-reader .detail-title{font-size:21px}
+  .ux-reader.ux-reader .ux-reading-toolbar>a,.ux-reader.ux-reader .ux-reading-toolbar>button,.ux-reader-tools>summary{min-height:44px}
+}
 .ux-reader-prefs{display:inline-flex;align-items:center;gap:4px;margin-left:auto}
 .ux-reader-prefs .button.tiny{padding:4px 9px;min-height:30px;font-size:14px;background:var(--surface)}
 .ux-reader-prefs [aria-pressed="true"]{background:var(--surface-selected);border-color:var(--primary);color:var(--primary-strong);font-weight:600}

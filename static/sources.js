@@ -8,7 +8,7 @@ const isPublication=s=>['journal','serial','registry_publication'].includes(s.ki
 const sourceLabel=s=>isInstitution(s)?'机构':s.kind==='journal'?'期刊':s.kind==='portal'?'资料发现网站':'其他出版物';
 const countryText=s=>s.national_status==='recorded'?(s.national_country_labels||s.national_countries).join(' / '):'待确认';
 function evidenceHtml(text){
-  if(!text)return '<p class="small muted">依据待补充；不据此作肯定或否定判断。</p>';
+  if(!text)return '<p class="small muted">暂无依据</p>';
   const urls=[...new Set((text.match(/https?:\/\/[^\s|<>]+/g)||[]).map(u=>u.replace(/[。；），,)]+$/,'')))];
   return `<p class="prose evidence-text">${esc(text)}</p><div class="row wrap">${urls.map((u,i)=>externalLink(u,'依据链接 '+(i+1),'link-button')).join('')}</div>`;
 }
@@ -55,12 +55,12 @@ function sourceContributionForm(kind='',draftKey=''){
 }
 function sourceCollectionStatus(s){
   const collection=s.automatic_collection||{};
-  return '<section class="notice section-gap"><h3>持续采集</h3><p>'+(collection.supported?'已提供此来源的固定官方适配 · '+(collection.enabled?'管理员已启用':'尚未启用'):'尚未接入持续采集')+'</p><p class="small">登记或核对来源不会自动启用采集。</p>'+(state.me.role==='admin'&&isMaintenancePage()?linkButton('查看自动采集设置','nav','maintenance-ingestion'):'')+'</section>';
+  return '<section class="notice section-gap"><h3>持续采集</h3><p>'+(collection.supported?'已提供此来源的固定官方适配 · '+(collection.enabled?'管理员已启用':'尚未启用'):'尚未接入持续采集')+'</p>'+(state.me.role==='admin'&&isMaintenancePage()?linkButton('查看自动采集设置','nav','maintenance-ingestion'):'')+'</section>';
 }
 function relationDetails(s){
   const outgoing=(s.relationships||[]).map(r=>({label:relationLabels[r.type],id:r.target_id,evidence:r.evidence,checked_on:r.checked_on,owner:s.id}));
   const incoming=(s.related_from||[]).map(r=>({label:inverseRelationLabels[r.type],id:r.source_id,evidence:r.evidence,checked_on:r.checked_on,owner:r.source_id}));
-  return `<section class="detail-section"><h3>机构关系</h3>${[...outgoing,...incoming].map(r=>`<div class="relation-detail"><strong>${esc(r.label)}</strong><div>${sourceName(r.id)}</div>${evidenceHtml(r.evidence)}<div class="between small muted"><span>依据核查日期：${esc(r.checked_on||'未登记')}</span>${linkButton('编辑关系起点','edit-source',r.owner,'link-button')}</div></div>`).join('')||'<p class="small muted">尚无已登记的机构关系，可在编辑来源时补充依据。</p>'}</section>`;
+  return `<section class="detail-section"><h3>机构关系</h3>${[...outgoing,...incoming].map(r=>`<div class="relation-detail"><strong>${esc(r.label)}</strong><div>${sourceName(r.id)}</div>${evidenceHtml(r.evidence)}<div class="between small muted"><span>依据核查日期：${esc(r.checked_on||'未登记')}</span>${linkButton('编辑关系起点','edit-source',r.owner,'link-button')}</div></div>`).join('')||'<p class="small muted">尚未关联</p>'}</section>`;
 }
 function sourceHref(id){
   const page=state.page==='maintenance-sources'?'maintenance-sources':'sources';
@@ -93,11 +93,11 @@ async function sourcePage(id){
 async function sourceContentSection(s,key,label,page=Number(state.params.get('content_'+key)||1),preview=false){
   const query=new URLSearchParams({source:s.id,source_section:key,size:12,page});
   const d=await api('/api/records?'+query);
-  if(preview&&d.total===0)return `<section class="source-content-empty" data-source-content="${key}" data-label="${label}"><h4 id="source-${key}">${label} <span class="muted">0 份</span></h4>${key==='translations'?linkButton(icon('plus')+' 导入目录译稿','new-source-translation',s.id,'button primary tiny'):''}</section>`;
-  return `<section class="detail-section source-content-section" data-source-content="${key}" data-label="${label}"><div class="between wrap"><h3 id="source-${key}">${label}</h3>${key==='translations'?linkButton(icon('plus')+' 导入目录译稿','new-source-translation',s.id,'button primary tiny'):''}</div><p class="small muted">当前可阅读 ${d.total} 份${key==='associated'?' · 仅表示已登记的一般关联':key==='outputs'?' · 中心成果，与该来源的公开作品分别保存':''}</p><div class="source-content-list">${d.items.map(r=>`<article><div class="row wrap">${typeBadge(r.kind)}<span class="muted">${esc(r.coverage||r.published_on)}</span>${r.has_attachment?'<span class="badge neutral">有附件</span>':''}</div>${linkButton(esc(r.title),'detail',r.id,'title-button')}<p class="small muted">${esc(r.author_name||r.authors||'署名待补充')} · 版本 ${r.version}</p></article>`).join('')||'<p class="muted">当前尚无可阅读的已收录内容；这不表示该对象没有成果。</p>'}</div>${d.total>d.size?`<div class="pagination"><button class="button tiny" data-action="source-content-page" data-key="${key}" data-id="${d.page-1}" ${d.page<=1?'disabled':''}>上一页</button><span>第 ${d.page} / ${Math.ceil(d.total/d.size)} 页</span><button class="button tiny" data-action="source-content-page" data-key="${key}" data-id="${d.page+1}" ${d.page*d.size>=d.total?'disabled':''}>下一页</button></div>`:''}</section>`;
+  if(d.total===0)return `<section class="source-content-empty" data-source-content="${key}" data-label="${label}"><h4 id="source-${key}">${label} <span class="muted">0 份</span></h4>${key==='translations'?linkButton(icon('plus')+' 导入目录译稿','new-source-translation',s.id,'button primary tiny'):''}</section>`;
+  return `<section class="detail-section source-content-section" data-source-content="${key}" data-label="${label}"><div class="between wrap"><h3 id="source-${key}">${label}</h3>${key==='translations'?linkButton(icon('plus')+' 导入目录译稿','new-source-translation',s.id,'button primary tiny'):''}</div><p class="small muted">当前可阅读 ${d.total} 份</p><div class="source-content-list">${d.items.map(r=>`<article><div class="row wrap">${typeBadge(r.kind)}<span class="muted">${esc(r.coverage||r.published_on)}</span>${r.has_attachment?'<span class="badge neutral">有附件</span>':''}</div>${linkButton(esc(r.title),'detail',r.id,'title-button')}<p class="small muted">${esc(r.author_name||r.authors||'署名待补充')} · 版本 ${r.version}</p></article>`).join('')||'<p class="muted">尚未关联</p>'}</div>${d.total>d.size?`<div class="pagination"><button class="button tiny" data-action="source-content-page" data-key="${key}" data-id="${d.page-1}" ${d.page<=1?'disabled':''}>上一页</button><span>第 ${d.page} / ${Math.ceil(d.total/d.size)} 页</span><button class="button tiny" data-action="source-content-page" data-key="${key}" data-id="${d.page+1}" ${d.page*d.size>=d.total?'disabled':''}>下一页</button></div>`:''}</section>`;
 }
 async function sourceProfile(s,preview=false,requested=s.id){
-  const common=detailPair('来源研究覆盖范围',esc(s.research_scope))+detailPair('稳定编号',esc(s.id));
+  const common=detailPair('来源研究覆盖范围',esc(s.research_scope));
   let fields='',relations='',evidence='';
   if(isInstitution(s)){
     fields=detailPair('机构类型',s.institution_types.map(t=>esc(institutionTypes[t])).join(' / '))+detailPair('机构所在地',esc(s.location))+detailPair('机构国家',esc((s.country_labels||[]).join(' / ')));
@@ -105,20 +105,19 @@ async function sourceProfile(s,preview=false,requested=s.id){
     relations=relationDetails(s)+await bylineWorksSection('institution',s.id)+await employmentSection(s.id,true)+await institutionAffiliationsSection(s.id);
   }else if(isPublication(s)){
     fields=detailPair('主办机构',sourceName(s.host_id))+detailPair('出版机构',sourceName(s.publisher_id))+detailPair('主办方国别',esc(countryText(s)))+detailPair('出版方国家（另记）',esc(s.publisher_countries.join(' / ')))+detailPair('ISSN',esc(s.issn));
-    evidence=`<section class="detail-section"><h4>主办国别的依据</h4><p class="small">${s.national_status==='recorded'?'根据下列既有登记归类；不等同中心已核对。':esc(s.country_gaps.join('；'))}</p>${evidenceHtml(s.host_evidence)}${s.country_basis.map(h=>`<div class="relation-detail">${sourceName(h.id)} · ${esc(h.countries.join(' / ')||'国家待确认')}${evidenceHtml(h.evidence)}</div>`).join('')}</section>`;
+    evidence=`<section class="detail-section"><h4>主办国别的依据</h4><p class="small">${s.national_status==='recorded'?'已登记主办国别':esc(s.country_gaps.join('；'))}</p>${evidenceHtml(s.host_evidence)}${s.country_basis.map(h=>`<div class="relation-detail">${sourceName(h.id)} · ${esc(h.countries.join(' / ')||'国家待确认')}${evidenceHtml(h.evidence)}</div>`).join('')}</section>`;
     if(s.kind==='journal'){fields+=detailPair('国际办刊定位',esc(internationalLabels[s.international_status]));evidence+=`<section class="detail-section"><h4>国际定位依据</h4>${evidenceHtml(s.international_evidence)}</section>`;}
   }
   const publications=(s.related||[]).map(x=>linkButton(esc(x.name),'source-detail',x.id,'detail-link')).join('');
   if(publications)relations+=`<section class="detail-section"><h4>主办或出版的刊物</h4>${publications}</section>`;
   const contentSections=s.kind==='portal'?[]:await Promise.all([['published',isInstitution(s)?'机构发布资料':'刊物刊载资料'],['associated','一般关联资料'],['translations','目录译稿'],['outputs','中心成果']].map(([key,label])=>sourceContentSection(s,key,label,undefined,preview)));
-  const content=contentSections.join('')+(preview&&contentSections.some(section=>section.includes('class="source-content-empty"'))?'<p class="small muted source-empty-note">0 份仅表示当前没有可阅读的已收录内容，不表示该对象没有成果。一般关联仅表示已登记关联；中心成果与来源的公开作品分别保存。</p>':'');
+  const content=contentSections.join('');
   const notes=isInstitution(s)||s.kind==='journal'?await noteSubjectProfile(isInstitution(s)?'institution':'journal',s.id,Number(state.params.get('note_page')||1)):'';
-  const items=[{id:'source-introduction',label:'来源介绍'},{id:'source-information',label:'来源信息'}];
-  if(relations)items.push({id:'source-relations',label:'关系与作品'});
+  const items=[{id:'source-introduction',label:'来源介绍'}];
   if(content)items.push({id:'source-content',label:'来源内容'});
   if(notes)items.push({id:'source-notes',label:'研究笔记'});
-  items.push({id:'source-evidence',label:'依据与核查'});
-  return `<article class="source-profile ${preview?'source-preview':'source-page'}" data-section-scope>${preview?(s.kind==='portal'?'':`<a class="back-link" href="${sourceHref(s.id)}">打开完整档案 ${icon('arrow')}</a>`):`<a class="back-link" data-action="source-directory-back" href="#${state.page==='maintenance-sources'?'maintenance-sources':'sources'}?${esc(parameters({id:'',work:'',note_page:'',content_published:'',content_associated:'',content_translations:'',content_outputs:''}))}">← 返回来源目录</a>`}${requested!==s.id?`<p class="notice">旧编号 ${esc(requested)} 已合并至当前档案 ${esc(s.id)}。${linkButton('查看合并前内容','view-archived',requested,'link-button').replace('data-id=','data-type="source" data-id=')}</p>`:''}${state.params.get('work')?linkButton('返回资料','byline-back',state.params.get('work')):state.bylineSourceReturn?.id===s.id?linkButton('返回资料','byline-back',state.bylineSourceReturn.record):''}<header class="source-profile-heading"><div class="row wrap"><span class="badge blue">${sourceLabel(s)}</span>${badge(s.status)}<span class="small muted">版本 ${s.version}</span></div><${preview?'h2':'h1'} class="detail-title">${esc(s.name)}</${preview?'h2':'h1'}>${s.original_name?.trim()&&s.original_name.trim()!==s.name.trim()?`<p class="original-title">${esc(s.original_name)}</p>`:''}<div class="detail-actions source-main-actions">${safeUrl(s.website)?externalLink(s.website,'官方网站'):''}${safeUrl(s.catalogue_url)?externalLink(s.catalogue_url,'资料目录'):''}${linkButton(icon('edit')+' 编辑来源','edit-source',s.id,'button primary tiny')}${isInstitution(s)||isPublication(s)?'<button type="button" class="button tiny" data-archive-source="'+esc(s.id)+'">AI补全</button>':''}${s.discovery_supported?'<button type="button" class="button tiny" data-discovery-start="'+esc(s.id)+'">发现近期资料</button>':''}</div><details class="source-maintenance"><summary>历史与维护</summary><div class="detail-actions">${linkButton(icon('clock')+' 修改历史','history','source:'+s.id)}${state.me.role==='admin'&&isMaintenancePage()?linkButton('整理重复来源','duplicates','source'):''}${state.me.role==='admin'&&isMaintenancePage()?linkButton('标记已核对','verify','source:'+s.id,'button tiny'):''}</div></details></header>${sectionNavigation(items,'来源章节')}<section class="source-profile-group source-introduction"><h3 id="source-introduction">来源介绍</h3>${s.introduction_html?`<div class="rich-prose">${readRich(s.introduction_html)}</div>`:'<p class="muted">介绍待补充，可由中心成员共同维护。</p>'}${s.aliases?`<p class="prose"><strong>其他名称：</strong>${esc(s.aliases)}</p>`:''}</section><section class="source-profile-group"><h3 id="source-information">来源信息</h3><dl class="detail-grid">${fields}${common}</dl></section>${relations?`<section class="source-profile-group source-profile-relations"><h3 id="source-relations">关系与作品</h3>${relations}</section>`:''}${content?`<section class="source-profile-group"><h3 id="source-content">来源内容</h3>${content}</section>`:''}${notes.replace('<h2>','<h3 id="source-notes">').replace('</h2>','</h3>')}<section class="source-profile-group source-profile-evidence"><h3 id="source-evidence">依据与核查</h3>${evidence}${reviewPanel(s)}${sourceCollectionStatus(s)}<details class="section-gap"><summary>原始分类、备注与上游核查信息</summary><dl>${detailPair('原始分类',esc(s.classification))}${detailPair('旧国别登记',esc(s.country))}</dl><p class="prose">${esc(s.notes||'无原始备注')}</p><p class="prose">${esc(s.upstream_status||'无上游核查状态')}</p><p class="small muted">中文工作译名未经审定；上游核验不等于中心已核对。</p></details>${typeof archivedLinks==='function'?archivedLinks('source',s):''}</section></article>`;
+
+  return `<article class="source-profile ${preview?'source-preview':'source-page'}" data-section-scope>${preview?(s.kind==='portal'?'':`<a class="back-link" href="${sourceHref(s.id)}">打开完整档案 ${icon('arrow')}</a>`):`<a class="back-link" data-action="source-directory-back" href="#${state.page==='maintenance-sources'?'maintenance-sources':'sources'}?${esc(parameters({id:'',work:'',note_page:'',content_published:'',content_associated:'',content_translations:'',content_outputs:''}))}">← 返回来源目录</a>`}${requested!==s.id?`<p class="notice">旧编号 ${esc(requested)} 已合并至当前档案 ${esc(s.id)}。${linkButton('查看合并前内容','view-archived',requested,'link-button').replace('data-id=','data-type="source" data-id=')}</p>`:''}${state.params.get('work')?linkButton('返回资料','byline-back',state.params.get('work')):state.bylineSourceReturn?.id===s.id?linkButton('返回资料','byline-back',state.bylineSourceReturn.record):''}<header class="source-profile-heading"><div class="row wrap"><span class="badge blue">${sourceLabel(s)}</span>${badge(s.status)}<span class="small muted">版本 ${s.version}</span></div><${preview?'h2':'h1'} class="detail-title">${esc(s.name)}</${preview?'h2':'h1'}>${s.original_name?.trim()&&s.original_name.trim()!==s.name.trim()?`<p class="original-title">${esc(s.original_name)}</p>`:''}<div class="detail-actions source-main-actions">${safeUrl(s.website)?externalLink(s.website,'官方网站'):''}${safeUrl(s.catalogue_url)?externalLink(s.catalogue_url,'资料目录'):''}${isInstitution(s)||isPublication(s)?'<button type="button" class="button tiny" data-archive-source="'+esc(s.id)+'">AI补全</button>':''}${s.discovery_supported?'<button type="button" class="button tiny" data-discovery-start="'+esc(s.id)+'">发现近期资料</button>':''}</div><details class="source-maintenance"><summary>编辑与历史</summary><div class="detail-actions">${linkButton(icon('edit')+' 编辑来源','edit-source',s.id,'button primary tiny')}${linkButton(icon('clock')+' 修改历史','history','source:'+s.id)}${state.me.role==='admin'&&isMaintenancePage()?linkButton('整理重复来源','duplicates','source'):''}${state.me.role==='admin'&&isMaintenancePage()?linkButton('标记已核对','verify','source:'+s.id,'button tiny'):''}</div></details></header>${sectionNavigation(items,'来源章节')}<section class="source-profile-group source-introduction"><h3 id="source-introduction">来源介绍</h3>${s.introduction_html?`<div class="rich-prose">${readRich(s.introduction_html)}</div>`:'<p class="muted">暂无介绍</p>'}${s.aliases?`<p class="prose"><strong>其他名称：</strong>${esc(s.aliases)}</p>`:''}</section>${content?`<section class="source-profile-group source-reading-content"><h3 id="source-content">来源内容</h3>${content}</section>`:''}<details class="source-profile-group source-information"><summary id="source-information">来源信息</summary><dl class="detail-grid">${fields}${common}</dl></details>${relations?`<details class="source-profile-group source-profile-relations"><summary id="source-relations">关系与作品</summary>${relations}</details>`:''}${notes.replace('<h2>','<h3 id="source-notes">').replace('</h2>','</h3>')}<details class="source-profile-group source-profile-evidence"><summary id="source-evidence">依据与核查</summary>${evidence}${reviewPanel(s)}${sourceCollectionStatus(s)}<details class="section-gap"><summary>原始分类、备注与上游核查信息</summary><dl>${detailPair('稳定编号',esc(s.id))}${detailPair('原始分类',esc(s.classification))}${detailPair('旧国别登记',esc(s.country))}</dl><p class="prose">${esc(s.notes||'无原始备注')}</p><p class="prose">${esc(s.upstream_status||'无上游核查状态')}</p></details>${typeof archivedLinks==='function'?archivedLinks('source',s):''}</details></article>`;
 }
 let relationRowCounter=0;
 function relationEditor(r={}){
@@ -230,3 +229,30 @@ function restoreSourceDetail(){
   if(['sources','maintenance-sources'].includes(state.page)&&state.params.get('id')===state.sourceProfile?.requested)state.detail={type:'source',data:state.sourceProfile.data};
   else if(['sources','maintenance-sources'].includes(state.page)&&!state.params.has('id'))state.detail=null;
 }
+
+// Keep a quick preview intact while reading one of its materials.
+let sourceReadingReturn=null;
+document.addEventListener('click',event=>{
+  const work=event.target.closest('.source-preview [data-action="detail"]');
+  if(work)sourceReadingReturn={overlay:work.closest('.overlay'),focus:work,detail:state.detail,account:state.me?.id,hash:location.hash};
+  else if(event.target.closest('#modal-root [data-action="close"]')||event.target.classList.contains('overlay'))sourceRestoreReadingPreview(event);
+},true);
+document.addEventListener('keydown',event=>{
+  if(event.key==='Escape'&&!event.isComposing&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&!event.shiftKey)sourceRestoreReadingPreview(event);
+},true);
+function sourceRestoreReadingPreview(event){
+  const previous=sourceReadingReturn,root=document.querySelector('#modal-root');
+  if(!previous)return;
+  if(!root.querySelector('.ux-reading-article')){sourceReadingReturn=null;return;}
+  if(previous.account!==state.me?.id||previous.hash!==location.hash){sourceReadingReturn=null;return;}
+  event.preventDefault();event.stopImmediatePropagation();
+  root.querySelector('.ux-reader')?._readingProgressCleanup?.();modalGeneration++;
+  root.replaceChildren(previous.overlay);state.detail=previous.detail;state.sourcePreviewId=previous.detail.data.id;
+  previous.focus.focus({preventScroll:true});sourceReadingReturn=null;
+  if(typeof continuityClosed==='function')continuityClosed();
+}
+document.addEventListener('library:reader-rendered',event=>{
+  if(!sourceReadingReturn||!event.detail.root.closest('#modal-root'))return;
+  const close=document.querySelector('#modal-root [data-action="close"]');
+  if(close){close.setAttribute('aria-label','返回来源预览');close.title='返回来源预览';}
+});
