@@ -82,6 +82,9 @@ def source(db, sid):
 
 
 def current_authority(db, job):
+    if job['target_type'] == 'person':
+        from .person_profile_suggestions import current_authority as person_authority
+        return person_authority(db, job)
     if job['target_type'] == 'record':
         from .author_suggestions import current_authority as record_authority
         return record_authority(db, job)
@@ -373,6 +376,9 @@ def candidate_patch(db, base, item, document):
 
 
 def execute(db, job):
+    if job['target_type'] == 'person':
+        from .person_profile_suggestions import execute as execute_person
+        return execute_person(db, job)
     if job['target_type'] == 'record':
         from .author_suggestions import execute as execute_authors
         return execute_authors(db, job)
@@ -551,7 +557,7 @@ def projection(db, sid):
     return {'target_type': 'source', 'target_id': sid, 'name': row['name'], 'version': row['version'], 'jobs': jobs, 'candidates': candidates, 'events': events}
 
 
-def export_projection(db, source_ids, record_ids=(), actor=None):
+def export_projection(db, source_ids, record_ids=(), actor=None, person_ids=()):
     """Caller supplies already-authorized source identities; never infer record/person access."""
     items, materials = [], {}
     for sid in source_ids:
@@ -566,6 +572,11 @@ def export_projection(db, source_ids, record_ids=(), actor=None):
         authors = export_authors(db, actor, record_ids)
         items.extend(authors['targets'])
         materials.update({m['id']: m for m in authors['materials']})
+    if person_ids:
+        from .person_profile_suggestions import export_projection as export_people
+        persons = export_people(db, person_ids)
+        items.extend(persons['targets'])
+        materials.update({m['id']: m for m in persons['materials']})
     return {'format': 'archive-suggestions-v1', 'targets': items, 'materials': list(materials.values())}
 
 
@@ -573,6 +584,10 @@ def validate_backup(db):
     """Validate actual bytes, target/version binding and decision history, not only SQL FKs."""
     try:
         for row in db.execute('SELECT * FROM archive_evidence'):
+            if row['target_type'] == 'person':
+                from .person_profile_suggestions import validate_evidence as validate_person_evidence
+                validate_person_evidence(db, row)
+                continue
             if row['target_type'] == 'record':
                 from .author_suggestions import validate_evidence
                 validate_evidence(db, row)
@@ -585,6 +600,10 @@ def validate_backup(db):
                 raise ValueError('实际响应或可读片段校验失败。')
             datetime.fromisoformat(row['fetched_at'])
         for row in db.execute('SELECT * FROM archive_jobs'):
+            if row['target_type'] == 'person':
+                from .person_profile_suggestions import validate_job as validate_person_job
+                validate_person_job(db, row)
+                continue
             if row['target_type'] == 'record':
                 from .author_suggestions import validate_job
                 validate_job(db, row)
@@ -618,13 +637,16 @@ def validate_backup(db):
             for key in ['created_at','next_run','finished_at','lease_until']:
                 if row[key]: datetime.fromisoformat(row[key])
         for row in db.execute('SELECT * FROM archive_candidates'):
-            if row['target_type'] == 'record':
+            if row['target_type'] == 'person':
+                from .person_profile_suggestions import check_candidate as check_person_candidate
+                job, unused = check_person_candidate(db, row)
+            elif row['target_type'] == 'record':
                 from .author_suggestions import check_candidate as check_author_candidate
                 job, unused = check_author_candidate(db, row)
             else:
                 job, unused = check_candidate(db, row)
             if (row['status'] not in {'pending','unmatched','adopted','rejected','invalidated'}
-                    or (row['target_type'] != 'record' and json.loads(row['before_json']) != field_before(json.loads(job['base_json']), row['field']))):
+                    or (row['target_type'] == 'source' and json.loads(row['before_json']) != field_before(json.loads(job['base_json']), row['field']))):
                 raise ValueError('候选原值或处理状态无效。')
             if row['status'] in {'adopted','rejected'} and (not row['decided_at'] or not row['decided_by']
                     or not db.execute('SELECT 1 FROM archive_events WHERE candidate_id=? AND action=? AND actor_id=? AND created_at=?',
