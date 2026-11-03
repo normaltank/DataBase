@@ -36,7 +36,9 @@ async function savedSearchLibraryPage(render){
   try{const root=document.createElement('div');root.innerHTML=await render();const tools=root.querySelector('[data-library-tools]');if(tools)tools.insertAdjacentHTML('beforeend',savedSearchToolbar());else root.insertAdjacentHTML('afterbegin',savedSearchToolbar());return root.innerHTML;}
   catch(error){
     if(epoch!==savedSearchUI.epoch||account!==state.me?.id||load!==state.loadId)return '';
-    return savedSearchToolbar()+'<h1>检索范围暂不可用</h1><div class="notice error">'+esc(error.message)+' 原条件已保留，请调整来源或资料夹后重新保存。</div>'+linkButton('调整条件','saved-adjust');
+    const conditions=savedSearchConditions(),message=error.details?.error;
+    const unavailable=error.status===404&&((conditions.source&&message==='来源不存在。')||(conditions.collection&&message==='专题不存在或没有访问权限。'));
+    return savedSearchToolbar()+'<h1>'+(unavailable?'检索范围暂不可用':'暂时无法读取资料')+'</h1><div class="notice error" role="alert">'+esc(error.message)+(unavailable?' 原条件已保留，请调整来源或资料夹后重新保存。':' 原条件已保留，请重新读取。')+'</div>'+linkButton('保留条件，重新读取','saved-retry','','button primary')+(unavailable?linkButton('调整条件','saved-adjust'):'');
   }
 }
 function savedSearchDialog(title,body){
@@ -65,6 +67,7 @@ document.addEventListener('click',async event=>{
   const action=button.dataset.action,id=button.dataset.id,account=state.me?.id;
   try{
     if(action==='saved-create'){savedSearchUI.current=savedSearchConditions();savedSearchNameForm();}
+    else if(action==='saved-retry'){button.disabled=true;await route();}
     else if(action==='saved-manage'){if(!document.querySelector('[data-saved-form]'))savedSearchUI.current=savedSearchConditions();await savedSearchManager();}
     else if(action==='saved-manager-page')await savedSearchManager(savedSearchUI.query,Number(button.dataset.page));
     else if(action==='saved-open'){if(closeModal()===false)return;savedSearchUI.epoch++;go('library',{saved_search:id});}
