@@ -70,7 +70,9 @@ class PublicPreviewTests(unittest.TestCase):
             def request(path, raw=False):
                 response = client.get(path)
                 self.assertEqual(response.status_code, 200, response.json if response.is_json else path)
-                return response.data if raw else response.json
+                value = response.data if raw else response.json
+                response.close()
+                return value
             return SimpleNamespace(request=request)
         verify_seed(self.data.parent, adapter(self.reader), adapter(admin))
         self.assertEqual(len(verify_public_batch(adapter(self.reader), adapter(admin), self.seed)), 56)
