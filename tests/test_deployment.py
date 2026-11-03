@@ -8,9 +8,47 @@ from pathlib import Path
 import subprocess
 import sys
 import zipfile
+import sqlite3
+import hashlib
 
 
 class DeploymentTests(unittest.TestCase):
+    def test_production_upgrades_and_restores_researcher_only_v1_without_demo_accounts(self):
+        from platform_app import store
+        from platform_app.maintenance import restore_backup
+        from werkzeug.security import generate_password_hash
+        with tempfile.TemporaryDirectory() as tmp:
+            data = Path(tmp) / 'legacy-production'
+            (data / 'uploads').mkdir(parents=True)
+            raw = b'Synthetic legacy original.\n'
+            stored = 'a'*32 + '.txt'
+            (data / 'uploads' / stored).write_bytes(raw)
+            with closing(sqlite3.connect(data / 'platform.sqlite3')) as db, db:
+                db.executescript(store.SCHEMA)
+                db.execute("INSERT INTO settings VALUES ('schema_version','1')")
+                db.execute("INSERT INTO users VALUES ('researcher','researcher','原研究员',?,'researcher',1)",
+                           (generate_password_hash('Temporary-member-only!42'),))
+                db.execute("INSERT INTO sources(id,name,kind,created_at,updated_at) VALUES ('BASE-INSTITUTE','Synthetic base institution','institution','2020','2020')")
+                db.execute("INSERT INTO records(id,kind,title,source_id,owner_id,attachment_ids,created_at,updated_at) VALUES ('BASE-ORIGINAL','report','Synthetic legacy work','BASE-INSTITUTE','researcher','[\"base-file\"]','2020','2020')")
+                db.execute("INSERT INTO attachments VALUES ('base-file','BASE-ORIGINAL','base.txt',?,?,?,'2020')",
+                           (stored, len(raw), hashlib.sha256(raw).hexdigest()))
+                db.execute("INSERT INTO revisions(target_type,target_id,action,actor_id,created_at,snapshot_json) VALUES ('record','BASE-ORIGINAL','Original human history','researcher','2020','{}')")
+            store.initialize(data, mode='production')
+            with closing(store.connect(data / 'platform.sqlite3')) as db:
+                backup = Path(db.execute("SELECT value FROM settings WHERE key='source_catalog_migration_backup'").fetchone()[0])
+            restored = restore_backup(backup, Path(tmp) / 'restored-production')
+            store.initialize(restored, mode='production')
+            for directory in (data, restored):
+                with closing(store.connect(directory / 'platform.sqlite3')) as db:
+                    self.assertEqual(db.execute('PRAGMA foreign_key_check').fetchall(), [])
+                    self.assertEqual(db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0], str(store.CURRENT_SCHEMA_VERSION))
+                    self.assertEqual([r[0] for r in db.execute("SELECT username FROM users WHERE role<>'system'")], ['researcher'])
+                    self.assertEqual(db.execute("SELECT actor_id FROM revisions WHERE action='Original human history'").fetchone()[0], 'researcher')
+                    actors = list(db.execute("SELECT u.role,u.active,u.password_hash FROM revisions r JOIN users u ON u.id=r.actor_id WHERE r.target_type='source'"))
+                    self.assertEqual([tuple(row) for row in actors], [('system', 0, '!'), ('system', 0, '!')])
+                    self.assertEqual(db.execute("SELECT title FROM records WHERE id='BASE-ORIGINAL'").fetchone()[0], 'Synthetic legacy work')
+                self.assertEqual((directory / 'uploads' / stored).read_bytes(), raw)
+
     def test_production_member_password_guard_and_persisted_no_demo_initialization(self):
         from platform_app.deployment import initialize_admin, application
         from platform_app import store
