@@ -453,6 +453,10 @@ def run_pending(data_dir, limit=1, stopping=lambda: False):
                         db.execute("UPDATE ingestion_runs SET status=?,stage=?,finished_at=?,error=?,lease_until='' WHERE id=?",('partial' if failed or backoff else 'succeeded','entries' if backoff else 'done',store.now(),error,run['id']))
                         coverage = db.execute('SELECT coverage_json FROM ingestion_runs WHERE id=?',(run['id'],)).fetchone()[0]
                         coverage_data = json.loads(coverage)
+                        # Manual HTTP receipts outlive a worker run and its response.
+                        previous_coverage = json.loads(db.execute('SELECT coverage_json FROM ingestion_sources WHERE source_id=?', (run['source_id'],)).fetchone()[0])
+                        if previous_coverage.get('manual_requests'):
+                            coverage_data['manual_requests'] = previous_coverage['manual_requests']
                         if backoff:
                             coverage_data['network_backoff'] = backoff
                         db.execute('''UPDATE ingestion_sources SET next_run=?,last_success=?,last_error=?,coverage_json=?,cursor=? WHERE source_id=?''',
@@ -482,12 +486,31 @@ def run_pending(data_dir, limit=1, stopping=lambda: False):
         db.close()
 
 
+def manual_request_key(data, actor_id, action):
+    if set(data) - {'request_id'}:
+        abort(400, '固定来源运行只接受可选的请求标识。')
+    if 'request_id' not in data:
+        return None
+    request_id = data['request_id']
+    if not isinstance(request_id, str) or not 1 <= len(request_id) <= 100:
+        abort(400, '请求标识须为1—100字符。')
+    return json.dumps([actor_id, action, request_id], ensure_ascii=False)
+
+
+def remember_manual_request(db, config, key):
+    if key is None:
+        return
+    coverage = json.loads(config['coverage_json'])
+    coverage.setdefault('manual_requests', {})[key] = True
+    db.execute('UPDATE ingestion_sources SET coverage_json=? WHERE source_id=?',
+               (json.dumps(coverage, ensure_ascii=False), config['source_id']))
+
+
 def register(app, ctx):
     @app.post('/api/sources/<sid>/ingestion/run')
     def queue_ingestion(sid):
         ctx.admin()
-        if ctx.body():
-            abort(400,'固定来源运行不接受额外参数。')
+        key = manual_request_key(ctx.body(), ctx.user()['id'], 'run')
         db = ctx.db()
         with db:
             db.execute('BEGIN IMMEDIATE')
@@ -495,16 +518,18 @@ def register(app, ctx):
             config = db.execute('SELECT * FROM ingestion_sources WHERE source_id=? AND enabled=1',(source['id'],)).fetchone()
             if not config:
                 abort(409,'请先启用来源。')
+            if key and key in json.loads(config['coverage_json']).get('manual_requests', {}):
+                return jsonify(configuration(db, source['id']))
             check_backoff(config)
             _queue_run(db,source['id'],store.now())
             db.execute('UPDATE ingestion_sources SET next_run=? WHERE source_id=?',(store.now(),source['id']))
+            remember_manual_request(db, config, key)
         return jsonify(configuration(db,source['id']))
 
     @app.post('/api/ingestion/runs/<run_id>/retry')
     def retry_ingestion(run_id):
         ctx.admin()
-        if ctx.body():
-            abort(400,'重跑不接受额外参数。')
+        key = manual_request_key(ctx.body(), ctx.user()['id'], 'retry:'+run_id)
         db = ctx.db()
         with db:
             db.execute('BEGIN IMMEDIATE')
@@ -514,6 +539,8 @@ def register(app, ctx):
             config = db.execute('SELECT * FROM ingestion_sources WHERE source_id=? AND enabled=1',(run['source_id'],)).fetchone()
             if not config:
                 abort(409,'来源已停用，请管理员重新启用。')
+            if key and key in json.loads(config['coverage_json']).get('manual_requests', {}):
+                return jsonify(configuration(db, run['source_id']))
             check_backoff(config)
             if run['status'] not in {'failed','partial'}:
                 abort(409,'仅失败或部分失败的任务可重跑；运行中任务将在租约到期后续作。')
@@ -521,6 +548,7 @@ def register(app, ctx):
                 abort(409,'此来源已有待运行或运行中任务。')
             db.execute("UPDATE ingestion_runs SET status='queued',stage=?,error='',finished_at='',lease_token='',lease_until='' WHERE id=?",
                 ('entries' if run['feed_bytes'] is not None else 'feed',run_id))
+            remember_manual_request(db, config, key)
         return jsonify(configuration(db,run['source_id']))
 
     @app.get('/api/records/<rid>/snapshots/<snapshot_id>')
@@ -547,9 +575,12 @@ def register(app, ctx):
     @app.get('/api/ingestion')
     def ingestion_status():
         ctx.admin()
-        rows = [r for r in ctx.db().execute('SELECT * FROM sources WHERE merged_into IS NULL') if discovery.supported(r)]
+        sources = list(ctx.db().execute('SELECT * FROM sources WHERE merged_into IS NULL'))
+        rows = [r for r in sources if discovery.supported(r)]
         heartbeat = ctx.db().execute("SELECT value FROM settings WHERE key='ingestion_worker_heartbeat'").fetchone()
-        return jsonify(items=[dict(name=r['name'], **configuration(ctx.db(), r['id'])) for r in rows],worker_heartbeat=heartbeat[0] if heartbeat else '')
+        return jsonify(items=[dict(name=r['name'], **configuration(ctx.db(), r['id'])) for r in rows],
+                       unavailable=[dict(source_id=r['id'], name=r['name'], reason='尚未接入固定采集，不能启用或安排巡检。') for r in sources if not discovery.supported(r)],
+                       worker_heartbeat=heartbeat[0] if heartbeat else '')
 
     @app.get('/api/sources/<sid>/ingestion')
     def ingestion_configuration(sid):
