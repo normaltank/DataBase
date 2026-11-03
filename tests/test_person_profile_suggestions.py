@@ -55,6 +55,10 @@ class PersonProfileSuggestionsTests(unittest.TestCase):
         queued = self.queue()
         self.assertEqual(queued.status_code, 201, queued.json)
         self.assertEqual(self.queue().json['id'], queued.json['id'])
+        status = self.get('/api/admin/ai', user='admin')
+        task = next(t for t in status['tasks'] if t.get('archive_job_id') == queued.json['id'])
+        self.assertEqual((task['target_type'], task['target_id'], task['task'], task['title']),
+                         ('person', self.pid, 'person-profile-v1', 'Ada Example'))
         state = self.process()
         self.assertEqual(state['jobs'][0]['status'], 'ready', state['jobs'])
         document = state['materials'][0]
@@ -77,6 +81,9 @@ class PersonProfileSuggestionsTests(unittest.TestCase):
         self.assertEqual(export.status_code, 200, export.json)
         with zipfile.ZipFile(io.BytesIO(export.data)) as bundle:
             payload = json.loads(bundle.read('content.json'))
+            offline = bundle.read(payload['people'][0]['path']).decode()
+        self.assertIn(self.bio.strip(), offline)
+        self.assertIn('机器建议', offline)
         person_targets = [t for t in payload['archive_suggestions']['targets'] if t['target_type'] == 'person']
         self.assertEqual(person_targets[0]['candidates'][0]['status'], 'adopted')
         from platform_app.maintenance import create_backup, restore_backup
@@ -282,6 +289,22 @@ class PersonProfileSuggestionsTests(unittest.TestCase):
             state = self.process()
         self.assertIn('404', state['jobs'][0]['reason'])
         self.assertEqual(self.get('/api/admin/ai', user='admin')['attempts'], [])
+
+    def test_same_employment_from_two_selected_pages_is_not_inserted_twice(self):
+        self.prepare()
+        self.source('Synthetic University')
+        self.page = '<h1>Ada Example</h1><article><p>Ada Example is a researcher at Synthetic University.</p><p>She completed her doctorate in 2009. All other dates are unknown.</p></article>'
+        archive_fixture.Provider.transform = lambda output, value: {'suggestions': [{'field': 'employment', **value['employment_facts'][0]}]}
+        self.queue('first-page')
+        self.process()
+        queued = self.call(self.prefix, {'version': 1, 'url': 'https://university.example/ada',
+            'identity_confirmation': True, 'request_id': 'second-page'})
+        self.assertEqual(queued.status_code, 201)
+        state = self.process()
+        self.assertEqual(len(state['candidates']), 2)
+        self.assertEqual(self.decide(state).status_code, 400)
+        self.assertEqual(self.get('/api/people/' + self.pid + '/employments')['items'], [])
+        self.assertEqual(self.get('/api/people/' + self.pid)['version'], 1)
 
 
 if __name__ == '__main__':

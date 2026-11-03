@@ -476,6 +476,8 @@ def decide(ctx, pid, data):
                     institution = db.execute("SELECT * FROM sources WHERE id=? AND kind IN ('institution','think_tank') AND merged_into IS NULL", (employment['institution_id'],)).fetchone()
                     if not institution or institution['version'] != employment['institution_version']:
                         abort(409, '任职机构身份或版本已变化，请重新取得建议。')
+                    if any(all(existing[k] == employment[k] for k in ['institution_id', 'role', 'start_date', 'end_date']) for existing in employments):
+                        abort(400, '同一任职经历请只选择一份建议。')
                     employments.append({k: employment[k] for k in ['institution_id', 'role', 'start_date', 'end_date']} |
                         {'evidence': candidate['quote'] + '\n' + document['url'] + '\nSHA256：' + document['sha256']})
                 if set(patch) & set(proposed):
