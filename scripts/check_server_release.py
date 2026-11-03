@@ -195,7 +195,7 @@ def check(package, evidence):
                     process.kill()
                     process.wait(timeout=5)
         (evidence / 'result.json').write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
-    print(json.dumps({'ok': True, 'evidence': str(evidence), 'checks': result['checks']}, ensure_ascii=False))
+    print(json.dumps({'ok': True, 'evidence': str(evidence), 'checks': result['checks']}, ensure_ascii=True))
 
 
 if __name__ == '__main__':

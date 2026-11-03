@@ -34,8 +34,8 @@ def lock(name, timeout=120):
     import msvcrt
     path = STATE / name
     with path.open('a+b') as handle:
-        handle.seek(0)
-        if not handle.read(1):
+        # Windows mandatory locks block reads of the owned byte, but not fstat.
+        if os.fstat(handle.fileno()).st_size == 0:
             handle.write(b'0')
             handle.flush()
         deadline = time.monotonic() + timeout

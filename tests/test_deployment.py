@@ -45,7 +45,7 @@ class DeploymentTests(unittest.TestCase):
                         str(backup), '--target', str(restored)], env=env, capture_output=True, timeout=30)
                     self.assertEqual(run.returncode, 0, run.stderr)
                     self.assertEqual(run.stdout.decode(encoding).strip(),
-                                     str(restored).encode(encoding, 'backslashreplace').decode(encoding))
+                                     str(restored.resolve()).encode(encoding, 'backslashreplace').decode(encoding))
                     for name, content in expected.items():
                         self.assertEqual((restored / name).read_bytes(), content, name)
                     backed_up = subprocess.run([sys.executable, '-m', 'platform_app.maintenance', '--backup',

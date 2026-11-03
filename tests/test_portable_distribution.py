@@ -7,9 +7,70 @@ import tempfile
 import unittest
 import warnings
 import zipfile
+import os
+import shutil
+import time
 
 
 class PortableArchiveTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == 'nt', 'Portable process ownership uses Windows byte locks')
+    def test_portable_stop_waits_for_held_server_lock_and_delayed_release(self):
+        root = Path(__file__).resolve().parents[1]
+        helper = '''
+import importlib.util, sys, time
+from pathlib import Path
+path, action = Path(sys.argv[1]), sys.argv[2]
+spec = importlib.util.spec_from_file_location('synthetic_portable', path)
+launch = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(launch)
+with launch.lock('server.lock', timeout=0):
+    if action == 'hold':
+        (launch.STATE / 'held').touch()
+        while not (launch.STATE / 'release').exists():
+            time.sleep(.02)
+'''
+        with tempfile.TemporaryDirectory(prefix='portable-owned-lock-') as tmp:
+            copy = Path(tmp)
+            (copy / 'portable').mkdir()
+            state = copy / '.portable'
+            state.mkdir()
+            launch = copy / 'portable/launch.py'
+            shutil.copyfile(root / 'portable/launch.py', launch)
+            holder = subprocess.Popen([sys.executable, '-c', helper, str(launch), 'hold'],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            stop = None
+            try:
+                deadline = time.monotonic() + 15
+                while not (state / 'held').exists():
+                    self.assertIsNone(holder.poll(), 'lock holder exited before becoming ready')
+                    self.assertLess(time.monotonic(), deadline, 'lock holder did not become ready')
+                    time.sleep(.05)
+                with self.subTest(action='busy-probe'):
+                    busy = subprocess.run([sys.executable, '-c', helper, str(launch), 'probe'],
+                        capture_output=True, text=True, timeout=10)
+                    self.assertNotEqual(busy.returncode, 0)
+                    self.assertIn('This copy is busy', busy.stderr)
+                    self.assertEqual(busy.stderr.strip().splitlines()[-1],
+                                     'RuntimeError: This copy is busy. Wait and try again.')
+                stop = subprocess.Popen([sys.executable, '-I', '-B', str(launch), 'stop'],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                time.sleep(.8)
+                with self.subTest(action='wait-until-released'):
+                    self.assertIsNone(stop.poll(), 'stop must wait while this copy still owns its server lock')
+                (state / 'release').touch()
+                stdout, stderr = stop.communicate(timeout=15)
+                with self.subTest(action='stop-after-release'):
+                    self.assertEqual(stop.returncode, 0, stderr)
+                    self.assertIn('This portable copy is stopped', stdout)
+                holder.communicate(timeout=10)
+                self.assertEqual(holder.returncode, 0)
+            finally:
+                for child in (stop, holder):
+                    if child is not None:
+                        if child.poll() is None:
+                            child.kill()  # Only these synthetic children, never a recorded PID.
+                        child.communicate(timeout=10)
+
     def test_builder_checks_actual_html_introduction_before_runtime_download(self):
         root = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory(prefix='portable-intro-html-') as temporary:
