@@ -165,6 +165,13 @@ def restore_backup(archive_path, target_dir):
                     if referenced_ids & journal_files:
                         raise ValueError('交接原件不能同时归属不同业务。')
                     referenced_ids.update(journal_files)
+                from . import topic_handoffs
+                if int(version) >= topic_handoffs.SCHEMA_VERSION:
+                    topic_handoffs.validate_backup(db)
+                    direct_files = topic_handoffs.referenced_files(db)
+                    if len(direct_files) != len(set(direct_files)) or referenced_ids & set(direct_files):
+                        raise ValueError('材料原件不能重复归属。')
+                    referenced_ids.update(direct_files)
                 handoff_files.validate_backup(db, manifest, referenced_ids)
                 collaboration.validate_backup(db)
                 from . import topic_stages
