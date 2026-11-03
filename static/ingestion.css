@@ -15,8 +15,21 @@
 .acquisition-reading details{margin:14px 0}
 .acquisition-reading .reading-content{margin:16px 0}
 .ingestion-card h3{overflow-wrap:anywhere}
+.ingestion-batch{margin-top:16px;padding:14px;background:var(--surface-muted);border:1px solid var(--border);border-radius:8px}
+.ingestion-batch p:first-child{margin-top:0}
+.ingestion-batch [data-ingestion-summary]:empty,.ingestion-source [data-ingestion-result]:empty{display:none}
+.ingestion-select{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:6px 0;cursor:pointer;font-size:14px}
+.ingestion-select input{width:18px;height:18px;accent-color:var(--primary);flex:none}
+.ingestion-source h3{margin:0;flex:1 1 260px}
+.ingestion-source>.between{gap:8px 20px}
+.ingestion-batch .button,.ingestion-source .button{white-space:normal;min-height:42px}
+.ingestion-batch [data-ingestion-selected],.ingestion-source [data-ingestion-result]{overflow-wrap:anywhere}
+.ingestion-controls label{min-width:0;max-width:100%}
 @media(max-width:600px){
   .ingestion-controls{align-items:stretch;flex-direction:column}
   .ingestion-controls label,.ingestion-controls input[type=number]{width:100%}
   .ingestion-controls label:first-child{align-self:flex-start}
+  .ingestion-batch .row>.button{flex:1 1 140px}
+  .ingestion-source h3{flex-basis:100%}
+  .ingestion-select{width:100%}
 }
