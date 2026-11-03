@@ -3,7 +3,10 @@ import json
 import io
 from pathlib import Path
 import tempfile
+import sys
+from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 import zipfile
 
 from portable.demo_seed import call, login, seed
@@ -45,12 +48,34 @@ class PublicPreviewTests(unittest.TestCase):
         admin = login(self.app, 'admin')
         ai = admin.get('/api/admin/ai').json
         self.assertEqual(ai['attempts'], [])
-        self.assertEqual(ai['task_counts'], {})
+        self.assertEqual(ai['task_counts'], {'ready': 2})
+        self.assertEqual(ai['tasks'], [])
+        self.assertEqual((ai['held_units'], ai['charged_units'], ai['legacy_unknown']), (0, 0, 0))
+        self.assertFalse(ai['cap_units'])
         self.assertTrue(ai['paused'])
         self.assertFalse(ai['worker_heartbeat'])
+        self.assertFalse(ai['archive_worker_heartbeat'])
         self.assertFalse(admin.get('/api/ingestion').json['worker_heartbeat'])
+        examples = [self.reader.get('/api/people/' + pid + '/profile-suggestions').json for pid in self.seed['person_ids']]
+        self.assertEqual([j['status'] for example in examples for j in example['jobs']], ['ready', 'ready'])
+        self.assertTrue(all(json.loads(j['ai_json'])['synthetic'] and json.loads(j['ai_json'])['calls'] == 0
+                            for example in examples for j in example['jobs']))
+        self.assertTrue(all(job['calls'] == [] and job['attempts'] == 0 for detail in details for job in detail['translations']))
         workflow = self.reader.get('/api/collaboration/topics/' + self.seed['complete_topic'] + '/workflow').json
         self.assertEqual(workflow['assignments'][0]['status'], 'final')
+        # Exercise both release checker paths against this same offline app, without listeners.
+        with patch.object(sys, 'path', [str(Path(__file__).resolve().parents[1] / 'scripts'), *sys.path]):
+            from scripts.check_portable_preview import verify_seed, verify_public_batch
+        def adapter(client):
+            def request(path, raw=False):
+                response = client.get(path)
+                self.assertEqual(response.status_code, 200, response.json if response.is_json else path)
+                value = response.data if raw else response.json
+                response.close()
+                return value
+            return SimpleNamespace(request=request)
+        verify_seed(self.data.parent, adapter(self.reader), adapter(admin))
+        self.assertEqual(len(verify_public_batch(adapter(self.reader), adapter(admin), self.seed)), 56)
 
     def test_historical_excerpts_cannot_be_adopted_and_edits_do_not_relabel_history(self):
         rid = self.seed['public_batch']['article_ids'][7]

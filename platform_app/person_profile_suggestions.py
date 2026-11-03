@@ -37,7 +37,7 @@ class ProfileTree(HTMLParser):
     def handle_starttag(self, tag, attrs):
         if len(self.stack) > 128:
             raise ValueError('个人网页嵌套层次过深，未作为人物介绍处理。')
-        node = {'tag': tag, 'attrs': dict(attrs), 'children': []}
+        node = {'tag': tag, 'attrs': {key: value or '' for key, value in attrs}, 'children': []}
         self.stack[-1]['children'].append(node)
         self.nodes.append(node)
         if tag not in {'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'}:
@@ -207,8 +207,8 @@ def current_person(db, pid):
     return row
 
 
-def snapshot(db, pid):
-    row = dict(current_person(db, pid))
+def snapshot(db, pid, allow_merged=False):
+    row = dict(people.PersonProfiles(db, None, '.').get(pid) if allow_merged else current_person(db, pid))
     row['_employment_version'] = affiliations.Employments(db, None).version(pid)
     row['_employment_rows'] = [dict(r) for r in affiliations.Employments(db, None).rows(pid) if not r['removed_at']]
     row['_identity'] = archive.digest([dict(r) for r in db.execute(
@@ -492,7 +492,7 @@ def check_candidate(db, candidate):
 
 
 def projection(db, pid, allow_merged=False):
-    person = dict(people.PersonProfiles(db, None, '.').get(pid) if allow_merged else current_person(db, pid))
+    person = snapshot(db, pid, allow_merged)
     jobs = [dict(r) for r in db.execute("SELECT * FROM archive_jobs WHERE target_type='person' AND target_id=? ORDER BY rowid DESC", (pid,))]
     materials = []
     for row in db.execute("SELECT * FROM archive_evidence WHERE target_type='person' AND target_id=? ORDER BY rowid DESC", (pid,)):
@@ -506,6 +506,7 @@ def projection(db, pid, allow_merged=False):
              'stale': not current_authority(db, job), 'machine': json.loads(job['ai_json']),
              'evidence': {'id': document['id'], 'url': document['url'], 'fetched_at': document['fetched_at'], 'sha256': document['sha256'], 'quote': row['quote']}})
     return {'target_type': 'person', 'target_id': pid, 'name': person['name'], 'version': person['version'],
+        'employment_version': person['_employment_version'],
         'current': {field: before(person, field) for field in sorted(FIELDS)}, 'materials': materials,
         'jobs': [{k: r[k] for k in ['id', 'base_version', 'status', 'reason', 'created_at', 'finished_at', 'input_hash', 'ai_json']} for r in jobs],
         'candidates': candidates, 'events': [dict(r) for r in db.execute("SELECT * FROM archive_events WHERE target_type='person' AND target_id=? ORDER BY rowid", (pid,))]}
