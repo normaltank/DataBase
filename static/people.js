@@ -35,7 +35,7 @@ async function personPage(person,works='') {
     <section class="panel person-section"><h2 id="person-introduction">人物介绍</h2>${person.introduction_html?`<div class="rich-prose">${readRich(person.introduction_html)}</div>`:'<p class="muted">介绍待补充，可由中心成员共同维护。</p>'}</section>
     ${enrichment}
     ${employment}
-    <section class="person-works-group"><h2 id="person-works">已确认作品</h2>${works}</section>
+    <section class="person-works-group" id="person-works" aria-label="已确认作品">${works}</section>
     ${notes}
     <section class="person-section"><h2 id="person-evidence">依据与档案信息</h2><section class="person-sources"><h3>参考出处</h3><p class="prose">${esc(person.sources||'参考出处待补充')}</p></section><p class="prose"><strong>最近维护依据 / 说明：</strong>${esc(person.change_note)}</p><details class="person-identity"><summary>档案信息</summary><dl><dt>稳定编号</dt><dd>${esc(person.id)}</dd>${person.previous_ids.length?`<dt>原档案编号</dt><dd>${person.previous_ids.map(id=>`<a href="#people?id=${encodeURIComponent(id)}">${esc(id)}</a>`).join('<br>')}</dd>`:''}</dl></details></section></article>`;
 }

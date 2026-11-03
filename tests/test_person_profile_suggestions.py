@@ -306,6 +306,78 @@ class PersonProfileSuggestionsTests(unittest.TestCase):
         self.assertEqual(self.get('/api/people/' + self.pid + '/employments')['items'], [])
         self.assertEqual(self.get('/api/people/' + self.pid)['version'], 1)
 
+    def institutional_author_page(self, title='Ada Example, Author at Synthetic Institute', name='Ada Example'):
+        return ('<html><head><title>' + title + '</title></head><body><nav>Unrelated navigation</nav>'
+            '<div class="main author"><section class="author-block"><div class="wrapper">'
+            '<h2 class="block-title">' + name + '</h2><div class="wrap"><div class="left">'
+            '<div class="biography"><span class="headline">Biography</span><div class="text"><p>' + self.bio + '</p></div></div>'
+            '<div class="programs"><a href="/program">An unrelated programme</a></div></div><div class="right">'
+            '<div class="single-group points-list"><h3>Publications by the author</h3><div class="wrap-singles">'
+            '<div class="single-publication"><span class="date">Oct 21, 2026</span><a class="title" href="/publication/one">A fictional publication</a></div>'
+            '</div></div></div></div></div></section><section class="newsletter-block"><h3>Newsletter</h3>'
+            '<p>Unrelated newsletter copy.</p></section></div><footer>Unrelated footer</footer></body></html>')
+
+    def test_institutional_author_h2_and_document_title_bind_complete_biography_and_works(self):
+        self.prepare()
+        self.page = self.institutional_author_page()
+        from platform_app import person_profile_suggestions as profiles
+        extract = profiles.extract_profile
+        # Replay the previously shipped acquisition rule through the public queue.
+        with patch.object(profiles, 'extract_profile', side_effect=lambda *args, **kwargs: extract(*args, method=profiles.RULE)):
+            self.queue('legacy-failed-page')
+            legacy = self.process()
+        self.assertEqual(legacy['jobs'][0]['status'], 'failed')
+        self.assertEqual(legacy['materials'][0]['method'], profiles.RULE)
+        self.assertEqual(legacy['candidates'], [])
+        self.queue('new-supported-page')
+        state = self.process()
+        self.assertEqual(state['jobs'][0]['status'], 'ready', state['jobs'])
+        self.assertEqual(len(state['materials']), 2)
+        old = next(m for m in state['materials'] if m['method'] == profiles.RULE)
+        self.assertEqual(old, legacy['materials'][0])
+        material = next(m for m in state['materials'] if m['method'] == profiles.EXTRACTION)
+        self.assertEqual(material['subject'], 'Ada Example')
+        self.assertIn(self.bio.strip(), material['biography'])
+        self.assertNotIn('Unrelated', material['biography'])
+        self.assertNotIn('fictional publication', material['biography'])
+        self.assertEqual(material['works'], [{'title': 'A fictional publication', 'url': 'https://profiles.example/publication/one'}])
+        self.assertEqual(self.get('/api/people/' + self.pid)['introduction_text'], '')
+        self.assertEqual(self.decide(state).status_code, 200)
+        from platform_app.maintenance import create_backup, restore_backup
+        restored = Path(self.temp.name) / 'institutional-restored'
+        restore_backup(create_backup(self.app.config['DATA_DIR']), restored)
+        from platform_app.store import connect
+        db = connect(restored / 'platform.sqlite3')
+        try:
+            saved = profiles.projection(db, self.pid)
+            self.assertEqual(saved['materials'], self.get(self.prefix)['materials'])
+            self.assertEqual(saved['candidates'][0]['status'], 'adopted')
+            self.assertEqual(saved['jobs'][1]['status'], 'failed')
+        finally:
+            db.close()
+
+    def test_article_h2_or_conflicting_author_page_structure_cannot_supply_person_identity(self):
+        self.prepare()
+        proper = self.institutional_author_page()
+        pages = [
+            '<title>Ada Example, Author at Synthetic Institute</title><article><h2 class="block-title">Ada Example</h2><div class="biography"><p>' + self.bio + '</p></div></article>',
+            self.institutional_author_page(title='An article mentioning Ada Example'),
+            self.institutional_author_page(title='Different Person, Author at Synthetic Institute'),
+            self.institutional_author_page(name='Different Person'),
+            self.institutional_author_page(title='Different Person, Author at Synthetic Institute', name='Different Person'),
+            proper.replace('<div class="main author">', '<div class="main author"><section class="author-block"><h2 class="block-title">Ada Example</h2></section>'),
+            proper.replace('<div class="biography">', '<div class="ordinary-text">'),
+            proper.replace('<nav>', '<h1>An article title</h1><nav>'),
+        ]
+        for index, page in enumerate(pages):
+            with self.subTest(case=index):
+                self.page = page
+                self.queue('invalid-author-page-' + str(index))
+                state = self.process()
+                self.assertEqual(state['jobs'][0]['status'], 'failed', state['jobs'])
+                self.assertEqual(state['candidates'], [])
+        self.assertEqual(self.get('/api/admin/ai', user='admin')['attempts'], [])
+
 
 if __name__ == '__main__':
     unittest.main()
