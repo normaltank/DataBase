@@ -71,6 +71,7 @@ jobs:
           node check_selection_entry.js
           node check_search_recovery.js
           python check_selection_http.py
+          python check_handoffs_http.py
       - name: Check syntax and synthetic tests
         run: python scripts/check.py
 

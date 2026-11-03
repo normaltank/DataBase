@@ -34,7 +34,7 @@ class TopicStageTests(unittest.TestCase):
         self.assertEqual(detail.get("stage"), "selection", detail)
         self.assertEqual(self.clients["colleague"].get(url + "/workflow").json["meeting_version"], 1)
 
-    def test_effective_assignments_need_explicit_confirmation_then_drafts_open(self):
+    def test_explicit_direct_advance_opens_legacy_drafts_without_meeting_basis(self):
         tid = self.topic()
         rows = [{"title": title, "author_id": "colleague", "source": "https://example.invalid/source"} for title in ("文章一", "文章二")]
         self.assertEqual(self.save(tid, rows).status_code, 201)
@@ -54,7 +54,7 @@ class TopicStageTests(unittest.TestCase):
         t = self.clients["colleague"].get(f"/api/collaboration/topics/{tid}").json
         self.assertEqual(t["stage"], "compilation")
         self.assertEqual(len(t["stage_events"]), 1)
-        self.assertEqual(t["stage_events"][0]["meeting_version"], 1)
+        self.assertIsNone(t["stage_events"][0]["meeting_version"])
         self.assertEqual(t["stage_events"][0]["actor_id"], "researcher")
         self.assertTrue(all(a["can_submit"] for a in self.workflow(tid)["assignments"]))
         self.assertEqual(self.draft(tid, aid).status_code, 201)
@@ -63,22 +63,17 @@ class TopicStageTests(unittest.TestCase):
         self.assertEqual(self.call("/api/collaboration/qualifications/researcher", {"version": 1, "enabled": False}, "admin", "PUT").status_code, 200)
         self.assertEqual(self.enter(tid).status_code, 403)
 
-    def test_empty_stale_and_revoked_confirmations_do_not_change_stage(self):
+    def test_no_assignment_gate_but_stale_stage_and_revoked_lead_are_rejected(self):
         tid = self.topic()
-        self.assertEqual(self.save(tid, []).status_code, 201)
-        self.assertEqual(self.enter(tid).status_code, 409)
-        self.assertEqual(self.save(tid, [{"title": "文章", "author_id": "colleague"}], version=1).status_code, 201)
-        self.assertEqual(self.enter(tid).status_code, 409)
-        self.assertEqual(self.enter(tid, meeting_version=2, stage_version=0).status_code, 409)
-        self.assertEqual(self.call("/api/members/colleague", {"active": False}, "admin", "PUT").status_code, 200)
-        self.assertEqual(self.enter(tid, meeting_version=2).status_code, 409)
+        self.assertEqual(self.enter(tid, stage_version=0).status_code, 409)
         self.assertEqual(self.call("/api/collaboration/qualifications/researcher", {"version": 1, "enabled": False}, "admin", "PUT").status_code, 200)
-        self.assertEqual(self.enter(tid, meeting_version=2).status_code, 403)
+        self.assertEqual(self.enter(tid).status_code, 403)
         topic = self.clients["researcher"].get(f"/api/collaboration/topics/{tid}").json
         self.assertTrue(topic["is_lead"])
         self.assertFalse(topic["can_manage"])
         self.assertEqual(topic["stage"], "selection")
-        self.assertIn(tid, [t["id"] for t in self.clients["researcher"].get("/api/collaboration/topics?scope=leading").json["items"]])
+        self.assertEqual(self.call("/api/collaboration/qualifications/researcher", {"version": 2, "enabled": True}, "admin", "PUT").status_code, 200)
+        self.assertEqual(self.enter(tid).status_code, 201)
         self.assertIn(tid, [t["id"] for t in self.clients["researcher"].get("/api/collaboration/works?scope=leading").json["items"]])
 
     def test_meeting_reading_retains_people_and_report_location_per_version(self):
@@ -121,10 +116,10 @@ class TopicStageTests(unittest.TestCase):
         self.assertEqual(unchanged["stage_events"], [])
         self.assertEqual(unchanged["stage_version"], 1)
 
-    def test_one_valid_assignment_does_not_hide_another_disabled_compiler(self):
+    def test_disabled_legacy_compiler_is_not_a_direct_stage_gate(self):
         tid = self.topic()
         self.assertEqual(self.save(tid, [{'title': 'Valid', 'author_id': 'researcher'},
             {'title': 'Disabled', 'author_id': 'colleague'}]).status_code, 201)
         self.assertEqual(self.call('/api/members/colleague', {'active': False}, 'admin', 'PUT').status_code, 200)
-        self.assertEqual(self.enter(tid).status_code, 409)
-        self.assertEqual(self.clients['researcher'].get('/api/collaboration/topics/' + tid).json['stage'], 'selection')
+        self.assertEqual(self.enter(tid).status_code, 201)
+        self.assertEqual(self.clients['researcher'].get('/api/collaboration/topics/' + tid).json['stage'], 'compilation')

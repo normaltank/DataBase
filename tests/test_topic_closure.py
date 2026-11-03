@@ -61,7 +61,7 @@ class TopicClosureTests(unittest.TestCase):
         before_files = {p.name: p.read_bytes() for p in (self.data_dir / "handoffs").iterdir()}
         before = self.workflow(tid)
         p = self.preview(tid)
-        self.assertEqual([(x["status"], x["submission_version"], x["missing_current_final"]) for x in p["incomplete"]], [("pending", 2, True)])
+        self.assertEqual(p["incomplete"], [])  # current ending has no legacy assignment checklist
         self.assertEqual(self.end(tid, p).status_code, 201)
         payloads = [
             (root, {"version": 1, "theme": "不能改", "participant_ids": []}, "PUT", None),
@@ -101,9 +101,9 @@ class TopicClosureTests(unittest.TestCase):
         self.assertEqual(self.returned(tid, aid, sid).status_code, 201)
         stale = self.end(tid, preview)
         self.assertEqual(stale.status_code, 409)
-        self.assertEqual(stale.json["latest_preview"]["incomplete"][0]["status"], "returned")
+        self.assertEqual(stale.json["latest_preview"]["incomplete"], [])
         preview = self.preview(tid)
-        self.assertEqual(preview["incomplete"][0]["status"], "returned")
+        self.assertEqual(preview["incomplete"], [])
         self.assertEqual(self.draft(tid, aid, version=1).status_code, 201)
         self.assertEqual(self.end(tid, preview).status_code, 409)
         preview = self.preview(tid)

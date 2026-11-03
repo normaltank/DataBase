@@ -4,6 +4,7 @@ Callers use board/submit/decide/archive; legacy meeting knowledge stays here.
 Originals and decisions are immutable, and authority is checked in transactions.
 """
 import json
+import re
 import uuid
 from pathlib import Path
 
@@ -128,6 +129,10 @@ def archive(db, actor, tid, scope):
         abort(400, '材料范围无效。')
     # Approval is a review, never publication. Legacy products stay in their adapter.
     items = _materials(db, tid) if scope != 'products' else []
+    if scope == 'process':
+        for m in items:
+            for v in m['versions']:
+                v['reviews'] = [r for r in v['reviews'] if r['decision'] != 'legacy_final']
     return {'format': 'topic-handoffs-v1', 'materials': items}, [v for m in items for v in m['versions']] + [r for m in items for v in m['versions'] for r in v['reviews'] if not r.get('legacy')]
 
 
@@ -238,12 +243,26 @@ def validate_backup(db):
             if m['source_ref']:
                 require(m['source_ref'] in legacy)
                 previous, v = legacy[m['source_ref']]
-                require(previous['owner_id'] == m['owner_id'] and previous['stage'] == m['stage'] and m['source_ref'] not in sources)
-                sources.append(m['source_ref'])
+                require(previous['owner_id'] == m['owner_id'] and previous['stage'] == m['stage'] and previous['ref'] not in sources)
+                require(v['created_at'] <= m['created_at'])
+                sources.append(previous['ref'])
             for row in versions:
                 require(row['topic_id'] == topic['id'] and row['author_id'] == m['owner_id'])
                 _validate_row(db, row, 'author_id', require)
-                require(json.loads(row['request_json'])['stage'] == m['stage'])
+                data = json.loads(row['request_json'])
+                require(data['stage'] == m['stage'])
+                if row['version'] == 1:
+                    if m['source_ref']:
+                        require(data.get('material_ref') == previous['ref'] and data.get('source_ref', m['source_ref']) == m['source_ref'])
+                    else:
+                        require(not data.get('material_ref'))
+                        f = db.execute('SELECT name FROM handoff_files WHERE id=?', (row['file_id'],)).fetchone()
+                        require(data.get('title', f[0]).strip() == m['title'])
+                else:
+                    require(data.get('material_ref') == m['ref'])
+                if m['stage'] == 'compilation':
+                    stage = topic_stages.state(db, topic['id'])
+                    require(json.loads(stage['origin_json'])['initial_stage'] == 'compilation' or db.execute("SELECT 1 FROM topic_stage_events WHERE topic_id=? AND created_at<=?", (topic['id'], row['created_at'])).fetchone())
         for r in db.execute('SELECT * FROM topic_material_reviews WHERE topic_id=?', (topic['id'],)):
             require(r['version_ref'] in refs and r['actor_id'] == topic['lead_id'])
             _validate_row(db, r, 'actor_id', require)
@@ -258,7 +277,9 @@ def _validate_row(db, row, actor_column, require):
     f = db.execute('SELECT * FROM handoff_files WHERE id=?', (row['file_id'],)).fetchone() if row['file_id'] else None
     require(not row['file_id'] or (f and f['uploader_id'] == row[actor_column]))
     require(review.fingerprint({'data': data, 'file': [f['name'], f['sha256']] if f else None}) == row['request_hash'])
-    require(review.request_key(data) == row['request_id'] and data.get('note', '').strip() == row['note'])
+    require(isinstance(data.get('request_id'), str) and re.fullmatch(r'[A-Za-z0-9_-]{8,100}', data['request_id']) and data['request_id'] == row['request_id'])
+    require(isinstance(data.get('token'), str) and re.fullmatch(r'[a-f0-9]{64}', data['token']))
+    require(isinstance(data.get('note', ''), str) and data.get('note', '').strip() == row['note'] and len(row['note']) <= 4000)
     history = db.execute('SELECT snapshot_json FROM topic_events WHERE topic_id=? AND version=?', (row['topic_id'], row['topic_version'])).fetchone()
     require(history is not None and row[actor_column] in json.loads(history[0])['participant_ids'])
 
@@ -282,6 +303,30 @@ def register(app, ctx):
         uploaded = handoff_files.read_upload(request.files['file']) if request.files.get('file') else None
         result, code = decide(ctx, tid, ctx.body(), uploaded)
         return jsonify(result), code
+
+    @app.get('/api/collaboration/topics/<tid>/handoff-preview')
+    def handoff_preview(tid):
+        import os
+        import subprocess
+        import sys
+        from . import attachment_worker
+        db = ctx.db()
+        collaboration.topic_for(db, ctx.user(), tid)
+        ref = request.args.get('version_ref')
+        version = next((v for m in _materials(db, tid) for v in m['versions'] if v['ref'] == ref), None)
+        if not version:
+            abort(404, '材料版本不存在。')
+        original = db.execute('SELECT * FROM handoff_files WHERE id=?', (version['file_id'],)).fetchone()
+        path = handoff_files.original_path(ctx.data_dir, original)
+        if original['bytes'] > attachment_worker.MAX_BYTES:
+            return jsonify(status='limit', segments=[])
+        try:
+            process = subprocess.run([sys.executable, str(Path(attachment_worker.__file__)), str(path)], capture_output=True, timeout=12, check=False,
+                                     creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+            result = json.loads(process.stdout.decode('utf-8')) if process.returncode == 0 else {'status': 'failed', 'segments': []}
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            result = {'status': 'failed', 'segments': []}
+        return jsonify(status=result['status'], segments=result.get('segments', []), name=original['name'], version=version['version'])
 
     @app.get('/api/collaboration/topics/<tid>/handoff-versions/<vid>/file')
     @app.get('/api/collaboration/topics/<tid>/handoff-reviews/<rid>/file')

@@ -11,7 +11,7 @@ PASSWORD = 'LocalDemo2026!'
 SOURCE_NAMES = ['演示｜北岸公共研究所', '演示｜河港社会研究中心', '演示｜波罗的海协作评论']
 PEOPLE_NAMES = ['演示｜安娜·河港', '演示｜马丁·北岸']
 ARTICLE_TITLES = ['演示｜邻里公共空间的协作记录', '演示｜社区阅读与志愿服务', '演示｜河港文化活动的组织方式']
-COMPLETE_THEME = '演示｜公共空间与地方协作（已汇总）'
+COMPLETE_THEME = '演示｜公共空间与地方协作（旧流程已汇总）'
 ACTIVE_THEME = '演示｜青年阅读与社区（进行中）'
 
 
@@ -196,10 +196,12 @@ def seed(app):
         file=txt('演示整期汇总.txt', '本合成汇总采用演示编译稿v2。\n全部观点均为演示，不用于研究判断。'))
     active = call(lead, '/api/collaboration/topics', {'theme': ACTIVE_THEME,
         'participant_ids': ['researcher'], 'due_on': '2026-12-01'})['id']
-    call(researcher, '/api/collaboration/topics/' + active + '/candidates', {
-        'request_id': 'demo-active-candidate', 'version': 0, 'topic_version': 1,
-        'note': '可用研究员账号继续上传下一版，再由负责人记录会议'},
-        file=txt('演示进行中选题报告.txt', '候选：社区阅读与志愿服务，尚未开会决定。'))
+    active_prefix = '/api/collaboration/topics/' + active
+    board = researcher.get(active_prefix + '/handoffs').json
+    call(researcher, active_prefix + '/handoffs', {
+        'request_id': 'demo-active-material', 'stage': 'selection', 'token': board['token'],
+        'note': '成员直接提交，由负责人审阅；可新建多份材料或接续本人版本'},
+        file=txt('演示进行中选题报告.txt', '候选：社区阅读与志愿服务。'))
     wid = call(researcher, '/api/collaboration/journals', {'journal_id': sources[2],
         'journal_name': SOURCE_NAMES[2], 'coverage': '2026年第1—2期（虚构）',
         'source_clue': 'https://example.invalid/demo/journal', 'content_kind': 'directory_translation'})['id']
@@ -219,8 +221,10 @@ def seed(app):
         if row.get('file_url'):
             remember(researcher, row['file_url'])
     for topic in (tid, active):
-        for row in researcher.get('/api/collaboration/topics/' + topic + '/candidates').json['items']:
-            remember(researcher, row['file_url'])
+        for material in researcher.get('/api/collaboration/topics/' + topic + '/handoffs').json['materials']:
+            for row in material['versions']:
+                if not row['ref'].startswith('manuscript:'):
+                    remember(researcher, row['file_url'])
     for sub in researcher.get(journal).json['submissions']:
         remember(researcher, sub['file_url'])
     from portable.public_batch import seed_public_batch
