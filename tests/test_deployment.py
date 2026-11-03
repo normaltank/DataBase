@@ -10,9 +10,55 @@ import sys
 import zipfile
 import sqlite3
 import hashlib
+import io
+import os
 
 
 class DeploymentTests(unittest.TestCase):
+    def test_maintenance_cli_preserves_chinese_paths_and_bytes_with_strict_pipe_encoding(self):
+        from platform_app.deployment import initialize_admin, application
+        from platform_app.maintenance import create_backup
+        with tempfile.TemporaryDirectory() as tmp:
+            data = Path(tmp) / '中文 原始资料'
+            initialize_admin(data, 'operator', '管理员', 'Temporary-test-only!42')
+            app = application({'data_dir': str(data), 'hosts': ['center.example.invalid'], 'trusted_proxy': None})
+            client = app.test_client()
+            origin = 'https://center.example.invalid'
+            csrf = client.get('/api/session', base_url=origin).json['csrf']
+            headers = {'X-CSRF-Token': csrf, 'Origin': origin}
+            self.assertEqual(client.post('/api/login', base_url=origin, json={'username': 'operator',
+                'password': 'Temporary-test-only!42'}, headers=headers).status_code, 200)
+            headers['X-CSRF-Token'] = client.get('/api/session', base_url=origin).json['csrf']
+            raw = '合成原件\nSynthetic attachment byte-for-byte.\n'.encode('utf-8')
+            created = client.post('/api/records', base_url=origin, headers=headers,
+                data={'data': json.dumps({'title': '合成资料', 'kind': 'report', 'sharing_confirmed': True}),
+                      'file': (io.BytesIO(raw), '中文 原件.txt')})
+            self.assertEqual(created.status_code, 201, created.json)
+            backup = create_backup(data)
+            with zipfile.ZipFile(backup) as archive:
+                expected = {name: archive.read(name) for name in archive.namelist() if name != 'manifest.json'}
+            for encoding in ('cp1252', 'utf-8'):
+                with self.subTest(encoding=encoding):
+                    restored = Path(tmp) / ('中文 恢复 ' + encoding)
+                    env = {**os.environ, 'PYTHONIOENCODING': encoding + ':strict', 'PYTHONUTF8': '0'}
+                    run = subprocess.run([sys.executable, '-m', 'platform_app.maintenance', '--restore',
+                        str(backup), '--target', str(restored)], env=env, capture_output=True, timeout=30)
+                    self.assertEqual(run.returncode, 0, run.stderr)
+                    self.assertEqual(run.stdout.decode(encoding).strip(),
+                                     str(restored).encode(encoding, 'backslashreplace').decode(encoding))
+                    for name, content in expected.items():
+                        self.assertEqual((restored / name).read_bytes(), content, name)
+                    backed_up = subprocess.run([sys.executable, '-m', 'platform_app.maintenance', '--backup',
+                        str(restored)], env=env, capture_output=True, timeout=30)
+                    self.assertEqual(backed_up.returncode, 0, backed_up.stderr)
+                    archives = list((restored / 'backups').glob('*.zip'))
+                    self.assertEqual(len(archives), 1)
+                    self.assertEqual(backed_up.stdout.decode(encoding).strip(),
+                                     str(archives[0]).encode(encoding, 'backslashreplace').decode(encoding))
+                    with zipfile.ZipFile(archives[0]) as archive:
+                        for name, content in expected.items():
+                            self.assertEqual(archive.read(name), content, name)
+
     def test_production_upgrades_and_restores_researcher_only_v1_without_demo_accounts(self):
         from platform_app import store
         from platform_app.maintenance import restore_backup
