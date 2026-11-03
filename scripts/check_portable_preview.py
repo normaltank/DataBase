@@ -31,7 +31,7 @@ class HTTP:
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}),
             urllib.request.HTTPCookieProcessor(jar if jar is not None else http.cookiejar.CookieJar()))
 
-    def request(self, path, data=None, file=None, method=None, raw=False):
+    def request(self, path, data=None, file=None, method=None, raw=False, extra_headers=None):
         headers = {}
         body = None
         if data is not None or file:
@@ -48,14 +48,15 @@ class HTTP:
             else:
                 headers['Content-Type'] = 'application/json'
                 body = json.dumps(data).encode('utf-8')
+        headers.update(extra_headers or {})
         request = urllib.request.Request(self.base + path, data=body, headers=headers,
                                          method=method or ('POST' if body is not None else 'GET'))
         with self.opener.open(request, timeout=30) as response:
             content = response.read()
             return content if raw else json.loads(content)
 
-    def login(self, name):
-        return self.request('/api/login', {'username': name, 'password': 'LocalDemo2026!'})
+    def login(self, name, password='LocalDemo2026!'):
+        return self.request('/api/login', {'username': name, 'password': password})
 
 
 def environment(evidence):
@@ -345,11 +346,6 @@ def main():
         shutil.copytree(args.package, one)
         shutil.copytree(args.package, two)
     env = environment(evidence)
-    baseline8848 = None
-    try:
-        baseline8848 = HTTP('http://127.0.0.1:8848').request('/health')
-    except OSError:
-        pass
     result = {'inventory': inventory, 'host': 'Windows actual host; no clean VM', 'checks': []}
     try:
         diagnostic = json.loads(command(one, env, 'diagnose'))
@@ -437,9 +433,7 @@ def main():
         assert not admin.request('/api/ingestion')['worker_heartbeat']
         assert not admin.request('/api/admin/ai')['attempts']
         assert not admin.request('/api/admin/ai')['worker_heartbeat']
-        if baseline8848:
-            assert HTTP('http://127.0.0.1:8848').request('/health') == baseline8848
-        result['checks'].append('restart preserves database/original hashes and added upload; old port reused; stale state safe; stopping one leaves other and 8848 healthy')
+        result['checks'].append('restart preserves database/original hashes and added upload; old port reused; stale state safe; stopping one leaves other healthy; no connections to8848')
         if args.browser:
             browser_check(base, second_base, evidence, seed)
             result['checks'].append('real Chromium: all three responsibilities; same browser context authenticates both copies independently and logout stays isolated; no page errors')

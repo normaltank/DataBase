@@ -1,4 +1,5 @@
 import json
+from contextlib import closing
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -67,19 +68,32 @@ CREATE INDEX IF NOT EXISTS idx_revisions_target ON revisions(target_type, target
 """
 
 
-def initialize(data_dir):
+def initialize(data_dir, mode='demo'):
+    if mode not in {'demo', 'production'}:
+        raise ValueError('Unknown initialization mode')
     data_dir = Path(data_dir)
+    existing = data_dir / 'platform.sqlite3'
+    if existing.is_file():
+        with closing(connect(existing)) as check:
+            version = check.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()
+            if version and int(version[0]) > CURRENT_SCHEMA_VERSION:
+                raise ValueError('Database schema is newer than this application; use matching code.')
     data_dir.mkdir(parents=True, exist_ok=True)
     (data_dir / "uploads").mkdir(exist_ok=True)
     db = connect(data_dir / "platform.sqlite3")
     db.executescript(SCHEMA)
     db.execute("INSERT OR IGNORE INTO settings VALUES ('schema_version','1')")
+    # Initialization is permanent: restarting or switching launchers never recreates accounts.
+    first = not db.execute("SELECT 1 FROM settings WHERE key='initialization_mode'").fetchone()
+    existing_users = db.execute('SELECT 1 FROM users LIMIT 1').fetchone()
+    if first:
+        db.execute("INSERT INTO settings VALUES ('initialization_mode',?)", ('existing' if existing_users else mode,))
     for uid, username, name, role in [
         ("admin", "admin", "资料管理员", "admin"),
         ("researcher", "researcher", "研究员 · 林", "researcher"),
         ("colleague", "colleague", "研究员 · 周", "researcher"),
     ]:
-        if not db.execute("SELECT 1 FROM users WHERE id=?", (uid,)).fetchone():
+        if first and not existing_users and mode == 'demo':
             db.execute("INSERT INTO users (id,username,name,password_hash,role) VALUES (?,?,?,?,?)",
                        (uid, username, name, generate_password_hash("LocalDemo2026!"), role))
     db.commit()

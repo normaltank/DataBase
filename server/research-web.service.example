@@ -1,0 +1,16 @@
+[Unit]
+Description=Research Commons Web
+After=network.target
+
+[Service]
+Type=simple
+User=research
+WorkingDirectory=/srv/research/releases/current
+ExecStart=/srv/research/releases/current/.venv/bin/python -B -m platform_app.deployment web --config /srv/research/config.json
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=90
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
