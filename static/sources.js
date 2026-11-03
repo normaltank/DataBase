@@ -90,9 +90,10 @@ async function sourcePage(id){
   state.sourceProfile={requested:id,data:s};
   if(!document.querySelector('#modal-root .overlay'))state.detail={type:'source',data:s};return html;
 }
-async function sourceContentSection(s,key,label,page=Number(state.params.get('content_'+key)||1)){
+async function sourceContentSection(s,key,label,page=Number(state.params.get('content_'+key)||1),preview=false){
   const query=new URLSearchParams({source:s.id,source_section:key,size:12,page});
   const d=await api('/api/records?'+query);
+  if(preview&&d.total===0)return `<section class="source-content-empty" data-source-content="${key}" data-label="${label}"><h4 id="source-${key}">${label} <span class="muted">0 份</span></h4>${key==='translations'?linkButton(icon('plus')+' 导入目录译稿','new-source-translation',s.id,'button primary tiny'):''}</section>`;
   return `<section class="detail-section source-content-section" data-source-content="${key}" data-label="${label}"><div class="between wrap"><h3 id="source-${key}">${label}</h3>${key==='translations'?linkButton(icon('plus')+' 导入目录译稿','new-source-translation',s.id,'button primary tiny'):''}</div><p class="small muted">当前可阅读 ${d.total} 份${key==='associated'?' · 仅表示已登记的一般关联':key==='outputs'?' · 中心成果，与该来源的公开作品分别保存':''}</p><div class="source-content-list">${d.items.map(r=>`<article><div class="row wrap">${typeBadge(r.kind)}<span class="muted">${esc(r.coverage||r.published_on)}</span>${r.has_attachment?'<span class="badge neutral">有附件</span>':''}</div>${linkButton(esc(r.title),'detail',r.id,'title-button')}<p class="small muted">${esc(r.author_name||r.authors||'署名待补充')} · 版本 ${r.version}</p></article>`).join('')||'<p class="muted">当前尚无可阅读的已收录内容；这不表示该对象没有成果。</p>'}</div>${d.total>d.size?`<div class="pagination"><button class="button tiny" data-action="source-content-page" data-key="${key}" data-id="${d.page-1}" ${d.page<=1?'disabled':''}>上一页</button><span>第 ${d.page} / ${Math.ceil(d.total/d.size)} 页</span><button class="button tiny" data-action="source-content-page" data-key="${key}" data-id="${d.page+1}" ${d.page*d.size>=d.total?'disabled':''}>下一页</button></div>`:''}</section>`;
 }
 async function sourceProfile(s,preview=false,requested=s.id){
@@ -109,7 +110,8 @@ async function sourceProfile(s,preview=false,requested=s.id){
   }
   const publications=(s.related||[]).map(x=>linkButton(esc(x.name),'source-detail',x.id,'detail-link')).join('');
   if(publications)relations+=`<section class="detail-section"><h4>主办或出版的刊物</h4>${publications}</section>`;
-  const content=s.kind==='portal'?'':(await Promise.all([['published',isInstitution(s)?'机构发布资料':'刊物刊载资料'],['associated','一般关联资料'],['translations','目录译稿'],['outputs','中心成果']].map(([key,label])=>sourceContentSection(s,key,label)))).join('');
+  const contentSections=s.kind==='portal'?[]:await Promise.all([['published',isInstitution(s)?'机构发布资料':'刊物刊载资料'],['associated','一般关联资料'],['translations','目录译稿'],['outputs','中心成果']].map(([key,label])=>sourceContentSection(s,key,label,undefined,preview)));
+  const content=contentSections.join('')+(preview&&contentSections.some(section=>section.includes('class="source-content-empty"'))?'<p class="small muted source-empty-note">0 份仅表示当前没有可阅读的已收录内容，不表示该对象没有成果。一般关联仅表示已登记关联；中心成果与来源的公开作品分别保存。</p>':'');
   const notes=isInstitution(s)||s.kind==='journal'?await noteSubjectProfile(isInstitution(s)?'institution':'journal',s.id,Number(state.params.get('note_page')||1)):'';
   const items=[{id:'source-introduction',label:'来源介绍'},{id:'source-information',label:'来源信息'}];
   if(relations)items.push({id:'source-relations',label:'关系与作品'});
@@ -172,7 +174,7 @@ document.addEventListener('click',event=>{
   if(b.dataset.action==='source-preview')openSource(b.dataset.id,true).catch(e=>toast(e.message));
   if(b.dataset.action==='source-content-page'){
     const section=b.closest('[data-source-content]');
-    if(b.closest('.source-preview'))sourceContentSection(state.detail.data,b.dataset.key,section.dataset.label,Number(b.dataset.id)).then(html=>{if(section.isConnected)section.outerHTML=html;}).catch(e=>toast(e.message));
+    if(b.closest('.source-preview'))sourceContentSection(state.detail.data,b.dataset.key,section.dataset.label,Number(b.dataset.id),true).then(html=>{if(section.isConnected)section.outerHTML=html;}).catch(e=>toast(e.message));
     else go(state.page,parameters({['content_'+b.dataset.key]:b.dataset.id}));
   }
   if(b.dataset.action==='source-reset')go(state.page==='maintenance-sources'?'maintenance-sources':'sources',b.dataset.id?{group:b.dataset.id}:{});

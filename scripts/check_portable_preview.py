@@ -359,6 +359,12 @@ def main():
         base = batch(one, env, 'start', '--no-browser')
         assert base != 'http://127.0.0.1:8848'
         assert batch(one, env, 'start', '--no-browser') == base
+        if HTTP(base).request('/api/session').get('portable_trial'):
+            from check_portable_trial import preview
+            result['checks'].extend(preview(one, two, env, evidence, base, args.browser))
+            result['ok'] = True
+            print(json.dumps({'ok': True, 'evidence': str(evidence), 'checks': result['checks']}, ensure_ascii=False))
+            return
         jar = http.cookiejar.CookieJar()
         researcher = HTTP(base, jar)
         researcher.login('researcher')

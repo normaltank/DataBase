@@ -1,0 +1,123 @@
+'use strict';
+// Real feature scripts and DOM events; all HTTP responses are controlled and free.
+// Set NODE_PATH to an installed jsdom directory when running outside a Node project.
+const {JSDOM}=require('jsdom');
+const fs=require('node:fs'),assert=require('node:assert/strict'),path=require('node:path'),vm=require('node:vm');
+const dom=new JSDOM('<main></main><div id="modal-root"><div class="drawer-body"></div></div>',{runScripts:'outside-only',url:'http://synthetic.local/'}),w=dom.window;
+w.eval(`var state={me:{id:'researcher'},sources:[],params:new URLSearchParams(),page:'maintenance-sources'};`);
+Object.assign(w,{esc:v=>String(v??'').replaceAll('&','&amp;').replaceAll('"','&quot;').replaceAll('<','&lt;'),dateTime:v=>v||'',externalLink:()=>'',toast(){},loadLookups:async()=>{},closeModal(){w.document.querySelector('.drawer-body').innerHTML='';},modal(title,html){w.document.querySelector('.drawer-body').innerHTML=html;}});
+for(const file of ['collaboration.js','topic-review.js','archive-suggestions.js','person-profile-suggestions.js','note-subjects.js','source-picker.js','workflow.js','topic-finals.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../static',file),'utf8'),dom.getInternalVMContext());
+const tick=()=>new Promise(r=>setImmediate(r));
+function change(input,checked){input.checked=checked;input.dispatchEvent(new w.Event('change',{bubbles:true}));}
+function submit(form,value){const b=form.querySelector(value?`button[value="${value}"]`:'button[type=submit]');form.dispatchEvent(new w.SubmitEvent('submit',{bubbles:true,cancelable:true,submitter:b}));}
+const data={target_id:'s1',target_type:'source',name:'Synthetic',version:1,jobs:[],events:[],candidates:[{id:'c1',field:'location',status:'pending',before:'',value:'Riga',evidence:{quote:'Riga',text:'Riga'},machine:{}}]};
+(async()=>{
+  w.api=async()=>data;await w.openArchiveSuggestions('s1');
+  let done;w.api=()=>new Promise(r=>done=r);
+  const waiting=w.refreshArchiveSuggestions();
+  change(w.document.querySelector('[name=candidate]'),true);done(data);await waiting;
+  assert.equal(w.document.querySelector('[name=candidate]').checked,true,'refresh must preserve the click made while HTTP is pending');
+  console.log('PASS archive delayed refresh retains latest selection');
+  const records=Array.from({length:21},(_,i)=>({id:'r'+i,title:'Record '+i}));
+  w.api=async url=>({items:url.includes('q=other')?[records[20]]:records.slice(0,20),total:url.includes('q=other')?1:21});
+  await w.authorBatchForm();
+  change(w.document.querySelector('[name=author_record]'),true);
+  const search=w.document.querySelector('[data-form=author-search]');search.querySelector('input').value='other';submit(search);await tick();
+  assert.match(w.document.querySelector('[data-form=author-batch]').textContent,/当前未显示 1/,'hidden selection must be visible in the summary');
+  assert.match(w.document.querySelector('[data-form=author-batch]').textContent,/Record 0/);
+  let requests=[],finish;
+  w.api=async(url,options)=>{requests.push(options.body);if(requests.length===1){await new Promise(r=>finish=r);throw new Error('response lost');}return {};};
+  const batch=w.document.querySelector('[data-form=author-batch]');submit(batch);submit(batch);await tick();assert.equal(requests.length,1,'double submit must be guarded');finish();await tick();
+  submit(batch);await tick();assert.equal(requests.length,2);assert.equal(requests[0].request_id,requests[1].request_id,'unknown-result retry uses same request id');assert.deepEqual([...requests[1].record_ids],['r0']);
+  console.log('PASS author search hidden choice, double submit and response-loss retry payload');
+  w.api=async()=>({items:[{id:'researcher',name:'Lead'}]});await w.collaborationTopicForm();
+  assert.match(w.document.querySelector('.drawer-body').textContent,/仍可单人开期/);
+  let members=[{id:'researcher',name:'Lead'},{id:'a',name:'Member A'}];w.api=async()=>({items:members});
+  w.document.querySelector('[data-action=collaboration-members-refresh]').click();await tick();
+  change(w.document.querySelector('[name=participant_ids]'),true);
+  let refreshMembers;w.api=()=>new Promise(r=>refreshMembers=r);w.document.querySelector('[data-action=collaboration-members-refresh]').click();
+  change(w.document.querySelector('[name=participant_ids]'),false);members.push({id:'b',name:'Member B'});refreshMembers({items:members});await tick();
+  assert.equal(w.document.querySelector('[name=participant_ids][value=a]').checked,false);assert.ok(w.document.querySelector('[name=participant_ids][value=b]'));
+  const topic=w.document.querySelector('[data-form=collaboration-topic]');topic.elements.theme.value='Synthetic topic';
+  let topicPayload;w.api=async(url,options)=>{topicPayload=options.body;return {id:'topic'};};w.go=()=>{};submit(topic);await tick();assert.deepEqual([...topicPayload.participant_ids],[]);
+  const row=w.document.createElement('div');row.innerHTML=w.topicReviewAssignmentRow({}, {participants:[{id:'off',name:'Inactive',active:0},{id:'ok',name:'Active',active:1}]},[]);
+  const member=row.querySelector('[name=author_id]');assert.equal(member.value,'');assert.equal(member.querySelector('[value=off]').disabled,true);
+  console.log('PASS participant single-person empty state, refresh race, payload and unavailable assignment member');
+  const manyMembers=[{id:'researcher',name:'Lead'},...Array.from({length:201},(_,i)=>({id:'member'+i,name:(i<200?'Included ':'Extra ')+i}))];
+  w.api=async()=>({items:manyMembers});await w.collaborationTopicForm();
+  const limited=w.document.querySelector('[data-form=collaboration-topic]'),all=limited.querySelector('[data-action=collaboration-members-all]'),clear=limited.querySelector('[data-action=collaboration-members-clear]'),query=limited.querySelector('[data-collaboration-member-search]');
+  const choices=()=>[...new w.FormData(limited).getAll('participant_ids')];
+  assert.match(limited.textContent,/最多.*200.*其他参与研究员/);
+  assert.equal(all.disabled,true,'201 visible members must not be silently truncated');
+  change(limited.querySelector('[value=member0]'),true);
+  all.dispatchEvent(new w.MouseEvent('click',{bubbles:true}));assert.deepEqual(choices(),['member0'],'over-limit select all preserves prior selections');
+  query.value='Included';query.dispatchEvent(new w.Event('input',{bubbles:true}));assert.equal(all.disabled,false);all.click();
+  assert.equal(choices().length,200);assert.match(limited.querySelector('[data-collaboration-member-count]').textContent,/200 \/ 200/);
+  assert.equal(limited.querySelector('[value=member200]').disabled,true);
+  change(limited.querySelector('[value=member200]'),true);assert.equal(choices().length,200,'201st individual choice is rejected');
+  assert.match(limited.querySelector('[data-collaboration-member-error]').textContent,/最多.*200/);
+  let overLimitWrites=0;w.api=async()=>{overLimitWrites++;throw new Error('must not send over-limit topic');};
+  // Submit-time validation also protects a form changed outside the change event.
+  limited.querySelector('[value=member200]').disabled=false;limited.querySelector('[value=member200]').checked=true;
+  submit(limited);await tick();assert.equal(overLimitWrites,0);assert.equal(choices().length,201);assert.match(limited.querySelector('.form-error:not([data-collaboration-member-error])').textContent,/最多.*200/);
+  clear.click();assert.equal(choices().length,0);query.value='';query.dispatchEvent(new w.Event('input',{bubbles:true}));assert.equal(all.disabled,true);
+  query.value='Included';query.dispatchEvent(new w.Event('input',{bubbles:true}));all.click();
+  limited.elements.theme.value='200 other participants';let maximumPayload;w.api=async(url,options)=>{maximumPayload=options.body;return {id:'maximum-topic'};};
+  submit(limited);await tick();assert.equal(maximumPayload.participant_ids.length,200);assert.equal(maximumPayload.participant_ids.includes('researcher'),false);
+  console.log('PASS participant 200 other-member limit, hidden choices, all/individual/submit rejection, preservation and clear');
+  w.isInstitution=s=>s.kind==='institution';w.isPublication=s=>s.kind==='journal';
+  const sources=Array.from({length:21},(_,i)=>({id:'s'+i,name:'Source '+i,kind:'institution'}));
+  w.api=async()=>({items:sources});await w.archiveBatchForm();let sourceForm=w.document.querySelector('[data-form=archive-batch]');
+  assert.equal(sourceForm.querySelector('[type=submit]').disabled,true);assert.equal(sourceForm.querySelector('[data-batch-select=all]').disabled,true);
+  for(const input of [...sourceForm.querySelectorAll('[name=source]')].slice(0,20))change(input,true);
+  assert.match(sourceForm.textContent,/已选 20 \/ 20/);assert.equal(sourceForm.querySelector('[name=source][value=s20]').disabled,true);
+  sourceForm.querySelector('[data-batch-select=clear]').click();assert.equal(sourceForm.querySelector('[name=source][value=s20]').disabled,false);
+  const sq=sourceForm.querySelector('[data-source-batch-search]');sq.value='Source 20';sq.dispatchEvent(new w.Event('input',{bubbles:true}));sourceForm.querySelector('[data-batch-select=all]').click();
+  let sourceBody;w.api=async(url,options)=>{sourceBody=options.body;throw new Error('synthetic denied');};submit(sourceForm);await tick();assert.deepEqual([...sourceBody.source_ids],['s20']);assert.equal(sourceForm.querySelector('[value=s20]').checked,true);assert.equal(sq.value,'Source 20');
+  console.log('PASS source 0/20/21 boundaries, current filtered range, payload and failure retention');
+  w.modal('', '<form><select name="kind"><option value="research_note">Note</option></select><div data-rich-field="body_html"></div></form>');
+  const noteForm=w.document.querySelector('form');w.personNames=p=>[p.name];w.personHint=()=>'';w.api=async()=>({items:[{id:'p1',name:'Alpha'},{id:'p2',name:'Beta'}],total:2});
+  await w.prepareNoteSubjectForm(noteForm,{kind:'research_note',research_subjects:[{subject_type:'person',subject_id:'p1'}]});
+  const nq=noteForm.querySelector('[data-note-subject-search]');nq.value='Beta';nq.dispatchEvent(new w.Event('input',{bubbles:true}));assert.match(noteForm.textContent,/当前未显示 1/);assert.match(noteForm.querySelector('[data-note-subject-selected]').textContent,/Alpha/);
+  noteForm.querySelector('[data-note-subject-select=all]').click();assert.equal(new w.FormData(noteForm).getAll('research_subject_choices').length,2);noteForm.querySelector('[data-note-subject-select=clear]').click();assert.equal(new w.FormData(noteForm).getAll('research_subject_choices').length,0);
+  console.log('PASS research subject hidden summary, visible-range selection and clear payload');
+  // Candidate controls submit only explicit choices and retain them on a failure.
+  w.api=async()=>data;await w.openArchiveSuggestions('s1');
+  let decide=w.document.querySelector('[data-form=archive-decide]');assert.equal(decide.querySelector('[type=submit]').disabled,true);
+  decide.querySelector('[data-suggestion-select=all]').click();let adopted;
+  w.api=async(url,options)=>{adopted=options.body;throw new Error('synthetic conflict');};submit(decide,'reject');await tick();
+  assert.deepEqual([...adopted.reject],['c1']);assert.equal(decide.querySelector('[name=candidate]').checked,true);assert.equal(decide.querySelector('[type=submit]').disabled,false);
+  decide.querySelector('[data-suggestion-select=clear]').click();assert.equal(decide.querySelector('[type=submit]').disabled,true);
+  let responses=[];w.api=()=>new Promise(r=>responses.push(r));const first=w.refreshArchiveSuggestions(),second=w.refreshArchiveSuggestions();
+  responses[1]({...data,version:3});await second;responses[0]({...data,version:2});await first;assert.equal(w.document.querySelector('[data-archive-review]').dataset.version,'3');
+  const pd={target_id:'p1',version:1,jobs:[],materials:[],events:[],candidates:[{...data.candidates[0],id:'pc1',field:'introduction'}]};
+  w.modal('',`<section data-person-profile="p1" data-profile-account="researcher"><div data-person-profile-results>${w.personProfileReview(pd)}</div></section>`);
+  let personRoot=w.document.querySelector('[data-person-profile]');assert.equal(personRoot.querySelector('[type=submit]').disabled,true);let personDone;w.api=()=>new Promise(r=>personDone=r);let pp=w.refreshPersonProfile(personRoot);change(personRoot.querySelector('[name=candidate]'),true);personDone(pd);await pp;
+  assert.equal(personRoot.querySelector('[name=candidate]').checked,true);let rejected;w.api=async(url,options)=>{rejected=options.body;throw new Error('synthetic failure');};submit(personRoot.querySelector('form'),'reject');await tick();assert.deepEqual([...rejected.reject],['pc1']);assert.equal(personRoot.querySelector('[name=candidate]').checked,true);
+  console.log('PASS source/person candidate disabled zero, reject payload, failure retention and out-of-order refresh');
+  w.modal('','<form><fieldset class="editor-grants"><legend>授权成员</legend><label><input name="editors" value="a" type="checkbox" checked>Alpha</label><label><input name="editors" value="b" type="checkbox">Beta</label></fieldset></form>');
+  const grants=w.document.querySelector('form');w.prepareEditorGrants(grants);const eq=grants.querySelector('[data-editor-grant-search]');eq.value='Beta';eq.dispatchEvent(new w.Event('input',{bubbles:true}));assert.match(grants.textContent,/当前未显示 1/);grants.querySelector('[data-editor-grant-select=all]').click();assert.equal(new w.FormData(grants).getAll('editors').length,2);grants.querySelector('[data-editor-grant-select=clear]').click();assert.equal(new w.FormData(grants).getAll('editors').length,0);
+  console.log('PASS explicit permission member visible-range selection, hidden summary and clear');
+  w.state.sources=Array.from({length:10},(_,i)=>({id:'pick'+i,name:'Picker '+i,group:'institution',kind:'institution',filter_countries:[]}));w.sourceLabel=()=>'';w.countryLabel=x=>x;w.countryKey=x=>x;w.selectOptions=()=>'';
+  w.modal('',w.searchableSourceField('host_id','主办机构',[],{multiple:true,groups:['institution']}));
+  const picker=w.document.querySelector('[data-source-select]');picker.querySelector('[data-source-select-range=all]').click();assert.equal(picker.querySelector('select').selectedOptions.length,8);picker.querySelector('[data-source-page="1"]').click();picker.querySelector('[data-source-select-range=all]').click();assert.equal(picker.querySelector('select').selectedOptions.length,10);picker.querySelector('[data-source-select-range=clear]').click();assert.equal(picker.querySelector('select').selectedOptions.length,0);
+  console.log('PASS source multiple picker current-group scope preserves prior-group choices and clears');
+  const t={id:'topic',version:1,can_submit_summary:true,participants:[{id:'researcher',name:'Lead',active:1}]},workflow={meeting_version:1,summaries:[],assignments:[{finals:[{id:'f1',title:'First',author_name:'Lead',name:'first.pdf',version:1},{id:'f2',title:'Second',author_name:'Lead',name:'second.pdf',version:1}]}]};
+  w.api=async url=>url.endsWith('/workflow')?workflow:t;await w.topicFinalForm('topic');let summary=w.document.querySelector('[data-form=topic-finals-summary]');assert.equal(summary.querySelector('[type=submit]').disabled,true);change(summary.querySelector('[name=final_ids]'),true);assert.match(summary.textContent,/已选 1 个定稿版本/);assert.equal(summary.querySelector('[type=submit]').disabled,false);summary.querySelector('[data-summary-selection-clear]').click();assert.equal(new w.FormData(summary).getAll('final_ids').length,0);assert.equal(summary.querySelector('[type=submit]').disabled,true);
+  w.inputField=(name,label,value)=>`<label>${label}<input name="${name}" value="${value}"></label>`;w.api=async()=>pd;w.modal('',await w.personProfileSection({id:'p1',name:'Ada'}));
+  const queue=w.document.querySelector('[data-person-profile-form=queue]');queue.elements.url.value='https://profile.example/first';queue.elements.identity_confirmation.checked=true;let queueBodies=[];
+  w.api=async(url,options)=>{if(options?.method==='POST'){queueBodies.push(options.body);throw new Error('synthetic lost');}return pd;};
+  submit(queue);await tick();submit(queue);await tick();assert.equal(queueBodies[0].request_id,queueBodies[1].request_id);queue.elements.url.value='https://profile.example/second';submit(queue);await tick();assert.notEqual(queueBodies[1].request_id,queueBodies[2].request_id);
+  w.api=async()=>data;await w.openArchiveSuggestions('s1');let singleBodies=[];w.api=async(url,options)=>{if(options?.method==='POST'){singleBodies.push(options.body);throw new Error('synthetic lost');}return data;};
+  w.document.querySelector('[data-archive-action=queue]').click();await tick();w.document.querySelector('[data-archive-action=refresh]').click();await tick();w.document.querySelector('[data-archive-action=queue]').click();await tick();assert.equal(singleBodies[0].request_id,singleBodies[1].request_id);
+  console.log('PASS exact final-version count/clear, profile semantic retry identity and source single-queue refresh/retry identity');
+  for(const total of [0,1,20,21,50]){
+    w.api=async()=>({items:Array.from({length:total},(_,i)=>({id:'boundary'+i,name:'Boundary '+i,kind:'institution'}))});await w.archiveBatchForm();const form=w.document.querySelector('[data-form=archive-batch]');assert.equal(form.querySelectorAll('[name=source]').length,total);assert.equal(form.querySelector('[data-batch-select=all]').disabled,total===0||total>20);if(total&&total<=20){form.querySelector('[data-batch-select=all]').click();assert.equal(new w.FormData(form).getAll('source').length,total);}
+  }
+  // A late response cannot reopen a closed modal or expose another account's selections.
+  w.api=async()=>data;await w.openArchiveSuggestions('s1');let late;w.api=()=>new Promise(r=>late=r);let closedRefresh=w.refreshArchiveSuggestions();w.closeModal();late(data);await closedRefresh;assert.equal(w.document.querySelector('[data-archive-review]'),null);
+  w.api=async()=>({items:[{id:'r1',title:'One'}],total:1});await w.authorBatchForm();change(w.document.querySelector('[name=author_record]'),true);await w.authorBatchForm();assert.equal(w.document.querySelector('[name=author_record]').checked,false);
+  let lateMembers;w.api=()=>new Promise(r=>lateMembers=r);let oldAccount=w.collaborationTopicForm();w.state.me.id='another';lateMembers({items:[{id:'old',name:'Old account member'}]});await oldAccount;assert.equal(w.document.querySelector('[data-form=collaboration-topic]'),null);w.state.me.id='researcher';
+  console.log('PASS 0/1/20/21/50 actual scope, close/reopen and account-switch boundaries');
+  w.close();
+})().catch(error=>{console.error(error);w.close();process.exitCode=1;});
