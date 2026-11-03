@@ -203,34 +203,40 @@ class PersonProfiles:
 
     def update(self, pid, data, revision_id=None, upload=None):
         with self.mutation() as created_files:
-            row = self.get(pid)
-            if row["merged_into"]:
-                abort(409, "此档案已合并，请打开当前人物档案维护；拆回请使用身份操作。")
-            check_version(data, row)
-            action = "修订人物档案"
-            if revision_id is not None:
-                revision = self.db.execute("SELECT * FROM revisions WHERE id=? AND target_type='person' AND target_id=?",
-                                           (revision_id, pid)).fetchone()
-                if not revision:
-                    abort(404, "人物历史版本不存在。")
-                snapshot = json.loads(revision["snapshot_json"])
-                action = "恢复人物版本 " + str(snapshot["version"])
-                data = {**snapshot, "change_note": data.get("change_note", "")}
-            current = values(data, row)
-            current["aliases"] = retained_names(self.db, pid, current["aliases"])
-            if revision_id is not None:
-                current["avatar_id"] = snapshot.get("avatar_id")
-                self.avatar(pid, current["avatar_id"])
-            elif data.get("remove_avatar") is True:
-                if upload:
-                    abort(400, "请只选择替换头像或移除头像其中一项。")
-                current.update(avatar_id=None, avatar_source="")
-            if upload:
-                self.upload_avatar(pid, current, upload, created_files)
-            current.update(version=row["version"] + 1, updated_at=now())
-            self.db.execute(f"UPDATE people SET {','.join(k+'=?' for k in current)} WHERE id=?", [*current.values(), pid])
-            save_revision(self.db, "person", pid, action, self.actor["id"])
+            self.update_in_transaction(pid, data, revision_id, upload, created_files)
         return self.detail(pid)
+
+    def update_in_transaction(self, pid, data, revision_id=None, upload=None, created_files=None):
+        """Save a revision inside the owning domain decision's atomic transaction."""
+        if not self.db.in_transaction:
+            raise RuntimeError("Person update requires an owning transaction.")
+        row = self.get(pid)
+        if row["merged_into"]:
+            abort(409, "此档案已合并，请打开当前人物档案维护；拆回请使用身份操作。")
+        check_version(data, row)
+        action = "修订人物档案"
+        if revision_id is not None:
+            revision = self.db.execute("SELECT * FROM revisions WHERE id=? AND target_type='person' AND target_id=?",
+                                       (revision_id, pid)).fetchone()
+            if not revision:
+                abort(404, "人物历史版本不存在。")
+            snapshot = json.loads(revision["snapshot_json"])
+            action = "恢复人物版本 " + str(snapshot["version"])
+            data = {**snapshot, "change_note": data.get("change_note", "")}
+        current = values(data, row)
+        current["aliases"] = retained_names(self.db, pid, current["aliases"])
+        if revision_id is not None:
+            current["avatar_id"] = snapshot.get("avatar_id")
+            self.avatar(pid, current["avatar_id"])
+        elif data.get("remove_avatar") is True:
+            if upload:
+                abort(400, "请只选择替换头像或移除头像其中一项。")
+            current.update(avatar_id=None, avatar_source="")
+        if upload:
+            self.upload_avatar(pid, current, upload, created_files)
+        current.update(version=row["version"] + 1, updated_at=now())
+        self.db.execute(f"UPDATE people SET {','.join(k+'=?' for k in current)} WHERE id=?", [*current.values(), pid])
+        save_revision(self.db, "person", pid, action, self.actor["id"])
 
     def history(self, pid):
         person = self.get(pid)
@@ -246,6 +252,9 @@ class PersonProfiles:
 
 
 def register(app, ctx):
+    from . import person_profile_suggestions
+    person_profile_suggestions.register(app, ctx)
+
     def profiles():
         return PersonProfiles(ctx.db(), ctx.user(), ctx.data_dir)
 

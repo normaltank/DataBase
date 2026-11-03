@@ -26,7 +26,7 @@ async function collaborationTopicPage(tid){
 function collaborationFileCard(s){
   const longName=s.name.length>60,name=longName?s.name.slice(0,40)+'…':s.name;
   const kb=Number.isFinite(s.bytes)?readableFileSize(s.bytes):'';
-  return '<div class="collaboration-file"><div><strong>版本 '+s.version+' · '+esc(name)+'</strong>'+(longName?'<details><summary>完整文件名</summary><p>'+esc(s.name)+'</p></details>':'')+'<p class="small muted">作者：'+esc(s.author_name)+' · 提交人：'+esc(s.uploader_name)+(kb?' · '+kb:'')+' · '+dateTime(s.created_at)+'</p>'+(s.note?'<p class="collaboration-note">'+esc(s.note)+'</p>':'')+'<details class="file-hash-details"><summary>原件校验信息</summary><p class="small">'+s.bytes+' 字节 · SHA-256：'+esc(s.sha256)+'</p></details></div><a class="button tiny" href="'+esc(s.file_url)+'" download>下载原件 v'+s.version+'</a></div>';
+  return '<div class="collaboration-file"><div><strong>版本 '+s.version+' · '+esc(name)+'</strong>'+(longName?'<details><summary>完整文件名</summary><p>'+esc(s.name)+'</p></details>':'')+'<p class="small muted">'+(s.author_id===s.uploader_id?'作者、提交人：'+esc(s.author_name):'作者：'+esc(s.author_name)+' · 提交人：'+esc(s.uploader_name))+(kb?' · '+kb:'')+' · '+dateTime(s.created_at)+'</p>'+(s.note?'<p class="collaboration-note">'+esc(s.note)+'</p>':'')+'<details class="file-hash-details"><summary>原件校验信息</summary><p class="small">'+s.bytes+' 字节 · SHA-256：'+esc(s.sha256)+'</p></details></div><a class="button tiny" href="'+esc(s.file_url)+'" download>下载原件 v'+s.version+'</a></div>';
 }
 
 async function collaborationTopicForm(tid=''){

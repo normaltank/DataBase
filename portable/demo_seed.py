@@ -43,6 +43,61 @@ def txt(name, text):
     return name, ('【完全虚构的演示样例，不是研究结论】\n' + text + '\n').encode('utf-8')
 
 
+def seed_profile_examples(app, person_ids, researcher, colleague):
+    """Author-created fictional evidence, no network, queued execution or AI attempts."""
+    import html
+    import uuid
+    from platform_app import archive_suggestions as archive, person_profile_suggestions as profiles, store
+    db = store.connect(Path(app.config['DATA_DIR']) / 'platform.sqlite3')
+    try:
+        with db:
+            for index, pid in enumerate(person_ids):
+                base = profiles.snapshot(db, pid)
+                if not base['name'].startswith('演示｜'):
+                    raise RuntimeError('Synthetic biography examples require fictional demo people.')
+                url = 'https://example.invalid/demo/fictional-biography-' + str(index + 1)
+                base.update(_selected_url=url, _selected_institutions=[])
+                alias = base['name'].replace('·', '')
+                biography = '【完全虚构的演示材料，无联网、无模型调用】' + base['name'] + '是为本包从零创作的虚构人物，另一种演示姓名写法为' + alias + '。这些文字只供体验资料保存、机器建议与人工决定的区别，不对应真实人物或机构。虚构履历：2018年开始参与社区阅读记录，2021年整理地方公共空间的协作材料，其他任职时间与学历均未知。'
+                raw = ('<h1>' + html.escape(base['name']) + '</h1><article><p>' + html.escape(biography) + '</p></article>').encode()
+                profile = profiles.extract_profile(raw, 'utf-8', 'text/html', url)
+                sha = hashlib.sha256(raw).hexdigest()
+                eid = archive.digest({'type': 'person', 'target': pid, 'url': url, 'sha256': sha})
+                jid, stamp = uuid.uuid4().hex, store.now()
+                material = {'id': eid, 'url': url, 'sha256': sha, **profile}
+                value = {'target_type': 'person', 'target_id': pid, 'base_version': base['version'], 'rule_version': profiles.RULE,
+                    'current': {f: profiles.before(base, f) for f in sorted(profiles.FIELDS)}, 'documents': [material], 'employment_facts': []}
+                input_hash = archive.digest(value)
+                machine = {'synthetic': True, 'calls': 0, 'origin': 'author-created-demo', 'rule_version': profiles.RULE}
+                credential = db.execute("SELECT credential_version FROM users WHERE id='researcher'").fetchone()[0]
+                db.execute('''INSERT INTO archive_jobs(id,target_type,target_id,base_version,base_json,actor_id,credential_version,request_id,status,next_run,created_at,finished_at,input_hash,input_json,ai_json)
+                    VALUES(?,'person',?,?,?,'researcher',?,?,'ready',?,?,?,?,?,?)''',
+                    (jid, pid, base['version'], json.dumps(base, ensure_ascii=False), credential, 'synthetic-profile-' + str(index), stamp, stamp, stamp,
+                     input_hash, json.dumps(value, ensure_ascii=False), json.dumps(machine)))
+                db.execute('INSERT INTO archive_evidence VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+                    (eid, 'person', pid, url, stamp, 'text/html', raw, sha, json.dumps(profile, ensure_ascii=False, sort_keys=True), profiles.RULE, 'utf-8'))
+                db.execute('INSERT INTO archive_job_evidence VALUES(?,?)', (jid, eid))
+                job = db.execute('SELECT * FROM archive_jobs WHERE id=?', (jid,)).fetchone()
+                archive.event(db, job, 'acquired', 'researcher', {'synthetic': True, 'network_calls': 0, 'evidence_id': eid})
+                for field, proposed in [('introduction', '【合成机器建议示例，无AI调用】虚构人物的社区阅读与公共空间资料整理经历；未记录的时间、任职与学历保持未知。'), ('aliases', alias)]:
+                    cid = uuid.uuid4().hex
+                    item = {'field': field, 'value': proposed, 'evidence_id': eid, 'quote': biography}
+                    profiles.validate_output({'suggestions': [item]}, value)
+                    patch = profiles.candidate_patch(base, item, material)
+                    fingerprint = archive.digest({'base': base, 'input': input_hash, 'suggestion': item, 'patch': patch})
+                    db.execute('INSERT INTO archive_candidates VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                        (cid, jid, 'person', pid, base['version'], input_hash, fingerprint, field, json.dumps(profiles.before(base, field), ensure_ascii=False),
+                         json.dumps(proposed, ensure_ascii=False), json.dumps(patch, ensure_ascii=False), eid, biography, 'pending', stamp, '', ''))
+                    archive.event(db, job, 'proposed', 'researcher', {'synthetic': True, 'ai': machine}, cid)
+        # One pending example and one completed adopt/reject cycle use the real decision API.
+        state = researcher.get('/api/people/' + person_ids[1] + '/profile-suggestions').json
+        call(colleague, '/api/people/' + person_ids[1] + '/profile-suggestions/decide', {
+            'version': state['version'], 'adopt': [c['id'] for c in state['candidates'] if c['field'] == 'introduction'],
+            'reject': [c['id'] for c in state['candidates'] if c['field'] == 'aliases']})
+    finally:
+        db.close()
+
+
 def seed(app):
     researcher, lead, admin = [login(app, name) for name in ('researcher', 'colleague', 'admin')]
     # These are the documented public initialization accounts from store.py.
@@ -170,6 +225,7 @@ def seed(app):
         remember(researcher, sub['file_url'])
     from portable.public_batch import seed_public_batch
     public_batch = seed_public_batch(app)
+    seed_profile_examples(app, people, researcher, lead)
     payload = {'format': 2, 'synthetic': False, 'fictional_collaboration': True, 'accounts': ['researcher', 'colleague', 'admin'],
         'source_ids': sources, 'person_ids': people, 'article_ids': articles,
         'complete_topic': tid, 'active_topic': active, 'journal': wid, 'files': files, 'public_batch': public_batch}

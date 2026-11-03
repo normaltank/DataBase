@@ -46,7 +46,7 @@ function brand(){return workbenchBrand();}
 function showLogin(){document.body.classList.remove('navigation-open');navigationFocus=false;if(typeof libraryResetAccount==='function')libraryResetAccount();closeModal();document.querySelector('#app').innerHTML=`<div class="login-shell"><div class="login-box"><section class="login-story">${brand()}<h1>接续研究与编译工作</h1></section><section class="login-form"><h2>登录</h2><form data-form="login"><div class="field"><label for="username">账号</label><input id="username" name="username" required autocomplete="username" placeholder="输入账号"></div><div class="field"><label for="password">密码</label><input id="password" name="password" type="password" required autocomplete="current-password" placeholder="输入密码"></div><button class="button primary" type="submit">查看资料 ${icon('arrow')}</button><div class="form-error" role="alert"></div></form>${document.body.dataset.demoLogin==='true'?`<div class="demo-logins"><p>本机试用</p><div class="demo-buttons"><button class="button" data-action="demo-login" data-id="researcher">研究员</button><button class="button" data-action="demo-login" data-id="admin">资料管理员</button><button class="button" data-action="demo-login" data-id="colleague">协作同事</button></div></div>`:''}</section></div></div>`;}
 async function login(username,password){const r=await api('/api/login',{method:'POST',body:{username,password}});state.me=r.user;state.csrf=r.csrf;announceAccount();await loadLookups();await route();}
 async function loadLookups(){const account=state.me?.id;const [s,u,c,h,n]=await Promise.all([api('/api/sources'),api('/api/users'),api('/api/collections'),api('/health'),api('/api/country-names')]);if(account!==state.me?.id)return;state.sources=s.items;state.users=u.items;state.collections=c.items;state.schema=h.schema;state.countryNames=n;}
-function nav(n){return `<button class="nav-item ${(state.page===n[0]||(n[0]==='sources'&&state.page==='people'))?'active':''}" data-action="nav" data-id="${n[0]}" title="${n[2]}" ${state.page===n[0]?'aria-current="page"':''}>${icon(n[1])}<span>${n[2]}</span></button>`;}
+function nav(n){return `<button class="nav-item ${(state.page===n[0]||(n[0]==='sources'&&state.page==='people'))?'active':''}" data-action="nav" data-id="${n[0]}" title="${n[2]}" ${state.page===n[0]||(n[0]==='sources'&&state.page==='people')?'aria-current="page"':''}>${icon(n[1])}<span>${n[2]}</span></button>`;}
 const navigationMedia=matchMedia('(max-width:1000px)');
 let navigationFocus=false;
 function setNavigation(open,restore=true){
@@ -58,13 +58,14 @@ function setNavigation(open,restore=true){
   sidebar.inert=navigationMedia.matches&&!open;
   main.inert=open;
   toggle?.setAttribute('aria-expanded',String(open));
+  if(toggle)toggle.textContent=open?'关闭导航':'打开导航';
   if(open){sidebar.setAttribute('role','dialog');sidebar.setAttribute('aria-modal','true');sidebar.setAttribute('aria-label','平台导航');sidebar.querySelector('[aria-current="page"]')?.focus();}
   else{sidebar.removeAttribute('role');sidebar.removeAttribute('aria-modal');sidebar.removeAttribute('aria-label');if(wasOpen&&restore)(navigationMedia.matches?toggle:sidebar.querySelector('[aria-current="page"]'))?.focus();}
 }
 navigationMedia.addEventListener('change',()=>{setNavigation(false);if(typeof libraryReaderSemantics==='function')libraryReaderSemantics();});
 document.addEventListener('click',event=>{
   const button=event.target.closest('[data-action]');if(!button)return;
-  if(button.dataset.action==='navigation-open')setNavigation(true);
+  if(button.dataset.action==='navigation-open')setNavigation(!document.body.classList.contains('navigation-open'));
   else if(button.dataset.action==='navigation-close')setNavigation(false);
   else if(button.closest('.sidebar')&&button.dataset.action==='nav'&&document.body.classList.contains('navigation-open')){navigationFocus=true;setNavigation(false,false);}
 },true);
