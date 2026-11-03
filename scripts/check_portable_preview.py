@@ -159,7 +159,8 @@ def verify_seed(root, client, admin):
     assert all(not s['enabled'] and not s['runs'] for s in ingestion['items'])
     ai = admin.request('/api/admin/ai')
     assert ai['attempts'] == [] and not ai['worker_heartbeat'] and not ai['cap_units'] and ai['paused']
-    assert ai['task_counts'] == {} and ai['blocked_reasons']
+    assert ai['task_counts'] == {'ready': 2} and ai['blocked_reasons'] and ai['tasks'] == []
+    assert (ai['held_units'], ai['charged_units'], ai['legacy_unknown']) == (0, 0, 0) and not ai['archive_worker_heartbeat']
     return seed, workflow, journal
 
 
@@ -194,7 +195,9 @@ def verify_public_batch(client, admin, seed):
     assert sum(bool(r['abstract']) for r in snapshots.values()) == 23
     assert client.request('/api/records?q=' + urllib.parse.quote('平台工作者'))['total'] == 1
     ai = admin.request('/api/admin/ai')
-    assert ai['attempts'] == [] and ai['task_counts'] == {} and ai['paused'] and not ai['cap_units']
+    assert ai['attempts'] == [] and ai['task_counts'] == {'ready': 2} and ai['paused'] and not ai['cap_units'] and ai['tasks'] == []
+    assert (ai['held_units'], ai['charged_units'], ai['legacy_unknown']) == (0, 0, 0)
+    assert not ai['worker_heartbeat'] and not ai['archive_worker_heartbeat']
     return snapshots
 
 

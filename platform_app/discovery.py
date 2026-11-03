@@ -1,4 +1,4 @@
-"""One fixed official RSS adapter; previews never write records or follow item URLs."""
+"""Fixed official listing adapters; previews never write records or follow item URLs."""
 import hashlib
 import re
 import time
@@ -158,12 +158,14 @@ def _parse(content, retrieved_at, source_id, actor=None, *, previously_seen=None
     if not dates or min(dates) >= start or len(nodes) >= 20 or any(counts.values()) or dates != sorted(dates, reverse=True):
         warnings.append('当前结果可能遗漏窗口内内容：订阅截断、日期或条目异常、乱序及最早日期均需人工核对。')
     result = dict(format='discovery', source_id=source_id, filename=adapter['name']+' 近期发现', sha256=hashlib.sha256(content).hexdigest(),
+                source_name=adapter['name'], entry_type=adapter['mode'],
+                date_basis='rss_online' if adapter['kinds'] == {'journal'} else 'published',
                 feed_url=adapter['feed'], column_url=adapter['column'], retrieved_at=retrieved_at, window=window, returned=len(nodes),
                 earliest=earliest, counts=counts, exclusions=exclusions, warnings=warnings, items=items)
+    result['window_role'] = ('RSS 上线／发布标签的日期窗口；不替代原文发表日期、引用年份或首次入库时间' if adapter['kinds']=={'journal'} else
+                             '首次发表日期窗口') if previously_seen is None else '参考日期窗口；本轮按新发现与已纳入身份取得，可包含较早文章'
     if actor is None:
         result['observed_urls'] = sorted({article_key(node.findtext('link','')) for node in nodes if article_key(node.findtext('link',''))})
-        result['window_role'] = ('RSS 上线／发布标签的日期窗口；不替代引用年份或首次入库时间' if adapter['kinds']=={'journal'} else
-                                '首次发表日期窗口') if previously_seen is None else '参考日期窗口；本轮按新发现与已纳入身份取得，可包含较早文章'
     return result
 
 
