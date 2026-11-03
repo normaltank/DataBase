@@ -27,11 +27,11 @@ async function prepareNoteSubjectForm(form,record){
   form._subjectChoices=choices;
   const checked=new Set((record.research_subjects||[]).map(noteSubjectKey));
   const section=document.createElement('section');section.className='wide note-subject-picker';section.dataset.noteSubjectPicker='';
-  section.innerHTML=`<h3>笔记研究对象（可多选）</h3><p class="form-help">明确选择这份笔记研究的人物、机构和期刊。</p><div class="field"><label for="note-subject-search">筛选研究对象</label><input id="note-subject-search" type="search" data-note-subject-search placeholder="查找人物、机构或期刊"></div><div class="note-subject-choices">${choices.map(subject=>`<label class="check-label" data-note-subject-choice="${esc((subject.name+' '+subject.hint).toLowerCase())}"><input type="checkbox" name="research_subject_choices" value="${esc(noteSubjectKey(subject))}" ${checked.has(noteSubjectKey(subject))?'checked':''}><span>${esc(subject.name)} <small>${noteSubjectLabels[subject.subject_type]}</small>${subject.hint?`<small class="note-subject-hint">${esc(subject.hint)}</small>`:''}</span></label>`).join('')||'<p class="muted">请先建立人物、机构或期刊档案。</p>'}</div>`;
+  section.innerHTML=`<h3>笔记研究对象（可多选）</h3><p class="form-help">明确选择这份笔记研究的人物、机构和期刊。</p><div class="field"><label for="note-subject-search">筛选研究对象</label><input id="note-subject-search" type="search" data-note-subject-search placeholder="查找人物、机构或期刊"></div><div class="row wrap"><button type="button" class="button tiny" data-note-subject-select="all">全选当前查找对象</button><button type="button" class="button tiny" data-note-subject-select="clear">清空研究对象</button></div><p data-note-subject-count role="status" aria-live="polite"></p><p data-note-subject-selected class="form-help"></p><div class="note-subject-choices">${choices.map(subject=>`<label class="check-label" data-note-subject-choice="${esc((subject.name+' '+subject.hint).toLowerCase())}"><input type="checkbox" name="research_subject_choices" value="${esc(noteSubjectKey(subject))}" ${checked.has(noteSubjectKey(subject))?'checked':''}><span>${esc(subject.name)} <small>${noteSubjectLabels[subject.subject_type]}</small>${subject.hint?`<small class="note-subject-hint">${esc(subject.hint)}</small>`:''}</span></label>`).join('')||'<p class="muted">请先建立人物、机构或期刊档案。</p>'}</div>`;
   form.querySelector('[data-rich-field="body_html"]').before(section);
   updateNoteSubjectMode(form);
 }
-function updateNoteSubjectMode(form){const section=form.querySelector('[data-note-subject-picker]');if(section)section.hidden=form.elements.kind.value!=='research_note';}
+function updateNoteSubjectMode(form){const section=form.querySelector('[data-note-subject-picker]');if(section){section.hidden=form.elements.kind.value!=='research_note';updateNoteSubjectSelection(section);}}
 function noteSubjectValues(form){
   const keys=new FormData(form).getAll('research_subject_choices'),current=form._editing.original.research_subjects||[];
   return keys.flatMap(key=>{const existing=current.filter(subject=>noteSubjectKey(subject)===key);if(existing.length)return existing.map(subject=>({id:subject.id,version:subject.version,subject_type:subject.subject_type,subject_id:subject.subject_id}));const selected=form._subjectChoices.find(subject=>noteSubjectKey(subject)===key);return selected?[{subject_type:selected.subject_type,subject_id:selected.subject_id}]:[];});
@@ -70,7 +70,7 @@ async function existingSubjectNotes(type,id,query=''){
   const result=await api('/api/records?kind=research_note&editable=1&size=100&q='+encodeURIComponent(query));
   modal('选择可编辑的研究笔记',`<form data-form="subject-note-search" data-type="${type}" data-id="${esc(id)}"><div class="field"><label for="subject-note-query">查找笔记</label><div class="row"><input id="subject-note-query" name="q" value="${esc(query)}" placeholder="笔记题名或正文"><button class="button" type="submit">搜索</button></div></div></form><div class="note-subject-list">${result.items.map(note=>`<article class="note-subject-card"><h3>${esc(note.title)}</h3><button class="button" data-action="link-subject-note" data-id="${esc(note.id)}" data-type="${type}" data-subject-id="${esc(id)}">选择并编辑研究对象</button></article>`).join('')||'<p class="muted">没有匹配的可编辑笔记。</p>'}${result.total>result.items.length?'<p class="muted">请用搜索缩小结果。</p>':''}</div>`);
 }
-document.addEventListener('input',event=>{if(!event.target.matches('[data-note-subject-search]'))return;const q=event.target.value.trim().toLowerCase();event.target.closest('[data-note-subject-picker]').querySelectorAll('[data-note-subject-choice]').forEach(choice=>choice.hidden=!choice.dataset.noteSubjectChoice.includes(q));});
+document.addEventListener('input',event=>{if(!event.target.matches('[data-note-subject-search]'))return;const q=event.target.value.trim().toLowerCase();const root=event.target.closest('[data-note-subject-picker]');root.querySelectorAll('[data-note-subject-choice]').forEach(choice=>choice.hidden=!choice.dataset.noteSubjectChoice.includes(q));updateNoteSubjectSelection(root);root.closest('form').dispatchEvent(new Event('change',{bubbles:true}));});
 document.addEventListener('click',async event=>{
   const button=event.target.closest('[data-action]');if(!button)return;
   try{
@@ -101,3 +101,12 @@ document.addEventListener('click',async event=>{
     try{const html=await noteSubjectProfile(button.dataset.type,button.dataset.subject,Number(button.dataset.id));if(section.isConnected)section.outerHTML=html.replace('<h2>','<h3 id="source-notes">').replace('</h2>','</h3>');}catch(error){toast(error.message);}
   }else go(state.page,parameters({note_page:button.dataset.id}));
 });
+
+function updateNoteSubjectSelection(root){
+  const inputs=[...root.querySelectorAll('[name=research_subject_choices]')],selected=inputs.filter(x=>x.checked),visible=inputs.filter(x=>!x.closest('label').hidden);
+  root.querySelector('[data-note-subject-count]').textContent=`已选 ${selected.length} 项 · 当前未显示 ${selected.filter(x=>x.closest('label').hidden).length} 项 · 当前查找 ${visible.length} 项`;
+  root.querySelector('[data-note-subject-selected]').textContent=selected.length?'全部已选：'+selected.map(x=>x.closest('label').textContent.trim()).join('；'):'';
+  root.querySelector('[data-note-subject-select=all]').disabled=!visible.some(x=>!x.checked);root.querySelector('[data-note-subject-select=clear]').disabled=!selected.length;
+}
+document.addEventListener('change',event=>{if(event.target.name==='research_subject_choices')updateNoteSubjectSelection(event.target.closest('[data-note-subject-picker]'));});
+document.addEventListener('click',event=>{const b=event.target.closest('[data-note-subject-select]');if(!b)return;const root=b.closest('[data-note-subject-picker]');for(const input of root.querySelectorAll('[name=research_subject_choices]'))if(b.dataset.noteSubjectSelect==='clear'||!input.closest('label').hidden)input.checked=b.dataset.noteSubjectSelect==='all';updateNoteSubjectSelection(root);root.closest('form').dispatchEvent(new Event('change',{bubbles:true}));});

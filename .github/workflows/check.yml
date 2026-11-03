@@ -63,6 +63,13 @@ jobs:
           python-version: "3.12"
       - name: Install application dependencies
         run: python -m pip install -r requirements-test.txt
+      - name: Check selection DOM events and authenticated HTTP persistence
+        working-directory: scripts
+        run: |
+          node --version
+          npm ci --ignore-scripts
+          node check_selection_entry.js
+          python check_selection_http.py
       - name: Check syntax and synthetic tests
         run: python scripts/check.py
 

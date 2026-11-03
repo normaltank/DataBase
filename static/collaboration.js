@@ -30,11 +30,36 @@ function collaborationFileCard(s){
 }
 
 async function collaborationTopicForm(tid=''){
-  const t=tid?await api('/api/collaboration/topics/'+encodeURIComponent(tid)):null;
+  const account=state.me?.id,t=tid?await api('/api/collaboration/topics/'+encodeURIComponent(tid)):null;
   if(t&&!t.can_manage)throw new Error('当前没有本期维护权限。');
-  const users=(await api('/api/users')).items;
-  modal(t?'维护本期信息':'开启一期主题','<form data-form="collaboration-topic" data-id="'+esc(tid)+'" data-version="'+(t?.version||0)+'"><div class="stack"><div class="field"><label for="collaboration-theme">本期主题 *</label><input id="collaboration-theme" name="theme" maxlength="500" required value="'+esc(t?.theme||'')+'"></div><fieldset><legend>参与研究员</legend><p class="form-help">你作为当期负责人自动参与。可选择多位研究员。</p><div class="collaboration-members">'+users.filter(u=>u.id!==state.me.id).map(u=>'<label class="check-label"><input type="checkbox" name="participant_ids" value="'+esc(u.id)+'" '+(t?.participants.some(p=>p.id===u.id)?'checked':'')+'>'+esc(u.name)+'</label>').join('')+'</div></fieldset><div class="field"><label for="collaboration-due">提交日期（可选）</label><input id="collaboration-due" name="due_on" type="date" value="'+esc(t?.due_on||'')+'"></div></div><div class="form-error" role="alert"></div><div data-collaboration-conflict></div><div class="form-actions"><button class="button primary" type="submit">保存本期信息</button></div></form>',true);
+  const users=(await api('/api/users')).items;if(account!==state.me?.id)return;
+  modal(t?'维护本期信息':'开启一期主题','<form data-form="collaboration-topic" data-id="'+esc(tid)+'" data-version="'+(t?.version||0)+'"><div class="stack"><div class="field"><label for="collaboration-theme">本期主题 *</label><input id="collaboration-theme" name="theme" maxlength="500" required value="'+esc(t?.theme||'')+'"></div><fieldset data-collaboration-members><legend>参与研究员</legend><p class="form-help">你作为当期负责人自动参与，不计入下方勾选人数。</p><label class="field">查找其他成员<input type="search" data-collaboration-member-search></label><div class="row wrap"><button class="button tiny" type="button" data-action="collaboration-members-all">全选当前查找成员</button><button class="button tiny" type="button" data-action="collaboration-members-clear">清空其他成员</button><button class="button tiny" type="button" data-action="collaboration-members-refresh">刷新成员</button></div><p role="status" aria-live="polite" data-collaboration-member-count></p><div class="collaboration-members" data-collaboration-member-list></div><div data-collaboration-member-selected></div></fieldset><div class="field"><label for="collaboration-due">提交日期（可选）</label><input id="collaboration-due" name="due_on" type="date" value="'+esc(t?.due_on||'')+'"></div></div><div class="form-error" role="alert"></div><div data-collaboration-conflict></div><div class="form-actions"><button class="button primary" type="submit">保存本期信息</button></div></form>',true);
+  const form=document.querySelector('[data-form=collaboration-topic]');form._memberUsers=users;form._memberAccount=state.me.id;
+  renderCollaborationMembers(form,new Set(t?.participants.map(p=>p.id)||[]));
 }
+
+function renderCollaborationMembers(form,selected){
+  const users=form._memberUsers.filter(u=>u.id!==state.me.id&&u.active!==false&&u.active!==0),q=form.querySelector('[data-collaboration-member-search]').value.toLocaleLowerCase().trim();
+  const visible=users.filter(u=>(u.name+' '+(u.username||'')).toLocaleLowerCase().includes(q));
+  selected=selected||new Set([...form.querySelectorAll('[name=participant_ids]:checked')].map(x=>x.value));
+  const picked=users.filter(u=>selected.has(u.id));
+  form.querySelector('[data-collaboration-member-list]').innerHTML=users.map(u=>'<label class="check-label" '+(visible.includes(u)?'':'hidden')+'><input type="checkbox" name="participant_ids" value="'+esc(u.id)+'" '+(selected.has(u.id)?'checked':'')+'>'+esc(u.name)+'</label>').join('')||'<p class="notice">目前没有其他有效成员，你仍可单人开期。其他成员入场后，点击“刷新成员”再选择。</p>';
+  form.querySelector('[data-collaboration-member-count]').textContent='本人自动参与 · 已选其他成员 '+picked.length+' 人 · 当前查找 '+visible.length+' 人'+(users.length&&!visible.length?'；没有匹配成员，请调整查找。':'');
+  form.querySelector('[data-collaboration-member-selected]').textContent=picked.length?'已选其他成员（含查找隐藏项）：'+picked.map(u=>u.name).join('、'):'';
+  form.querySelector('[data-action=collaboration-members-all]').disabled=!visible.some(u=>!selected.has(u.id));
+  form.querySelector('[data-action=collaboration-members-clear]').disabled=!picked.length;
+}
+async function refreshCollaborationMembers(form){
+  const turn=(form._membersTurn||0)+1;form._membersTurn=turn;const result=await api('/api/users');
+  if(!form.isConnected||form._membersTurn!==turn||form._memberAccount!==state.me?.id)return;
+  // Read after the response so new clicks made during the request win.
+  const selected=new Set([...form.querySelectorAll('[name=participant_ids]:checked')].map(x=>x.value));
+  form._memberUsers=result.items;renderCollaborationMembers(form,selected);
+}
+document.addEventListener('input',event=>{if(event.target.matches('[data-collaboration-member-search]'))renderCollaborationMembers(event.target.closest('form'));});
+document.addEventListener('change',event=>{if(event.target.name==='participant_ids'){
+  const form=event.target.closest('form'),id=event.target.value;renderCollaborationMembers(form);[...form.querySelectorAll('[name=participant_ids]')].find(x=>x.value===id)?.focus({preventScroll:true});
+}});
 
 async function collaborationQualifications(){
   const d=await api('/api/collaboration/qualifications');
@@ -45,7 +70,12 @@ document.addEventListener('click',async event=>{
   const b=event.target.closest('[data-action]');if(!b||!b.dataset.action.startsWith('collaboration-'))return;
   const a=b.dataset.action,id=b.dataset.id;
   try{
-    if(a==='collaboration-upload-open'){const panel=document.querySelector('[data-collaboration-upload]');if(panel){panel.open=true;for(let parent=panel.parentElement;parent;parent=parent.parentElement){if(parent.tagName==='DETAILS')parent.open=true;}panel.scrollIntoView({block:'start'});panel.querySelector('[type=file]').focus({preventScroll:true});}}
+    if(a.startsWith('collaboration-members-')){
+      const form=b.closest('form');
+      if(a==='collaboration-members-refresh'){b.disabled=true;try{await refreshCollaborationMembers(form);}finally{if(b.isConnected)b.disabled=false;}}
+      else{for(const input of form.querySelectorAll('[name=participant_ids]'))if(a==='collaboration-members-clear'||!input.closest('label').hidden)input.checked=a==='collaboration-members-all';renderCollaborationMembers(form);}
+    }
+    else if(a==='collaboration-upload-open'){const panel=document.querySelector('[data-collaboration-upload]');if(panel){panel.open=true;for(let parent=panel.parentElement;parent;parent=parent.parentElement){if(parent.tagName==='DETAILS')parent.open=true;}panel.scrollIntoView({block:'start'});panel.querySelector('[type=file]').focus({preventScroll:true});}}
     else if(a==='collaboration-home')go('collaboration');
     else if(a==='collaboration-open')go('collaboration',{id});
     else if(a==='collaboration-scope')go('collaboration',{scope:id});

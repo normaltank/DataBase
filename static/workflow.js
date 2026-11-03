@@ -173,6 +173,24 @@ function updateRecordInformationMode(form){
   form._informationKind=form.elements.kind.value;
 }
 
+function prepareEditorGrants(form){
+  const root=form.querySelector('.editor-grants');if(!root||root.querySelector('[data-editor-grant-count]'))return;
+  const tools=document.createElement('div');tools.className='wide';tools.style.flexBasis='100%';
+  tools.innerHTML='<label class="field">查找授权成员<input type="search" data-editor-grant-search></label><div class="row wrap"><button type="button" class="button tiny" data-editor-grant-select="all">选择当前查找的有效成员</button><button type="button" class="button tiny" data-editor-grant-select="clear">清空授权成员</button></div><p data-editor-grant-count role="status" aria-live="polite"></p><p data-editor-grant-selected class="form-help"></p>';
+  root.querySelector('legend').after(tools);updateEditorGrants(root);
+}
+function updateEditorGrants(root){
+  const inputs=[...root.querySelectorAll('[name=editors]')],q=root.querySelector('[data-editor-grant-search]').value.toLocaleLowerCase().trim();
+  for(const input of inputs)input.closest('label').hidden=!input.closest('label').textContent.toLocaleLowerCase().includes(q);
+  const selected=inputs.filter(x=>x.checked),visible=inputs.filter(x=>!x.closest('label').hidden&&!x.disabled);
+  root.querySelector('[data-editor-grant-count]').textContent=`已选授权成员 ${selected.length} 人 · 当前未显示 ${selected.filter(x=>x.closest('label').hidden).length} 人`;
+  root.querySelector('[data-editor-grant-selected]').textContent=selected.length?'全部已选：'+selected.map(x=>x.closest('label').textContent.trim()).join('、'):'';
+  root.querySelector('[data-editor-grant-select=all]').disabled=!visible.some(x=>!x.checked);root.querySelector('[data-editor-grant-select=clear]').disabled=!selected.some(x=>!x.disabled);
+}
+document.addEventListener('input',event=>{if(event.target.matches('[data-editor-grant-search]'))updateEditorGrants(event.target.closest('.editor-grants'));});
+document.addEventListener('change',event=>{if(event.target.name==='editors'&&event.target.closest('.editor-grants')?.querySelector('[data-editor-grant-count]'))updateEditorGrants(event.target.closest('.editor-grants'));});
+document.addEventListener('click',event=>{const b=event.target.closest('[data-editor-grant-select]');if(!b)return;const root=b.closest('.editor-grants');for(const input of root.querySelectorAll('[name=editors]'))if(!input.disabled&&(b.dataset.editorGrantSelect==='clear'||!input.closest('label').hidden))input.checked=b.dataset.editorGrantSelect==='all';updateEditorGrants(root);root.closest('form').dispatchEvent(new Event('change',{bubbles:true}));});
+
 function updateRecordFormMode(form) {
   const kind=form.elements.kind.value,directory=kind==='directory_translation',personal=authorControlledKinds.has(kind),r=form._editing?.original||{};
   form.querySelector('[data-coverage]').hidden=!directory;form.elements.coverage.required=directory;form.elements.authors.required=directory;
@@ -183,6 +201,7 @@ function updateRecordFormMode(form) {
   const grants=form.querySelector('.editor-grants');if(grants)grants.hidden=!personal&&form.elements.visibility.value!=='restricted';
   const grantsLabel=form.querySelector('[data-grants-label]');if(grantsLabel)grantsLabel.textContent=personal?'获授权共同编辑的成员':'获授权读取的成员';
   form.querySelectorAll('[name=editors]').forEach(el=>el.disabled=directory||!manages||proxy);
+  if(grants?.querySelector('[data-editor-grant-count]'))updateEditorGrants(grants);
   form.elements.visibility.disabled=directory||!manages;
   form.querySelector('[data-acl-rule]').textContent=personal?'只有负责作者可以调整可见范围与编辑授权，管理员需获得作者授权。':kind==='research_note'?'所有可读成员共同编辑；原有可见范围仍由已确认负责作者管理。':'所有可读成员共同编辑；可见范围由提交者或资料管理员维护。';
   form.querySelector('#reference-section').hidden=!isResearchContent(kind);
@@ -216,6 +235,7 @@ async function workflowRecordForm(id='',kind='report',sourceId='',draftKey='',ev
     +'</div><div class="form-error" role="alert"></div><div class="form-actions"><button type="button" class="button" data-action="close">关闭并保留草稿</button><button type="submit" class="button primary">'+(id?'保存修订':finished?'保存成品':'保存内容')+'</button></div></form>';
   if(modal(id?'修订内容':finished?'导入已完成成果':'补充资料',html)===false)return;
   const form=document.querySelector('[data-form=record]'),generation=modalGeneration,account=state.me?.id;
+  prepareEditorGrants(form);
   const active=()=>form.isConnected&&document.querySelector('[data-form=record]')===form&&generation===modalGeneration&&account===state.me?.id;
   form._editing=state.editing;if(finished&&!id){const files=form.querySelector('[data-record-attachments]');files.open=true;files.querySelector('summary').textContent='原文件（选填）';form.querySelector('[data-author-new]').before(files);}form.elements.kind.required=true;if(finished)form.elements.kind.querySelector('option[value=""]')?.remove();
   if(typeof prepareIntakeForm==='function')prepareIntakeForm(form);
