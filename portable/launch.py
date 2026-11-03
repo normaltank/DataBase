@@ -151,7 +151,8 @@ def serve(mode='local'):
                 raise RuntimeError('No usable host IPv4 found. Connect to the campus network and try again.')
         app.config.update(SESSION_COOKIE_NAME='preview_' + IDENTITY[:24],
                           TRUSTED_HOSTS=['127.0.0.1', 'localhost', *addresses],
-                          DEMO_LOGIN=mode == 'local' and bool(default_password_users(ROOT / 'data')))
+                          DEMO_LOGIN=mode == 'local' and bool(default_password_users(ROOT / 'data')),
+                          PRODUCTION_PASSWORD_POLICY=mode == 'lan')
         token, instance = secrets.token_hex(32), secrets.token_hex(16)
         stopping = threading.Event()
 

@@ -56,7 +56,7 @@ Windows 路径在 JSON 中写成 `C:/Research/data`；`data_dir` 必须尚不存
 <venv-python> -m platform_app.deployment web --config <配置路径>
 ```
 
-Web 使用 Waitress，内嵌档案线程在创建前关闭。登录页没有演示快捷登录，HTTPS cookie、Host名单、Origin与CSRF同时检查。Web `/health` 只表示Web及数据库可读，不能证明worker存活。日志在指定目录 `service.log`，按5MiB、3份轮换；检查系统服务日志及独立进程退出状态，不开启请求正文、Cookie、环境或AI凭据的调试日志。
+Web 使用 Waitress，内嵌档案线程在创建前关闭。登录页没有演示快捷登录，HTTPS cookie、Host名单、Origin与CSRF同时检查。Web `/health` 只表示Web及数据库可读，不能证明worker存活。指定日志目录中，Web 写 `web.log`，worker 写 `worker.log`，各按5MiB、3份备份轮换；两个进程分别持有自己的文件。检查系统服务日志及独立进程退出状态，不开启请求正文、Cookie、环境或AI凭据的调试日志。
 
 ## 4. 独立后台与启停
 
@@ -66,7 +66,7 @@ Web 使用 Waitress，内嵌档案线程在创建前关闭。登录页没有演�
 <venv-python> -m platform_app.deployment worker-stop --config <配置路径>
 ```
 
-worker沿用既有 ingestion CLI 的采集→中文处理→档案／作者建议队列，每个数据目录只允许一个本入口worker。停止文件按随机实例身份请求协作退出，当前有界任务结束后停止；不要按端口或过期PID杀进程。`worker-status` 区分状态和心跳时间；旧心跳不能证明存活，须同时核对系统任务／服务状态。中断后的持久任务按既有租约、退避、幂等及未知费用保护续作，费用未知不会自动重发。不要再并行运行旧裸 ingestion CLI 或内嵌后台。
+worker沿用既有 ingestion CLI 的采集→中文处理→档案／作者建议队列，每个数据目录只允许一个本入口worker。停止文件按随机实例身份请求协作退出，当前有界任务结束后停止：已开始的RSS／文章取得先保存结果，已开始的中文处理或档案建议任务先完成结算；不再领取后续条目、任务或进入下一队列。未完成的采集条目留在同一任务，重启后续作。不要按端口或过期PID杀进程。`worker-status` 区分状态和心跳时间及进程锁是否被持有；旧心跳不能证明存活，须同时核对系统任务／服务状态。中断后的持久任务按既有租约、退避、幂等及未知费用保护续作，费用未知不会自动重发。不要再并行运行旧裸 ingestion CLI 或内嵌后台。
 
 全新正式库AI暂停、无凭据，所有来源默认未启用；Web不会自动启动worker。运维实际授权持续采集或AI后，才按现有管理入口逐项启用、配置凭据／价格／预算并复核未知费用。显式单篇翻译权限不构成后台发送许可。源码包、配置示例和manifest均不携带真实凭据。
 

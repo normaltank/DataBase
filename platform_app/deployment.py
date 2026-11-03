@@ -118,10 +118,10 @@ def application(config):
     return app
 
 
-def configure_logging(directory):
+def configure_logging(directory, service):
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
-    handler = RotatingFileHandler(directory / 'service.log', maxBytes=5 * 1024 * 1024, backupCount=3, encoding='utf-8')
+    handler = RotatingFileHandler(directory / (service + '.log'), maxBytes=5 * 1024 * 1024, backupCount=3, encoding='utf-8')
     handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(name)s %(message)s'))
     logging.getLogger().addHandler(handler)
     logging.getLogger().setLevel(logging.INFO)
@@ -158,10 +158,10 @@ def main(argv=None):
             command(args.action, config)
             return
         from waitress import serve
-        configure_logging(config['log_dir'])
         proxy = config['trusted_proxy']
         from .worker_service import process_lock
         with process_lock(Path(config['data_dir']) / '.web.lock'):
+            configure_logging(config['log_dir'], 'web')
             app = application(config)
             serve(app, listen=config['listen'], threads=6, trusted_proxy=proxy,
                   trusted_proxy_count=1, trusted_proxy_headers={'x-forwarded-proto'} if proxy else set(),
