@@ -204,7 +204,7 @@ def execute(db, job):
     return not error
 
 
-def run_pending(data_dir, limit=5, scan_limit=500):
+def run_pending(data_dir, limit=5, scan_limit=500, stopping=lambda: False):
     db=store.connect(Path(data_dir)/'platform.sqlite3')
     result={'tasks':0,'succeeded':0,'paused':0}
     try:
@@ -212,6 +212,8 @@ def run_pending(data_dir, limit=5, scan_limit=500):
         with db:
             db.execute("INSERT OR REPLACE INTO settings VALUES ('automatic_worker_heartbeat',?)",(store.now(),))
         for unused in range(limit):
+            if stopping():
+                break
             with db:
                 db.execute('BEGIN IMMEDIATE')
                 row=db.execute("SELECT * FROM automatic_tasks WHERE (status IN ('queued','paused') AND next_run<=?) OR (status='running' AND lease_until<=?) ORDER BY finished_at,next_run,CASE task WHEN 'translation' THEN 0 ELSE 1 END,created_at,rowid LIMIT 1",(store.now(),store.now())).fetchone()

@@ -93,8 +93,10 @@ def initialize(data_dir, mode='demo'):
         ("researcher", "researcher", "研究员 · 林", "researcher"),
         ("colleague", "colleague", "研究员 · 周", "researcher"),
     ]:
-        if first and not existing_users and mode == 'demo':
-            db.execute("INSERT INTO users (id,username,name,password_hash,role) VALUES (?,?,?,?,?)",
+        # Unmarked legacy demo databases may already contain a researcher but
+        # need the original demo admin before migrations record their history.
+        if first and mode == 'demo':
+            db.execute("INSERT OR IGNORE INTO users (id,username,name,password_hash,role) VALUES (?,?,?,?,?)",
                        (uid, username, name, generate_password_hash("LocalDemo2026!"), role))
     db.commit()
     db.close()

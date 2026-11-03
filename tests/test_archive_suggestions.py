@@ -76,6 +76,27 @@ class ArchiveSuggestionsTests(unittest.TestCase):
         self.assertEqual(self.call('/api/admin/archive-jobs/run', user='admin').status_code, 200)
         return self.clients['researcher'].get(f'/api/sources/{sid}/suggestions').json
 
+    def test_stop_during_archive_call_settles_current_job_and_leaves_next_for_resume(self):
+        from platform_app.archive_suggestions import run_pending
+        self.synthetic()
+        ids = [self.source('Synthetic Institute '+str(index), kind='institution', website=f'https://source{index}.example/')
+               for index in range(2)]
+        self.fetcher = lambda url: {**self.document, 'url': url}
+        queued = self.call('/api/archive-jobs', {'source_ids': ids, 'request_id': 'stop-and-resume'}, user='admin')
+        self.assertEqual(queued.status_code, 201, queued.json)
+        stop = threading.Event()
+        Provider.before_reply = stop.set
+        self.assertEqual(run_pending(self.app.config['DATA_DIR'], stopping=stop.is_set), {'tasks': 1, 'completed': 1})
+        state = self.clients['admin'].get('/api/admin/ai').json
+        self.assertEqual([attempt['status'] for attempt in state['attempts']], ['settled'])
+        self.assertEqual(state['held_units'], 0)
+        jobs = [self.clients['researcher'].get('/api/sources/'+sid+'/suggestions').json['jobs'][0] for sid in ids]
+        self.assertEqual([job['status'] for job in jobs], ['ready', 'queued'])
+        stop.clear()
+        Provider.before_reply = None
+        self.assertEqual(run_pending(self.app.config['DATA_DIR']), {'tasks': 1, 'completed': 1})
+        self.assertEqual(len(self.clients['admin'].get('/api/admin/ai').json['attempts']), 2)
+
     def test_queue_evidence_select_adopt_preserves_review_boundary(self):
         self.synthetic()
         sid = self.source('Synthetic Institute', kind='institution', website='https://source.example/')

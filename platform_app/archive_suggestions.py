@@ -463,13 +463,15 @@ def later(seconds):
     return (datetime.fromisoformat(store.now()) + timedelta(seconds=seconds)).isoformat(timespec='seconds')
 
 
-def run_pending(data_dir, limit=2):
+def run_pending(data_dir, limit=2, stopping=lambda: False):
     db = store.connect(Path(data_dir) / 'platform.sqlite3')
     result = {'tasks': 0, 'completed': 0}
     try:
         with db:
             db.execute("INSERT OR REPLACE INTO settings VALUES ('archive_worker_heartbeat',?)", (store.now(),))
         for _ in range(limit):
+            if stopping():
+                break
             with db:
                 db.execute('BEGIN IMMEDIATE')
                 row = db.execute("SELECT * FROM archive_jobs WHERE (status IN ('queued','paused') AND next_run<=?) OR (status='running' AND lease_until<=?) ORDER BY created_at,rowid LIMIT 1", (store.now(), store.now())).fetchone()

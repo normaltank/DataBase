@@ -45,7 +45,8 @@ def create_app(data_dir=None, testing=False, *, initialization_mode='demo', embe
                       # actual session changes may issue a replacement cookie.
                       SESSION_REFRESH_EACH_REQUEST=False,
                       TRUSTED_HOSTS=["127.0.0.1", "localhost"], DATA_DIR=data_dir,
-                      DEMO_LOGIN=initialization_mode == 'demo')
+                      DEMO_LOGIN=initialization_mode == 'demo',
+                      PRODUCTION_PASSWORD_POLICY=initialization_mode == 'production')
 
     def db():
         if "db" not in g:

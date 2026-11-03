@@ -5,6 +5,7 @@ import io
 import zipfile
 import sqlite3
 import threading
+from contextlib import redirect_stdout
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from unittest.mock import patch
@@ -33,6 +34,57 @@ class IngestionTests(unittest.TestCase):
 
     def source(self):
         return self.call('/api/sources', dict(name='Synthetic LIIA', kind='think_tank', website='https://liia.lv/en/')).json['id']
+
+    def test_worker_stop_after_feed_keeps_entries_queued_and_skips_later_queues(self):
+        from platform_app.ingestion import run_worker
+        sid = self.source()
+        path = '/api/sources/' + sid + '/ingestion'
+        self.call(path, {'enabled': True}, user='admin', method='PUT')
+        stop = threading.Event()
+        original = SourceSocket.sendall
+        requests = []
+        def stopping_socket(sock, data):
+            requests.append(data.split(b' ')[1].decode())
+            original(sock, data)
+            stop.set()
+        with patch('socket.getaddrinfo', return_value=[(2,1,6,'',('93.184.216.34',443))]), \
+             patch('socket.create_connection', side_effect=lambda *a,**k: SourceSocket(b'')), \
+             patch('ssl.SSLContext.wrap_socket', side_effect=lambda sock,**k: sock), \
+             patch.object(SourceSocket, 'sendall', stopping_socket), redirect_stdout(io.StringIO()):
+            run_worker(self.app.config['DATA_DIR'], once=True, stopping=stop.is_set)
+        self.assertEqual(requests, ['/en/opinions/rss.xml'])
+        status = self.clients['admin'].get(path).json
+        run = status['runs'][0]
+        self.assertEqual((run['status'], run['stage']), ('queued', 'entries'))
+        self.assertEqual([entry['stage'] for entry in run['entries']], ['queued', 'queued'])
+        self.assertEqual(self.clients['admin'].get('/api/admin/ai').json['tasks'], [])
+        self.assertEqual(self.run_worker()['saved'], 2)
+        resumed = self.clients['admin'].get(path).json['runs']
+        self.assertEqual([r['id'] for r in resumed], [run['id']])
+        self.assertEqual(resumed[0]['status'], 'succeeded')
+
+    def test_stop_during_article_finishes_that_entry_and_resumes_remaining_entry(self):
+        from platform_app.ingestion import run_pending
+        sid = self.source()
+        path = '/api/sources/' + sid + '/ingestion'
+        self.call(path, {'enabled': True}, user='admin', method='PUT')
+        stop = threading.Event()
+        original = SourceSocket.sendall
+        def stopping_socket(sock, data):
+            original(sock, data)
+            if b'/rss.xml ' not in data:
+                stop.set()
+        with patch('socket.getaddrinfo', return_value=[(2,1,6,'',('93.184.216.34',443))]), \
+             patch('socket.create_connection', side_effect=lambda *a,**k: SourceSocket(b'')), \
+             patch('ssl.SSLContext.wrap_socket', side_effect=lambda sock,**k: sock), \
+             patch.object(SourceSocket, 'sendall', stopping_socket):
+            result = run_pending(self.app.config['DATA_DIR'], limit=5, stopping=stop.is_set)
+        self.assertEqual(result['saved'], 1)
+        run = self.clients['admin'].get(path).json['runs'][0]
+        self.assertEqual(run['status'], 'queued')
+        self.assertEqual([entry['stage'] for entry in run['entries']], ['saved', 'queued'])
+        self.assertEqual(self.run_worker()['saved'], 1)
+        self.assertEqual(self.clients['researcher'].get('/api/records').json['total'], 2)
 
     def test_only_admin_can_enable_fixed_column_and_schedule_survives_restart(self):
         sid = self.source()

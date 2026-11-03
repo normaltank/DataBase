@@ -16,12 +16,13 @@ def process_lock(path):
     """An OS-owned lock is released on crash; never use a PID to kill a process."""
     path = Path(path)
     with path.open('a+b') as handle:
-        handle.seek(0)
-        if not handle.read(1):
-            handle.write(b'0')
-            handle.flush()
-        handle.seek(0)
         try:
+            # Windows mandatory byte locks also block reads. Inspect the file size
+            # without touching the byte owned by a running service.
+            if os.fstat(handle.fileno()).st_size == 0:
+                handle.write(b'0')
+                handle.flush()
+            handle.seek(0)
             if os.name == 'nt':
                 import msvcrt
                 msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
@@ -84,7 +85,7 @@ def command(action, config):
         raise ValueError('Replace or disable default demo credentials first.')
     with process_lock(data / '.worker.lock'):
         store.initialize(data, mode='production')
-        configure_logging(config['log_dir'])
+        configure_logging(config['log_dir'], 'worker')
         instance = secrets.token_hex(16)
         stop.unlink(missing_ok=True)
         event = threading.Event()
