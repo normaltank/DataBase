@@ -47,7 +47,7 @@ const data={target_id:'s1',target_type:'source',name:'Synthetic',version:1,jobs:
   w.api=async()=>({items:manyMembers});await w.collaborationTopicForm();
   const limited=w.document.querySelector('[data-form=collaboration-topic]'),all=limited.querySelector('[data-action=collaboration-members-all]'),clear=limited.querySelector('[data-action=collaboration-members-clear]'),query=limited.querySelector('[data-collaboration-member-search]');
   const choices=()=>[...new w.FormData(limited).getAll('participant_ids')];
-  assert.match(limited.textContent,/最多.*200.*其他参与研究员/);
+  assert.equal(limited.querySelector('[name=participant_ids][value=researcher]'),null,'the lead participates automatically and is not an optional member choice');
   assert.equal(all.disabled,true,'201 visible members must not be silently truncated');
   change(limited.querySelector('[value=member0]'),true);
   all.dispatchEvent(new w.MouseEvent('click',{bubbles:true}));assert.deepEqual(choices(),['member0'],'over-limit select all preserves prior selections');

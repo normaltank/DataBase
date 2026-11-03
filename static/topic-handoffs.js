@@ -20,12 +20,14 @@ function handoffMaterials(t,stage){
 }
 
 async function handoffLegacy(tid){
-  const account=state.me?.id,w=await api('/api/collaboration/topics/'+encodeURIComponent(tid)+'/workflow');
-  if(account!==state.me?.id)return;
-  const t=await api('/api/collaboration/topics/'+encodeURIComponent(tid));if(account!==state.me?.id)return;
-  modal('旧会议与成果',(w.meetings.length?w.meetings.map(topicReviewDecision).join(''):'<p>暂无旧会议记录。</p>')+workbenchTopicProducts({...t,can_submit_summary:false},w));
-  // Historical reading never offers mutation of the former meeting workflow.
-  document.querySelector('.drawer-body')?.querySelectorAll('button[data-action^="topic-final"],button[data-action^="topic-review"]').forEach(b=>b.remove());
+  const account=state.me?.id,load=state.loadId,generation=modalGeneration;
+  const w=await api('/api/collaboration/topics/'+encodeURIComponent(tid)+'/workflow');
+  if(account!==state.me?.id||load!==state.loadId||generation!==modalGeneration)return;
+  const t=await api('/api/collaboration/topics/'+encodeURIComponent(tid));
+  if(account!==state.me?.id||load!==state.loadId||generation!==modalGeneration)return;
+  modal('旧会议、定稿与汇总',(w.meetings.length?w.meetings.map(topicReviewDecision).join(''):'<p>暂无旧会议记录。</p>')+workbenchTopicProducts(t,w));
+  // Former meeting decisions stay historical; optional summaries retain their own permissions.
+  document.querySelector('.drawer-body')?.querySelectorAll('button[data-action="topic-finals-confirm"],button[data-action^="topic-review"]').forEach(b=>b.remove());
 }
 
 document.addEventListener('click',async event=>{
