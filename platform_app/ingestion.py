@@ -541,26 +541,34 @@ def main():
     args = parser.parse_args()
     if not 1 <= args.poll_seconds <= 3600:
         parser.error('poll-seconds must be between 1 and 3600')
-    store.initialize(args.data_dir)
+    store.initialize(args.data_dir, mode='production')
+    run_worker(args.data_dir, args.poll_seconds, args.once)
+
+
+def run_worker(data_dir, poll_seconds=30, once=False, stopping=lambda: False, heartbeat=lambda: None):
     logging.basicConfig(level=logging.INFO,format='%(asctime)s %(message)s')
-    while True:
-        db = store.connect(args.data_dir/'platform.sqlite3')
+    while not stopping():
+        heartbeat()
+        db = store.connect(data_dir/'platform.sqlite3')
         try:
             with db:
                 db.execute("INSERT OR REPLACE INTO settings VALUES ('ingestion_worker_heartbeat',?)",(store.now(),))
         finally:
             db.close()
-        result = run_pending(args.data_dir,limit=5)
+        result = run_pending(data_dir,limit=5)
         from .automatic_processing import run_pending as process_pending
-        result['chinese_processing'] = process_pending(args.data_dir,limit=5)
+        result['chinese_processing'] = process_pending(data_dir,limit=5)
         from .archive_suggestions import run_pending as archive_pending
-        result['archive_suggestions'] = archive_pending(args.data_dir,limit=2)
+        result['archive_suggestions'] = archive_pending(data_dir,limit=2)
         if result['runs']:
             logging.info('public_ingestion %s',json.dumps(result))
-        if args.once:
+        if once:
             print(json.dumps(result))
             return
-        time.sleep(args.poll_seconds)
+        for _ in range(poll_seconds):
+            if stopping():
+                return
+            time.sleep(1)
 
 
 if __name__ == '__main__':

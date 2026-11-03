@@ -25,10 +25,10 @@ COUNTRY_DATA_FILES = {'platform_app/country_data/territories.json',
 SOURCE_FILES = {
     'app.py', 'requirements.txt', 'PRODUCT.md', 'GLOSSARY.md',
     'docs/portable-preview.md', 'portable/__init__.py', 'portable/launch.py',
-    'portable/demo_seed.py', 'portable/public_batch.py', 'portable/runtime-lock.json', 'portable/quick-start.html',
+    'portable/demo_seed.py', 'portable/public_batch.py', 'portable/runtime-lock.json', 'portable/quick-start.html', 'portable/lan-start.bat', 'portable/lan-configure.bat',
     'portable/samples/cee17-preview.json',
     'portable/samples/fictional-article.pdf',
-    'scripts/build_portable.py', 'scripts/verify_portable.py', 'scripts/check_portable_preview.py',
+    'scripts/build_portable.py', 'scripts/verify_portable.py', 'scripts/check_portable_preview.py', 'scripts/check_lan_release.py',
     'scripts/verify_work_materials.py', 'portable/start.bat', 'portable/stop.bat',
 } | COUNTRY_DATA_FILES
 
@@ -113,7 +113,7 @@ def build(args):
         target = staging / name
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, target)
-    for action in ('start', 'stop'):
+    for action in ('start', 'stop', 'lan-start', 'lan-configure'):
         # BAT files use only ASCII and CRLF, so Windows code pages cannot corrupt commands.
         (staging / f'{action}.bat').write_bytes((ROOT / f'portable/{action}.bat').read_text(encoding='utf-8').replace('\r\n', '\n').replace('\n', '\r\n').encode('ascii'))
     shutil.copyfile(ROOT / 'portable/quick-start.html', staging / '使用说明.html')
@@ -128,7 +128,7 @@ def build(args):
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(z.read(entry))
     # Explicit paths remain isolated from environment, registry and user site; workers use same executable.
-    (runtime_dir / 'python312._pth').write_bytes(b'python312.zip\n.\nLib/site-packages\n..\n')
+    (runtime_dir / 'python314._pth').write_bytes(b'python314.zip\n.\nLib/site-packages\n..\n')
     site = runtime_dir / 'Lib/site-packages'
     site.mkdir(parents=True)
     licenses = []

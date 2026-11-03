@@ -44,7 +44,7 @@ def collection_values(data, base=None):
 
 
 def password(value):
-    if not isinstance(value, str) or not 12 <= len(value) <= 200:
+    if not isinstance(value, str) or not 12 <= len(value) <= 200 or value == 'LocalDemo2026!':
         abort(400, "密码需要 12—200 个字符。")
     return generate_password_hash(value)
 

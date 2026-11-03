@@ -27,6 +27,14 @@ def seed_public_batch(app):
     # Only the intact fictional initializer can reach this seam. No existing library imports.
     if reader.get('/api/records?size=100').json['total'] != 6 or reader.get('/api/sources').json['total'] != 3:
         raise RuntimeError('Public batch requires the newly generated fictional preview.')
+    return _import_batch(app, reader, admin, 'researcher')
+
+
+def _import_batch(app, reader, admin, actor_id):
+    from portable.demo_seed import call
+    from platform_app.store import connect, now, save_revision
+    from platform_app.translations import digest
+    fixture = load_fixture()
     sources = {}
     for source in sorted(fixture['sources'], key=lambda x: x['kind'] == 'journal'):
         evidence = '\n'.join(source['evidence_urls'])
@@ -78,10 +86,10 @@ def seed_public_batch(app):
                     (id,record_id,actor_id,request_id,source_version,input_title,input_abstract,input_hash,
                      source_url,source_doi,status,attempts,output_title,output_abstract,model,provider,created_at)
                     VALUES (?,?,?,?,?,?,?,?,?,?,'succeeded',0,?,?,?,?,?)''',
-                    (jid, rid, 'researcher', jid, 1, article['original_title'], abstract, input_hash,
+                    (jid, rid, actor_id, jid, 1, article['original_title'], abstract, input_hash,
                      article['url'], article['doi'], article['machine_title'], article['abstract_machine_preview'],
                      article['translation_model'], article['translation_provider'], now()))
-                save_revision(db, 'record', rid, '导入公开题录及历史机器节选；本包无调用、未人工校订', 'researcher')
+                save_revision(db, 'record', rid, '导入公开题录及历史机器节选；本包无调用、未人工校订', actor_id)
     collection = call(reader, '/api/collections', {'name': '历史17国公开资料样本',
         'visibility': 'shared', 'notes': '38核心来源、56资料；23原译独立节选、33仅译题名。未人工校订，本包不采集或调用AI。'})['id']
     for rid in articles.values():
@@ -90,3 +98,46 @@ def seed_public_batch(app):
     return {'batch': BATCH, 'fixture_sha256': FIXTURE_SHA256, 'source_ids': list(sources.values()),
             'core_source_ids': [sources[s['id']] for s in fixture['sources'] if s['role'] == 'core'],
             'article_ids': list(articles.values()), 'source_map': sources, 'article_map': articles, 'collection_id': collection}
+
+
+def import_public(data_dir, username, password):
+    """Offline optional sample import, authorized by an existing admin, atomic and idempotent.
+
+    A new empty content library is required; existing member accounts are retained.
+    Web and worker must be stopped. Locks also protect against concurrent native starts.
+    """
+    import tempfile
+    from platform_app.store import connect
+    from platform_app.web import create_app
+    from platform_app.worker_service import process_lock
+    data_dir = Path(data_dir).resolve()
+    if not (data_dir / 'platform.sqlite3').is_file():
+        raise ValueError('Initialize administrator first.')
+    with process_lock(data_dir / '.web.lock'), process_lock(data_dir / '.worker.lock'):
+        app = create_app(data_dir, initialization_mode='production', embedded_worker=False)
+        client = app.test_client()
+        csrf = client.get('/api/session').json['csrf']
+        result = client.post('/api/login', json={'username': username, 'password': password}, headers={'X-CSRF-Token': csrf})
+        if result.status_code != 200 or result.json['user']['role'] != 'admin':
+            raise ValueError('An active administrator must authorize public sample import.')
+        actor = result.json['user']['id']
+        with closing(connect(data_dir / 'platform.sqlite3')) as source:
+            marker = source.execute("SELECT value FROM settings WHERE key='public_sample_import'").fetchone()
+            if marker:
+                return json.loads(marker[0])
+            if source.execute('SELECT 1 FROM sources LIMIT 1').fetchone() or source.execute('SELECT 1 FROM records LIMIT 1').fetchone():
+                raise ValueError('Optional sample import requires an empty content library.')
+            with tempfile.TemporaryDirectory(prefix='public-sample-', dir=data_dir.parent) as tmp:
+                target = Path(tmp)
+                with closing(connect(target / 'platform.sqlite3')) as clone:
+                    source.backup(clone)
+                staging = create_app(target, initialization_mode='production', embedded_worker=False)
+                client = staging.test_client()
+                csrf = client.get('/api/session').json['csrf']
+                client.post('/api/login', json={'username': username, 'password': password}, headers={'X-CSRF-Token': csrf})
+                result = _import_batch(staging, client, client, actor)
+                with closing(connect(target / 'platform.sqlite3')) as clone:
+                    with clone:
+                        clone.execute("INSERT INTO settings VALUES('public_sample_import',?)", (json.dumps(result, ensure_ascii=False),))
+                    clone.backup(source)
+                return result
