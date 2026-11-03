@@ -242,8 +242,8 @@ def validate_backup(db):
                 or not 1<=row['source_version']<=record['version'] or not isinstance(result,dict) or not isinstance(evidence,dict)):
                 raise ValueError()
             raw=json.loads(record['raw_json'] or '{}')
-            if not any((e.get('fields',{}).get('original_title') or e.get('fields',{}).get('title',''))==value['title']
-                and e.get('fields',{}).get('abstract','')==value['abstract'] and e.get('processing_actor')==ingestion.SYSTEM_ID
+            if not any(((e.get('article_fields') or e.get('fields',{})).get('original_title') or (e.get('article_fields') or e.get('fields',{})).get('title',''))==value['title']
+                and (e.get('article_fields') or e.get('fields',{})).get('abstract','')==value['abstract'] and e.get('processing_actor')==ingestion.SYSTEM_ID
                 for e in raw.get('discovery_evidence',[])):
                 raise ValueError()
             if value.get('body') and not any(s.get('id')==value.get('snapshot_id') and s.get('sha256')==value.get('snapshot_sha256')

@@ -254,7 +254,8 @@ def validate_backup(db):
     if not actor or actor['active'] or actor['role'] != 'system' or actor['password_hash'] != '!':
         raise ValueError('自动取得系统主体不完整或可登录。')
     for row in db.execute('SELECT * FROM records'):
-        acquired = json.loads(row['raw_json'] or '{}').get('automatic_acquisition')
+        record_raw = json.loads(row['raw_json'] or '{}')
+        acquired = record_raw.get('automatic_acquisition')
         if not acquired:
             continue
         for snapshot in acquired.get('snapshots',[]):
@@ -271,15 +272,26 @@ def validate_backup(db):
                 clean_html, clean_text = workflow.clean_rich(snapshot['page_html'])
                 if clean_text != snapshot['page_text'] or clean_html != snapshot['page_html']:
                     raise ValueError()
-                adapter = next((a for a in source_adapters.ADAPTERS if a['id'] == snapshot['adapter'] and a['id'] != 'liia-opinions-v1'), None)
+                adapter = next((a for a in source_adapters.ADAPTERS if a['id'] != 'liia-opinions-v1' and source_adapters.article_url(a, snapshot['url'])), None)
                 if adapter:
                     document = dict(url=snapshot['url'],bytes=content,text=content.decode(snapshot.get('encoding','utf-8'),errors='replace'),content_type=snapshot['content_type'])
                     metadata, html, text, available, links = source_adapters.article(document, adapter)
-                    if (metadata != snapshot.get('metadata') or html != snapshot['page_html'] or text != snapshot['page_text']
-                            or available != snapshot['work_body_available'] or links != snapshot.get('pdf_links')):
+                    if (snapshot['adapter'] != adapter['id'] or metadata != snapshot.get('metadata') or html != snapshot['page_html'] or text != snapshot['page_text']
+                            or available != snapshot['work_body_available'] or links != snapshot.get('pdf_links')
+                            or available and (snapshot['work_body'] != dict(html=html,text=text) or snapshot['work_body_basis'] != '.single-publication .content-block .text.excerpt')):
                         raise ValueError()
             except (ValueError,KeyError,TypeError,LookupError,intake.AcquisitionError):
                 raise ValueError('自动取得原文快照校验失败。') from None
+        for evidence in record_raw.get('discovery_evidence',[]):
+            if 'article_fields' not in evidence and 'article_snapshot_id' not in evidence:
+                continue
+            snapshot = next((s for s in acquired.get('snapshots',[]) if s['id']==evidence.get('article_snapshot_id')),None)
+            fields = evidence.get('article_fields')
+            # Identical response bytes can occur at two official DOI aliases;
+            # retain each URL while binding all content fields to the raw page.
+            if (not snapshot or not snapshot.get('metadata') or not isinstance(fields,dict)
+                    or {k:v for k,v in fields.items() if k!='url'} != {k:v for k,v in snapshot['metadata']['fields'].items() if k!='url'}):
+                raise ValueError('自动取得题录与文章原件绑定失败。')
     for run in db.execute('SELECT * FROM ingestion_runs'):
         if run['status'] not in {'queued','running','failed','partial','succeeded'}:
             raise ValueError('采集任务状态无效。')

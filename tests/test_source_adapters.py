@@ -96,6 +96,22 @@ class SourceAdapterTests(unittest.TestCase):
         jobs2 = self.clients['admin'].get('/api/records/' + rid + '/suggestions').json['jobs']
         self.assertEqual([j['id'] for j in jobs2], [j['id'] for j in jobs])
         self.assertEqual(self.clients['researcher'].get('/api/records').json['total'], 1)
+        # Queued Chinese inputs use the actual article abstract, and must
+        # restore against that same evidence rather than the RSS excerpt.
+        from pathlib import Path
+        from platform_app.automatic_processing import run_pending
+        from platform_app.maintenance import restore_backup
+        from platform_app.web import create_app
+        with patch.dict('os.environ', {'DEEPSEEK_API_KEY':''}):
+            run_pending(self.app.config['DATA_DIR'], limit=10)
+        backup = Path(self.temp.name) / 'ojs-chinese.zip'
+        with self.call('/api/backup', user='admin') as response:
+            backup.write_bytes(response.data)
+        restored = restore_backup(backup, Path(self.temp.name) / 'ojs-restored')
+        client = create_app(restored,testing=True).test_client()
+        csrf = client.get('/api/session').json['csrf']
+        client.post('/api/login',json=dict(username='researcher',password='LocalDemo2026!'),headers={'X-CSRF-Token':csrf})
+        self.assertEqual(len(client.get('/api/records/'+rid).json['automatic_tasks']),2)
 
     def test_non_monotonic_feed_scans_past_old_items_and_explicit_backfill_keeps_original_dates(self):
         sid = self.source(INTERSECTIONS)
@@ -175,9 +191,40 @@ class SourceAdapterTests(unittest.TestCase):
         self.assertEqual(client.get(recovered['automatic_acquisition']['snapshots'][0]['download_url']).data, GSSC_PAGE.encode())
         self.assertEqual(client.get('/api/records/' + rid + '/suggestions').json['jobs'][0]['status'], 'queued')
         self.assertTrue(client.get('/api/sources/' + sid + '/ingestion').json['enabled'])
+        # Integrity hashes alone must not authorize a substituted summary body
+        # or an adapter relabel that evades replay of the saved official bytes.
+        import hashlib, sqlite3, zipfile
+        with zipfile.ZipFile(backup) as archive:
+            originals = {name:archive.read(name) for name in archive.namelist()}
+        for corruption in ['body','adapter','fields']:
+            files = dict(originals)
+            database = Path(self.temp.name) / ('corrupt-'+corruption+'.sqlite3')
+            database.write_bytes(files['platform.sqlite3'])
+            db = sqlite3.connect(database)
+            with db:
+                raw = json.loads(db.execute('SELECT raw_json FROM records WHERE id=?',(rid,)).fetchone()[0])
+                changed = raw['automatic_acquisition']['snapshots'][0]
+                if corruption == 'body':
+                    changed['work_body'] = dict(html='<p>Forged substitute body.</p>',text='Forged substitute body.')
+                elif corruption == 'adapter':
+                    changed['adapter'] = 'liia-opinions-auto-v1'
+                else:
+                    raw['discovery_evidence'][-1]['article_fields']['title'] = 'Forged substitute title'
+                db.execute('UPDATE records SET raw_json=? WHERE id=?',(json.dumps(raw),rid))
+            db.close()
+            files['platform.sqlite3'] = database.read_bytes()
+            manifest = json.loads(files['manifest.json'])
+            manifest['files']['platform.sqlite3'] = dict(bytes=len(files['platform.sqlite3']),sha256=hashlib.sha256(files['platform.sqlite3']).hexdigest())
+            files['manifest.json'] = json.dumps(manifest).encode()
+            broken = Path(self.temp.name) / ('corrupt-'+corruption+'.zip')
+            with zipfile.ZipFile(broken,'w') as archive:
+                for name, data in files.items(): archive.writestr(name,data)
+            target = Path(self.temp.name) / ('must-not-publish-'+corruption)
+            with self.assertRaisesRegex(ValueError,'自动取得'):
+                restore_backup(broken,target)
+            self.assertFalse(target.exists())
 
     def test_inactive_enabling_operator_does_not_enqueue_but_public_articles_still_arrive(self):
-        from platform_app.web import create_app
         sid = self.source()
         self.call('/api/sources/'+sid+'/ingestion', {'enabled':True}, user='admin', method='PUT')
         created = self.call('/api/members', {'username':'otheradmin','name':'Other admin','password':'OtherSynthetic2026!','role':'admin'}, user='admin')
