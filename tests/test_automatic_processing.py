@@ -52,7 +52,7 @@ class AutomaticProcessingTests(unittest.TestCase):
         self.assertEqual(len(state['attempts']), 1)
         self.assertEqual(state['attempts'][0]['status'], 'settled')
         self.assertEqual(state['held_units'], 0)
-        self.assertEqual(state['task_counts'], {'succeeded': 1, 'queued': 4})
+        self.assertEqual(state['task_counts'], {'succeeded': 1, 'queued': 6})
         jobs = self.clients['researcher'].get('/api/sources/'+sid+'/suggestions').json['jobs']
         self.assertEqual([job['status'] for job in jobs], ['queued'])
         # Missing credentials pause the remaining tasks without sending anything.
@@ -142,7 +142,7 @@ class AutomaticProcessingTests(unittest.TestCase):
         second=subprocess.run(command,capture_output=True,text=True,env={**os.environ,'DEEPSEEK_API_KEY':''},timeout=20)
         self.assertEqual(second.returncode,0,second.stderr);self.assertEqual(json.loads(second.stdout)['chinese_processing']['tasks'],4)
         state=self.clients['admin'].get('/api/admin/ai').json
-        self.assertEqual(state['task_counts'],{'paused':4});self.assertEqual(state['attempts'],[])
+        self.assertEqual(state['task_counts'],{'paused':4,'cancelled':2});self.assertEqual(state['attempts'],[])
 
     def test_http_failure_categories_keep_unknown_cost_and_require_reconciliation_before_retry(self):
         from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
@@ -229,7 +229,7 @@ class AutomaticProcessingTests(unittest.TestCase):
                 with patch('platform_app.store.now',return_value=stamp),patch('platform_app.ai_gateway.now',return_value=stamp):
                     run_pending(self.app.config['DATA_DIR'],limit=1,scan_limit=1)
         state=self.clients['admin'].get('/api/admin/ai').json
-        self.assertEqual(state['task_counts'],{'paused':4})
+        self.assertEqual(state['task_counts'],{'paused':4,'queued':2})
         self.assertEqual(state['attempts'],[])
 
     def test_supplier_deadline_releases_worker_and_after_reconciliation_tasks_continue(self):
