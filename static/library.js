@@ -84,14 +84,17 @@ function readingArchiveTabs(){return '<nav class="reading-tabs" aria-label="档�
 async function readingPersonalPage(){return workbenchPersonalPage();}
 function readingAbstract(record){
   if(isResearchContent(record.kind))return record.abstract?'<section class="detail-section"><h3>摘要与说明</h3><p class="prose">'+esc(record.abstract)+'</p></section>':'';
-  const origin={human:'人工中文 · 当前校订版本',machine:'机器中文 · 尚未人工校订',original:record.has_chinese?'原始中文资料':'原始信息 · 中文待处理'}[record.translation_origin]||'原始信息';
+  const origin={human:'人工中文',machine:record.abstract_is_chinese?'机器译文':'机器译题',original:record.has_chinese?'原始中文':'原文'}[record.translation_origin]||'原文';
   const preview=record.preview_excerpt,originalExcerpt=preview?.abstract_mode==='excerpt',excerpt=originalExcerpt&&(record.translation_origin!=='human'||!record.abstract_is_chinese);
-  return '<section class="detail-section reading-language"><div class="row wrap"><span>'+origin+'</span>'+(record.has_chinese?'<button class="button tiny" data-action="reading-language" data-language="chinese" aria-pressed="true">中文</button><button class="button tiny" data-action="reading-language" data-language="original" aria-pressed="false">原文</button>':'')+'</div>'+(preview?'<p>'+esc(preview.notice)+'</p>':'')+'<div data-reading-abstract="chinese">'+(record.display_abstract?'<h3>'+(record.abstract_is_chinese?'中文摘要':'原文摘要')+(excerpt?'节选':'')+'</h3><p class="prose">'+esc(record.display_abstract)+'</p>':'<p>原始摘要缺失。</p>')+'</div><div data-reading-abstract="original" hidden>'+(record.abstract?'<h3>原文摘要'+(originalExcerpt?'节选':'')+'</h3><p class="prose">'+esc(record.abstract)+'</p>':'<p>原始摘要缺失。</p>')+'</div>'+'<p class="small muted">发表 '+esc(record.published_on||'未知')+' · 首次收录 '+esc(record.created_at?.slice(0,10)||'未知')+' · 最近修订 '+esc(record.updated_at?.slice(0,10)||'未知')+'</p></section>';
+  const empty=record.body_html?'':'<p>暂无摘要</p>';
+  return '<section class="detail-section reading-language"><div class="row wrap"><span class="reading-origin" data-reading-origin-label="'+origin+'">'+origin+'</span>'+(record.has_chinese?'<button class="button tiny" data-action="reading-language" data-language="chinese" aria-pressed="true">中文</button><button class="button tiny" data-action="reading-language" data-language="original" aria-pressed="false">原文</button>':'')+'</div><div data-reading-abstract="chinese">'+(record.display_abstract?'<h3>'+(record.abstract_is_chinese?'中文摘要':'原文摘要')+(excerpt?'节选':'')+'</h3><p class="prose">'+esc(record.display_abstract)+'</p>':empty)+'</div><div data-reading-abstract="original" hidden>'+(record.abstract?'<h3>原文摘要'+(originalExcerpt?'节选':'')+'</h3><p class="prose">'+esc(record.abstract)+'</p>':empty)+'</div></section>';
 }
 function readingChooseLanguage(article,record,original){
   if(!article||!record)return;
   article.dataset.readingLanguage=original?'original':'chinese';
   article.querySelector('[data-reading-title]').textContent=original?(record.original_title||record.title):(record.display_title||record.title);
+  article.querySelectorAll('[data-reading-machine-title]').forEach(el=>el.hidden=original);
+  article.querySelectorAll('[data-reading-origin-label]').forEach(el=>el.textContent=original?'原文':el.dataset.readingOriginLabel);
   article.querySelectorAll('[data-reading-abstract]').forEach(el=>el.hidden=el.dataset.readingAbstract!==(original?'original':'chinese'));
   article.querySelectorAll('[data-action="reading-language"]').forEach(el=>el.setAttribute('aria-pressed',String(el.dataset.language===(original?'original':'chinese'))));
   uxUpdateReadingStats(article);

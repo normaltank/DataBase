@@ -16,6 +16,23 @@
 .person-summary{font-size:15px;line-height:1.7;margin:6px 0;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
 .person-applied{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:10px 0 14px;font-size:14px;color:var(--text-muted)}
 .person-page{display:grid;gap:14px}
+.person-page .person-heading{grid-template-columns:64px minmax(0,1fr);gap:16px;padding:16px 0;border:0;border-bottom:1px solid var(--border);background:var(--surface);border-radius:0;box-shadow:none}
+.person-page .person-heading .person-avatar{width:64px;height:64px;border-radius:4px}
+.person-page .person-heading h1{font-size:23px}
+.person-page>.person-section,.person-page>.person-works-group{border:0;border-top:1px solid var(--border);padding:16px 0;border-radius:0;box-shadow:none}
+.person-page .person-works-group>.person-section{border:0;padding:0;border-radius:0;box-shadow:none}
+.person-page>.person-profile-workspace>summary,.person-page>.person-evidence>summary{font-size:15px;min-height:36px;padding:6px 0}
+.person-profile-workspace>summary [data-profile-pending]{font-size:14px;color:var(--pending-text);margin-left:8px}
+.person-profile-workspace[open]>summary{margin-bottom:12px}
+.person-page .person-sources{overflow-wrap:anywhere}
+@media(max-width:700px){
+  .person-page .person-heading{grid-template-columns:48px minmax(0,1fr);gap:12px;padding:12px 0}
+  .person-page .person-heading .person-avatar{width:48px;height:48px;padding:4px;font-size:14px}
+  .person-page .person-heading .person-avatar span{display:none}
+  .person-page .person-heading h1{font-size:21px}
+  .person-page .person-profile-workspace input,.person-page .person-profile-workspace textarea,.person-page .person-profile-workspace select{font-size:16px}
+  .person-page>.person-profile-workspace>summary,.person-page>.person-evidence>summary{min-height:44px}
+}
 .person-page .back-link{display:inline-flex;align-items:center;gap:6px;width:fit-content;font-size:14px;font-weight:500}
 .person-heading{display:grid;grid-template-columns:auto minmax(0,1fr);gap:20px;padding:20px 24px;background:var(--surface);border:1px solid var(--border);border-radius:9px;align-items:start;box-shadow:var(--shadow-card)}
 .person-heading h1{font-size:26px;line-height:1.4;overflow-wrap:anywhere}
