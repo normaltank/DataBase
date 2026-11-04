@@ -54,22 +54,55 @@ def install_runtime_guard(app, settings):
 
 
 class PortableWorker:
-    def __init__(self, data, state, settings, stopping):
+    def __init__(self, data, state, settings, stopping, *, public_settings=None):
         self.data, self.state = Path(data), Path(state)
         self.settings, self.stopping = settings, stopping
+        if public_settings is None:
+            from .public_collection import LocalPublicSettings
+            public_settings = LocalPublicSettings(self.data.parent)
+        self.public_settings = public_settings
         self.thread = None
         self.worker_state = 'not_started'
         self.reason = ''
         self.publish_lock = threading.Lock()
         self.lifecycle_lock = threading.Lock()
+        self.start_lock = threading.Lock()
+
+    def ai_enabled(self):
+        if not enforce_local_opt_in(self.settings):
+            return False
+        with closing(store.connect(self.data / 'platform.sqlite3')) as db:
+            paused=db.execute("SELECT value FROM settings WHERE key='ai_paused'").fetchone()
+            return not (paused and paused[0]=='1')
+
+    def collection_sources(self):
+        if enforce_local_opt_in(self.settings):
+            return None  # The previously authorized AI-on worker path is unchanged.
+        public = self.public_settings.status()
+        if not public['enabled']:
+            return []
+        from platform_app import identity, source_adapters
+        with closing(store.connect(self.data / 'platform.sqlite3')) as db:
+            ids = []
+            for sid in public['source_ids']:
+                source = identity.resolve(db, 'sources', sid)
+                adapter = source_adapters.for_source(source) if source else None
+                if source and source['id']==sid and adapter and adapter['mode']=='crossref':
+                    ids.append(sid)
+            return ids
+
+    def public_status(self):
+        return self.public_settings.status() | dict(available=True, worker_state=self.worker_state, worker_reason=self.reason,
+                                                  ai_collection_enabled=self.settings.status()['enabled'])
 
     def status(self):
-        return self.settings.status() | {'worker_state': self.worker_state, 'worker_reason': self.reason}
+        return self.settings.status() | {'worker_state': self.worker_state, 'worker_reason': self.reason,
+                                         'public_collection': self.public_settings.status()}
 
     def publish(self):
         # Only safe status fields, never exception text or configuration secrets.
         value = {'worker_state': self.worker_state, 'worker_reason': self.reason,
-                 'heartbeat_epoch': time.time()}
+                 'heartbeat_epoch': time.time(), 'public_collection': self.public_settings.status()}
         path = self.state / 'worker-status.json'
         temporary = path.with_suffix('.tmp')
         with self.publish_lock:
@@ -77,7 +110,7 @@ class PortableWorker:
             temporary.replace(path)
 
     def should_stop(self):
-        requested = self.stopping.is_set() or not enforce_local_opt_in(self.settings)
+        requested = self.stopping.is_set() or not (enforce_local_opt_in(self.settings) or self.public_settings.status()['enabled'])
         with self.lifecycle_lock:
             if requested and self.worker_state == 'running':
                 self.worker_state = 'stopping'
@@ -86,15 +119,26 @@ class PortableWorker:
         return requested
 
     def start(self):
-        if self.thread is not None:
+        with self.start_lock:
+            self._start()
+
+    def ensure_started(self):
+        with self.start_lock:
+            if self.thread is not None and self.thread.is_alive():
+                return
+            self._start()
+
+    def _start(self):
+        if self.thread is not None and self.thread.is_alive():
             raise ValueError('本实例后台已启动。')
-        if not self.settings.status()['enabled']:
+        if not (self.settings.status()['enabled'] or self.public_settings.status()['enabled']):
             self.publish()
             return
         # Fail before launching; a second external worker must never share dispatch.
         self.ownership = process_lock(self.data / '.worker.lock')
         self.ownership.__enter__()
         self.worker_state = 'running'
+        self.reason = ''
         self.publish()
         self.thread = threading.Thread(target=self.run, name='portable-maintenance', daemon=False)
         try:
@@ -106,7 +150,8 @@ class PortableWorker:
     def run(self):
         from platform_app.ingestion import run_worker
         try:
-            run_worker(self.data, stopping=self.should_stop, heartbeat=self.publish)
+            run_worker(self.data, stopping=self.should_stop, heartbeat=self.publish,
+                       source_ids=self.collection_sources, paid_enabled=self.ai_enabled)
             with self.lifecycle_lock:
                 self.worker_state = 'stopped'
                 self.reason = '后台已停止，队列和费用账本保留。'
