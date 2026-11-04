@@ -7,7 +7,7 @@ from html.parser import HTMLParser
 from urllib.parse import urljoin, urlsplit
 import xml.etree.ElementTree as ET
 
-from . import intake, workflow
+from . import intake, workflow, journal_metadata
 
 ADAPTERS = (
     dict(id='liia-opinions-v1', name='LIIA Opinions', kinds={'institution', 'think_tank'},
@@ -32,7 +32,7 @@ ADAPTERS = (
          column='https://intersections.tk.hu/index.php/intersections/issue/current',
          article=r'/index.php/intersections/article/view/\d+/?', format='Intersections RSS', mode='rss',
          scope='仅官方声明 RSS 当前响应；刊期年份与上线日期分别保留，近期可为零'),
-)
+) + journal_metadata.ADAPTERS
 
 
 def for_source(source):

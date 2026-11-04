@@ -28,7 +28,7 @@ function page(storage = new Map()) {
     encodeURIComponent, crypto:require('node:crypto').webcrypto,
     sessionStorage:{getItem:key=>storage.get(key),setItem:(key,value)=>storage.set(key,value)},
     state:{me:{id:'admin', role:'admin'}}, esc:x=>String(x??''), dateTime:x=>String(x??''),
-    sourceHref:x=>'#'+x, detailPair:()=>'', toast(){},
+    sourceHref:x=>'#'+x, linkButton:()=>'', detailPair:()=>'', toast(){},
     document:{addEventListener:(type,handler)=>{(listeners[type]??=[]).push(handler)},
       querySelector:selector=>selector.includes('ingestion-config') ? forms.get(selector.match(/data-id="([^"]+)"/)?.[1]) : root,
       querySelectorAll:()=>[]},

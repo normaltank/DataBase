@@ -14,7 +14,7 @@ from pathlib import Path
 
 from flask import abort, jsonify, send_file
 
-from . import discovery, identity, intake, store, workflow, source_adapters
+from . import discovery, identity, intake, store, workflow, source_adapters, journal_metadata
 
 SCHEMA_VERSION = 17
 SYSTEM_ID = 'system-public-ingestion'
@@ -119,7 +119,9 @@ def configuration(db, sid):
     source = identity.resolve(db, 'sources', sid)
     adapter = source_adapters.for_source(source) if source else None
     if adapter:
-        result.update(feed_url=adapter['feed'], column_url=adapter['column'], adapter=adapter['id'], adapter_name=adapter['name'], scope=adapter['scope'])
+        result.update(feed_url=adapter['feed'], column_url=adapter['column'], adapter=adapter['id'], adapter_name=adapter['name'], scope=adapter['scope'], adapter_type=adapter['mode'])
+        if adapter['mode']=='crossref':
+            result.update(official_name=adapter['name'], issns=adapter['issns'])
     result['backfill_days'] = result['coverage'].get('backfill_days', 30)
     result['runs'] = []
     for row in db.execute('SELECT * FROM ingestion_runs WHERE source_id=? ORDER BY created_at DESC,rowid DESC LIMIT 10',(sid,)):
@@ -263,7 +265,7 @@ def validate_backup(db):
                 content = base64.b64decode(snapshot['raw_base64'],validate=True)
                 if len(content) != snapshot['bytes'] or hashlib.sha256(content).hexdigest() != snapshot['sha256']:
                     raise ValueError()
-                if type(snapshot['work_body_available']) is not bool or snapshot['content_kind'] not in {'webpage_description','no_body','work_body'}:
+                if type(snapshot['work_body_available']) is not bool or snapshot['content_kind'] not in {'webpage_description','no_body','work_body','bibliographic_metadata'}:
                     raise ValueError()
                 if snapshot['work_body_available']:
                     body = snapshot.get('work_body')
@@ -272,6 +274,13 @@ def validate_backup(db):
                 clean_html, clean_text = workflow.clean_rich(snapshot['page_html'])
                 if clean_text != snapshot['page_text'] or clean_html != snapshot['page_html']:
                     raise ValueError()
+                if snapshot['content_kind']=='bibliographic_metadata':
+                    adapter = next((a for a in journal_metadata.ADAPTERS if a['id']==snapshot['adapter']),None)
+                    if not adapter or not snapshot['url'].startswith(adapter['feed']+'?'):
+                        raise ValueError()
+                    expected = journal_metadata.snapshot(dict(url=snapshot['url'],bytes=content),adapter,snapshot['doi'],snapshot['retrieved_at'])
+                    if expected != snapshot:
+                        raise ValueError()
                 adapter = next((a for a in source_adapters.ADAPTERS if a['id'] != 'liia-opinions-v1' and source_adapters.article_url(a, snapshot['url'])), None)
                 if adapter:
                     document = dict(url=snapshot['url'],bytes=content,text=content.decode(snapshot.get('encoding','utf-8'),errors='replace'),content_type=snapshot['content_type'])
@@ -316,11 +325,13 @@ def _queue_run(db, sid, stamp):
         db.execute('INSERT INTO ingestion_runs(id,source_id,created_at) VALUES (?,?,?)',(uuid.uuid4().hex,sid,stamp))
 
 
-def _claim(db):
+def _claim(db, source_ids=None):
     stamp = store.now()
     with db:
         db.execute('BEGIN IMMEDIATE')
         for config in db.execute('SELECT * FROM ingestion_sources WHERE enabled=1 AND next_run<=?',(stamp,)).fetchall():
+            if source_ids is not None and config['source_id'] not in source_ids:
+                continue
             if pending_backoff(config):
                 continue
             source = identity.resolve(db,'sources',config['source_id'])
@@ -331,7 +342,7 @@ def _claim(db):
         candidates = db.execute('''SELECT r.* FROM ingestion_runs r JOIN ingestion_sources s ON s.source_id=r.source_id
             WHERE s.enabled=1 AND (r.status='queued' OR (r.status='running' AND r.lease_until<=?))
             ORDER BY r.created_at,r.rowid''',(stamp,)).fetchall()
-        run = next((candidate for candidate in candidates if not pending_backoff(
+        run = next((candidate for candidate in candidates if (source_ids is None or candidate['source_id'] in source_ids) and not pending_backoff(
             db.execute('SELECT * FROM ingestion_sources WHERE source_id=?',(candidate['source_id'],)).fetchone())), None)
         if not run:
             return None
@@ -355,8 +366,13 @@ def _renew(db, run):
         db.execute('UPDATE ingestion_runs SET lease_until=? WHERE id=?',(later(LEASE_SECONDS),run['id']))
 
 
-def _feed(db, run):
+def _feed(db, run, journal_sample=0):
     adapter = source_adapters.for_source(discovery.source_for(db, run['source_id']))
+    if adapter['mode'] == 'crossref':
+        sample = json.loads(db.execute('SELECT coverage_json FROM ingestion_runs WHERE id=?',(run['id'],)).fetchone()[0]).get('sample_rows', journal_sample)
+        document, result = journal_metadata.fetch_page(adapter, configuration(db,run['source_id']), run['source_id'], sample)
+        _save_feed(db, run, document, result, adapter)
+        return
     document = discovery.fetch_listing(adapter)
     config = configuration(db,run['source_id'])
     previous = json.loads(config['cursor']) if config['cursor'] else None
@@ -369,6 +385,12 @@ def _feed(db, run):
         zero_interpretation='零条只表示本次窗口未返回可纳入条目，不证明来源没有更新。' if not result['items'] else '',
         cursor=dict(kind='rss_response_and_seen_identities',sha256=result['sha256'],window=result['window'],returned=result['returned'],
             seen_urls=sorted((seen or set())|set(result['observed_urls']))))
+    _save_feed(db, run, document, dict(result, **coverage), adapter)
+
+
+def _save_feed(db, run, document, result, adapter):
+    coverage = {k:v for k,v in result.items() if k != 'items'}
+    config = configuration(db,run['source_id'])
     with db:
         db.execute('BEGIN IMMEDIATE')
         if not _owns(db,run):
@@ -376,7 +398,7 @@ def _feed(db, run):
         for item in result['items']:
             evidence = item['evidence']
             title = item['fields']['title'].casefold()
-            excluded = config['inclusion_rule'] == 'research_only' and any(word in title for word in ('vacancy','job opening','registration','annual general meeting','job vacancy'))
+            excluded = adapter['mode'] != 'crossref' and config['inclusion_rule'] == 'research_only' and any(word in title for word in ('vacancy','job opening','registration','annual general meeting','job vacancy'))
             db.execute('''INSERT OR IGNORE INTO ingestion_entries(id,run_id,source_id,entry_id,evidence_json,stage,reason)
                 VALUES (?,?,?,?,?,?,?)''',(uuid.uuid4().hex,run['id'],run['source_id'],evidence['entry_id'],json.dumps(evidence,ensure_ascii=False),
                 'excluded' if excluded else 'queued','规则排除一般事务通知；可调整为全部条目后重跑。' if excluded else '固定官方入口；保留原文类别待分类'))
@@ -384,7 +406,7 @@ def _feed(db, run):
             (json.dumps(coverage,ensure_ascii=False),document['bytes'],result['sha256'],run['id']))
 
 
-def run_pending(data_dir, limit=1, stopping=lambda: False):
+def run_pending(data_dir, limit=1, stopping=lambda: False, *, source_ids=None, journal_sample=0):
     """Process at most limit durable runs. No Flask session, member token or AI call."""
     from .record_revisions import RecordRevisions
     data_dir = Path(data_dir)
@@ -394,7 +416,8 @@ def run_pending(data_dir, limit=1, stopping=lambda: False):
         for _ in range(limit):
             if stopping():
                 break
-            run = _claim(db)
+            allowed = source_ids() if callable(source_ids) else source_ids
+            run = _claim(db, allowed)
             if not run:
                 break
             totals['runs'] += 1
@@ -404,12 +427,13 @@ def run_pending(data_dir, limit=1, stopping=lambda: False):
                 break
             try:
                 if run['stage'] == 'feed':
-                    _feed(db,run)
+                    _feed(db,run,journal_sample)
                 entries = db.execute("SELECT * FROM ingestion_entries WHERE run_id=? AND stage IN ('queued','acquiring','failed') ORDER BY rowid",(run['id'],)).fetchall()
                 backoff = None
                 interrupted = False
                 for entry in entries:
-                    if stopping():
+                    allowed_now = source_ids() if callable(source_ids) else source_ids
+                    if stopping() or allowed_now is not None and run['source_id'] not in allowed_now:
                         interrupted = True
                         break
                     _renew(db,run)
@@ -418,9 +442,15 @@ def run_pending(data_dir, limit=1, stopping=lambda: False):
                     snapshot, error = None, ''
                     try:
                         evidence = json.loads(entry['evidence_json'])
-                        document = intake.fetch_document(evidence['fields']['url'],time.monotonic()+intake.MAX_SECONDS)
                         adapter = source_adapters.for_source(discovery.source_for(db, run['source_id']))
-                        snapshot = page_snapshot(document, adapter)
+                        if adapter['mode'] == 'crossref':
+                            raw_run = db.execute('SELECT * FROM ingestion_runs WHERE id=?',(run['id'],)).fetchone()
+                            coverage = json.loads(raw_run['coverage_json'])
+                            document = dict(bytes=raw_run['feed_bytes'],url=coverage['request_url'])
+                            snapshot = journal_metadata.snapshot(document, adapter, evidence['fields']['doi'], coverage['retrieved_at'])
+                        else:
+                            document = intake.fetch_document(evidence['fields']['url'],time.monotonic()+intake.MAX_SECONDS)
+                            snapshot = page_snapshot(document, adapter)
                     except (intake.AcquisitionError,ValueError) as failure:
                         error = str(failure)
                         backoff = network_backoff(failure)
@@ -450,7 +480,7 @@ def run_pending(data_dir, limit=1, stopping=lambda: False):
                         error = ('站点返回 HTTP '+str(backoff['http_status'])+'；已退避至 '+backoff['retry_at']+
                                  ('（等待值已限定为最多七天）。' if backoff['bounded'] else '。')) if backoff else (
                                      str(failed)+' 条取得或保存失败，可重跑。' if failed else '')
-                        db.execute("UPDATE ingestion_runs SET status=?,stage=?,finished_at=?,error=?,lease_until='' WHERE id=?",('partial' if failed or backoff else 'succeeded','entries' if backoff else 'done',store.now(),error,run['id']))
+                        db.execute("UPDATE ingestion_runs SET status=?,stage=?,finished_at=?,error=?,lease_until='' WHERE id=?",('partial' if failed or backoff else 'succeeded','entries' if backoff or failed else 'done',store.now(),error,run['id']))
                         coverage = db.execute('SELECT coverage_json FROM ingestion_runs WHERE id=?',(run['id'],)).fetchone()[0]
                         coverage_data = json.loads(coverage)
                         # Manual HTTP receipts outlive a worker run and its response.
@@ -460,9 +490,9 @@ def run_pending(data_dir, limit=1, stopping=lambda: False):
                         if backoff:
                             coverage_data['network_backoff'] = backoff
                         db.execute('''UPDATE ingestion_sources SET next_run=?,last_success=?,last_error=?,coverage_json=?,cursor=? WHERE source_id=?''',
-                            (backoff['retry_at'] if backoff else later(configuration(db,run['source_id'])['frequency_hours']*3600),
+                            (backoff['retry_at'] if backoff else later(30 if coverage_data.get('cursor',{}).get('pending') else configuration(db,run['source_id'])['frequency_hours']*3600),
                              configuration(db,run['source_id'])['last_success'] if backoff else store.now(),error,
-                             json.dumps(coverage_data,ensure_ascii=False),json.dumps(coverage_data.get('cursor',{})),run['source_id']))
+                             json.dumps(coverage_data,ensure_ascii=False),configuration(db,run['source_id'])['cursor'] if failed or backoff or coverage_data.get('sample_only') else json.dumps(coverage_data.get('cursor',{})),run['source_id']))
             except Exception as failure:
                 db.rollback()
                 with db:
@@ -471,6 +501,14 @@ def run_pending(data_dir, limit=1, stopping=lambda: False):
                         backoff = network_backoff(failure)
                         previous = db.execute('SELECT * FROM ingestion_sources WHERE source_id=?',(run['source_id'],)).fetchone()
                         coverage = json.loads(previous['coverage_json'])
+                        failed_coverage=json.loads(db.execute('SELECT coverage_json FROM ingestion_runs WHERE id=?',(run['id'],)).fetchone()[0])
+                        recovered = journal_metadata.recover_rejected_cursor(previous,failure) if not failed_coverage.get('sample_rows') and not journal_sample else None
+                        if recovered:
+                            coverage['cursor_recovery'] = dict(reason=recovered['recovery_reason'],at=store.now())
+                            db.execute('UPDATE ingestion_sources SET cursor=? WHERE source_id=?',(json.dumps(recovered),run['source_id']))
+                        if isinstance(failure,intake.AcquisitionError) and failure.http_status:
+                            failed_coverage['http_status']=failure.http_status
+                            db.execute('UPDATE ingestion_runs SET coverage_json=? WHERE id=?',(json.dumps(failed_coverage),run['id']))
                         coverage.pop('network_backoff', None)
                         error = str(failure)[:500]
                         if backoff:
@@ -484,6 +522,64 @@ def run_pending(data_dir, limit=1, stopping=lambda: False):
         return totals
     finally:
         db.close()
+
+
+def sample_journals(data_dir, source_ids):
+    """Explicit manual sample: at most three fixed sources, one GET/5 works each.
+
+    Own the same worker lock; never change source opt-ins, local AI settings,
+    existing indexed watermarks, or dispatch either paid-processing queue.
+    """
+    from .worker_service import process_lock
+    data_dir = Path(data_dir)
+    ids = list(source_ids)
+    if not 1 <= len(ids) <= 3 or len(set(ids)) != len(ids):
+        raise ValueError('请明确指定一至三个不同的已启用期刊来源。')
+    with process_lock(data_dir / '.worker.lock'):
+        db = store.connect(data_dir/'platform.sqlite3')
+        try:
+            with db:
+                db.execute('BEGIN IMMEDIATE')
+                adapters = set()
+                for sid in ids:
+                    source = identity.resolve(db,'sources',sid)
+                    adapter = source_adapters.for_source(source) if source else None
+                    config = db.execute('SELECT * FROM ingestion_sources WHERE source_id=? AND enabled=1',(sid,)).fetchone()
+                    if not source or source['id']!=sid or not adapter or adapter['mode']!='crossref' or not config:
+                        raise ValueError('试采仅接受明确启用的本轮三个期刊来源。')
+                    if adapter['id'] in adapters:
+                        raise ValueError('同一期刊只能指定一个来源身份。')
+                    adapters.add(adapter['id'])
+                    if pending_backoff(config):
+                        raise ValueError('来源正在按上游要求退避，请稍后再试。')
+                    if db.execute("SELECT 1 FROM ingestion_runs WHERE source_id=? AND status IN ('queued','running')",(sid,)).fetchone():
+                        raise ValueError('所选来源已有待处理或在途采集；先完成或暂停核对原任务，试采不接管旧任务。')
+                runs = {}
+                for sid in ids:
+                    rid = uuid.uuid4().hex
+                    runs[sid] = rid
+                    db.execute('INSERT INTO ingestion_runs(id,source_id,created_at,coverage_json) VALUES (?,?,?,?)',
+                               (rid,sid,store.now(),json.dumps(dict(sample_rows=5))))
+            totals = run_pending(data_dir, limit=len(ids), source_ids=ids)
+            reports = []
+            for sid, rid in runs.items():
+                run = db.execute('SELECT * FROM ingestion_runs WHERE id=?',(rid,)).fetchone()
+                coverage = json.loads(run['coverage_json'])
+                entries = []
+                for entry in db.execute('SELECT * FROM ingestion_entries WHERE run_id=? ORDER BY rowid',(rid,)):
+                    evidence = json.loads(entry['evidence_json'])
+                    fields = evidence['fields']
+                    entries.append(dict(doi=fields.get('doi',''),published_on=fields.get('published_on',''),
+                        has_abstract=bool(fields.get('abstract')), volume=fields.get('volume',''),issue=fields.get('issue',''),
+                        record_id=entry['record_id'],stage=entry['stage'],error=entry['error']))
+                reports.append(dict(source_id=sid,run_id=rid,status=run['status'],error=run['error'],
+                    http_status=200 if run['feed_bytes'] is not None else coverage.get('http_status'),
+                    response_sha256=run['feed_sha256'], response_bytes=len(run['feed_bytes'] or b''),
+                    request_url=coverage.get('request_url',''),returned=coverage.get('returned'),
+                    saved=sum(e['stage']=='saved' for e in entries),entries=entries))
+            return dict(totals=totals,sources=reports,paid_dispatch=False)
+        finally:
+            db.close()
 
 
 def manual_request_key(data, actor_id, action):
@@ -507,6 +603,32 @@ def remember_manual_request(db, config, key):
 
 
 def register(app, ctx):
+    @app.route('/api/ingestion/local', methods=['GET', 'PUT'])
+    def public_collection_control():
+        ctx.admin()
+        from flask import request
+        status = app.config.get('PUBLIC_COLLECTION_STATUS')
+        configure = app.config.get('PUBLIC_COLLECTION_CONFIGURE')
+        if request.method == 'GET':
+            return jsonify(status() if callable(status) else dict(available=False, enabled=False, source_ids=[]))
+        if not callable(configure):
+            abort(409, '当前不是便携启动；请使用现有采集后台运行说明。')
+        data = ctx.body()
+        if set(data) != {'enabled','source_ids'} or type(data['enabled']) is not bool or not isinstance(data['source_ids'],list):
+            abort(400, '请填写本机启用状态和明确的期刊来源名单。')
+        ids = data['source_ids']
+        if len(ids)>3 or not all(isinstance(s,str) for s in ids) or len(set(ids))!=len(ids) or data['enabled'] and not ids:
+            abort(400, '开启本机采集前请选择一至三个期刊。')
+        for sid in ids:
+            source = identity.resolve(ctx.db(),'sources',sid)
+            adapter = source_adapters.for_source(source) if source else None
+            if not source or source['id']!=sid or not adapter or adapter['mode']!='crossref':
+                abort(400, '本机公开采集名单仅接受本轮接入的三个期刊。')
+        try:
+            return jsonify(configure(data['enabled'],ids))
+        except (ValueError,OSError):
+            abort(409, '本机采集设置或后台启动失败；请检查其他后台是否占用并刷新状态。')
+
     @app.post('/api/sources/<sid>/ingestion/run')
     def queue_ingestion(sid):
         ctx.admin()
@@ -570,7 +692,7 @@ def register(app, ctx):
         source = identity.resolve(ctx.db(), 'sources', run['source_id'])
         adapter = source_adapters.for_source(source) if source else None
         return send_file(io.BytesIO(run['feed_bytes']),mimetype='application/octet-stream',as_attachment=True,
-            download_name='discovery-'+run['feed_sha256'][:16]+('.html.txt' if adapter and adapter['mode']=='html' else '.xml'))
+            download_name='discovery-'+run['feed_sha256'][:16]+('.json' if adapter and adapter['mode']=='crossref' else '.html.txt' if adapter and adapter['mode']=='html' else '.xml'))
 
     @app.get('/api/ingestion')
     def ingestion_status():
@@ -578,9 +700,13 @@ def register(app, ctx):
         sources = list(ctx.db().execute('SELECT * FROM sources WHERE merged_into IS NULL'))
         rows = [r for r in sources if discovery.supported(r)]
         heartbeat = ctx.db().execute("SELECT value FROM settings WHERE key='ingestion_worker_heartbeat'").fetchone()
+        local_status = app.config.get('PUBLIC_COLLECTION_STATUS')
         return jsonify(items=[dict(name=r['name'], **configuration(ctx.db(), r['id'])) for r in rows],
                        unavailable=[dict(source_id=r['id'], name=r['name'], reason='尚未接入固定采集，不能启用或安排巡检。') for r in sources if not discovery.supported(r)],
-                       worker_heartbeat=heartbeat[0] if heartbeat else '')
+                       worker_heartbeat=heartbeat[0] if heartbeat else '',
+                       public_collection=local_status() if callable(local_status) else None,
+                       journals=[dict(name=a['chinese_name'], original_name=a['name'], kind='journal', website=a['website'], issn='; '.join(a['issns']), adapter=a['id'],
+                           registered=any(source_adapters.for_source(s) and source_adapters.for_source(s)['id']==a['id'] for s in sources)) for a in journal_metadata.ADAPTERS])
 
     @app.get('/api/sources/<sid>/ingestion')
     def ingestion_configuration(sid):
@@ -636,7 +762,7 @@ def main():
     run_worker(args.data_dir, args.poll_seconds, args.once)
 
 
-def run_worker(data_dir, poll_seconds=30, once=False, stopping=lambda: False, heartbeat=lambda: None):
+def run_worker(data_dir, poll_seconds=30, once=False, stopping=lambda: False, heartbeat=lambda: None, *, source_ids=None, paid_enabled=lambda: True):
     logging.basicConfig(level=logging.INFO,format='%(asctime)s %(message)s')
     while not stopping():
         heartbeat()
@@ -646,15 +772,17 @@ def run_worker(data_dir, poll_seconds=30, once=False, stopping=lambda: False, he
                 db.execute("INSERT OR REPLACE INTO settings VALUES ('ingestion_worker_heartbeat',?)",(store.now(),))
         finally:
             db.close()
-        result = run_pending(data_dir,limit=5,stopping=stopping)
+        result = run_pending(data_dir,limit=5,stopping=stopping,source_ids=source_ids)
         if stopping():
             return
         from .automatic_processing import run_pending as process_pending
-        result['chinese_processing'] = process_pending(data_dir,limit=5,stopping=stopping)
+        if paid_enabled():
+            result['chinese_processing'] = process_pending(data_dir,limit=5,stopping=lambda: stopping() or not paid_enabled())
         if stopping():
             return
         from .archive_suggestions import run_pending as archive_pending
-        result['archive_suggestions'] = archive_pending(data_dir,limit=2,stopping=stopping)
+        if paid_enabled():
+            result['archive_suggestions'] = archive_pending(data_dir,limit=2,stopping=lambda: stopping() or not paid_enabled())
         if result['runs']:
             logging.info('public_ingestion %s',json.dumps(result))
         if once:

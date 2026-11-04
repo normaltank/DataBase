@@ -161,6 +161,8 @@ def serve(mode='local'):
         stopping = threading.Event()
         worker = PortableWorker(ROOT / 'data', STATE, settings, stopping)
         app.config['PORTABLE_AI_STATUS'] = worker.status
+        from portable.public_collection import install_public_control
+        install_public_control(app, worker)
 
         def application(environ, start_response):
             path = environ.get('PATH_INFO', '')

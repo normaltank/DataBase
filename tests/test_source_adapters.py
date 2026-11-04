@@ -43,6 +43,9 @@ class SourceAdapterTests(unittest.TestCase):
         clock = patch('platform_app.store.now', return_value='2026-11-03T12:00:00+00:00')
         clock.start()
         self.addCleanup(clock.stop)
+        record_clock = patch('platform_app.record_revisions.now', return_value='2026-11-03T12:00:00+00:00')
+        record_clock.start()
+        self.addCleanup(record_clock.stop)
     call = base.AssistedIntakeTests.call
 
     def source(self, root=CJIR, kind='journal'):
