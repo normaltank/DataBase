@@ -15,7 +15,15 @@ class JournalResultsTests(unittest.TestCase):
     setUp = fixtures.CollaborationTests.setUp
     login = fixtures.CollaborationTests.login
     call = fixtures.CollaborationTests.call
-    docx = staticmethod(fixtures.CollaborationTests.docx)
+    @staticmethod
+    def docx(text):
+        # Stable fixture bytes: exact-original checks must not compare ZIP wall
+        # clock timestamps from separately generated expected/actual fixtures.
+        output = io.BytesIO()
+        with zipfile.ZipFile(output,'w') as archive:
+            info = zipfile.ZipInfo('word/document.xml',date_time=(2026,1,1,0,0,0))
+            archive.writestr(info,'<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>'+text+'</w:t></w:r></w:p></w:body></w:document>')
+        return output.getvalue()
 
     def save(self, data=None, user='researcher', path='/api/journal-results', raw=None, name='虚构概览.docx'):
         return self.call(path, data or {'journal_name':'虚构期刊','year':2026,'issue':'第1—2期','request_id':'create-result-001'}, user,
