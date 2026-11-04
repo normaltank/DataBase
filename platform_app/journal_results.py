@@ -349,7 +349,7 @@ def register(app,ctx):
         receipt = s.db.execute('SELECT * FROM journal_result_requests WHERE actor_id=? AND request_id=?',
                                (s.actor['id'], key)).fetchone()
         if not receipt:
-            abort(404, '尚未查到本次保存结果；当前输入与文件保留，可重试原保存。')
+            abort(404, '尚未找到这次保存的成果，可重试保存。')
         return jsonify(action=json.loads(receipt['payload_json'])['action'],
                        result=s.detail(receipt['result_id']))
 

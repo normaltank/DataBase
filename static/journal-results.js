@@ -41,7 +41,7 @@ async function journalResultsPage(){
 document.addEventListener('submit',async event=>{
   const f=event.target;if(!f.matches('[data-jr-form],[data-jr-search]'))return;event.preventDefault();
   if(f.hasAttribute('data-jr-search')){const p=new URLSearchParams();for(const [k,v] of new FormData(f))if(String(v).trim())p.set(k,String(v).trim());go('journal-results',p);return;}
-  if(f.dataset.saving==='true')return;f.dataset.saving='true';
+  if(f.dataset.saving==='true'||f.dataset.recovering==='true')return;f.dataset.saving='true';
   const b=f.querySelector('[type=submit]'),error=f.querySelector('.form-error'),account=state.me?.id,fd=new FormData(f);b.disabled=true;error.textContent='';
   try{
     if(f.dataset.conflict==='true')throw new Error('请先读取最新状态并核对后继续。');
@@ -56,29 +56,28 @@ document.addEventListener('submit',async event=>{
   }catch(e){
     if(account!==state.me?.id||!f.isConnected)return;error.textContent=e.message;
     if(e.status===409&&f.dataset.id){f.dataset.conflict='true';f.querySelector('[data-jr-conflict]').innerHTML='<button type="button" class="button" data-jr-rebase>读取最新状态，保留当前输入</button><div data-jr-latest></div>';}
-    else if(f.dataset.jrForm==='create'){
+    else if(f.dataset.jrForm==='create'&&(!e.status||e.status===409||e.status>=500)){
       const id=e.status===409?e.message.match(/编号：([a-f0-9]{32})/)?.[1]:null;
-      f.querySelector('[data-jr-conflict]').innerHTML='<button type="button" class="button" data-jr-recover>查询本次保存结果，保留当前输入</button><div data-jr-latest></div>'+(id?jrLink('打开已有一期，添加文件',{id}):'');
+      f.dataset.recovering='true';error.textContent='这期可能已保存，请先查看结果。';b.textContent='请先查看保存结果';
+      f.querySelector('[data-jr-conflict]').innerHTML='<button type="button" class="button primary" data-jr-recover>查看保存结果</button><div data-jr-latest></div>'+(id?jrLink('打开已有一期，添加文件',{id}):'');
     }
-  }finally{f.dataset.saving='false';if(f.isConnected)b.disabled=false;}
+  }finally{f.dataset.saving='false';if(f.isConnected)b.disabled=f.dataset.recovering==='true';}
 });
 
 document.addEventListener('click',async event=>{
-  const b=event.target.closest('[data-jr-update],[data-jr-rebase],[data-jr-recover],[data-jr-continue],[data-jr-preview],[data-jr-history],[data-jr-restore-file],[data-jr-restore-meta]');if(!b)return;
+  const b=event.target.closest('[data-jr-update],[data-jr-rebase],[data-jr-recover],[data-jr-preview],[data-jr-history],[data-jr-restore-file],[data-jr-restore-meta]');if(!b)return;
   const account=state.me?.id,load=state.loadId;b.disabled=true;
   const current=()=>account===state.me?.id&&load===state.loadId&&b.isConnected;
   try{
     if(b.hasAttribute('data-jr-update')){const f=b.closest('[data-jr-series]').querySelector('[data-jr-update-form]');f.hidden=false;f.querySelector('input').focus();}
     else if(b.hasAttribute('data-jr-recover')){
       const f=b.closest('form'),receipt=await api('/api/journal-results/requests/'+encodeURIComponent(f.dataset.request));if(!current())return;
-      if(receipt.action!=='create')throw new Error('本次请求并非创建成果，请核对保存请求。');
-      const r=receipt.result;f.jrRecovered=r;
-      f.querySelector('[data-jr-latest]').innerHTML='<p>本次已创建：'+esc(jrTitle(r))+' · v'+r.version+'</p><p>已保存说明：'+esc(r.note||'无')+'</p><ul>'+r.files.map(s=>'<li>'+esc(s.versions[0].name)+' · v'+s.versions[0].version+'</li>').join('')+'</ul><p>当前输入、文件选择和文件说明仍保留。可仅修订这期的期次信息；文件不会重复上传，若要更换原件，请打开本期成果明确更新。</p><button type="button" class="button" data-jr-continue>接续已创建成果，仅修订期次信息</button><a class="button" target="_blank" rel="noopener" href="'+esc(jrHref({id:r.id}))+'">新窗口查看已保存成果</a>';
-    }else if(b.hasAttribute('data-jr-continue')){
-      const f=b.closest('form'),r=f.jrRecovered;if(!r)return;
-      f.dataset.id=r.id;f.dataset.version=r.version;f.dataset.jrForm='metadata';f.dataset.request=crypto.randomUUID();f.dataset.conflict='false';
-      f.querySelector('[type=submit]').textContent='仅保存期次信息（不重复上传文件）';
-      f.querySelector('.form-error').textContent='已接续本次创建的一期。当前文件选择与文件说明仍保留；此次保存仅更新期次信息。';
+      if(receipt.action!=='create')throw new Error('未找到可接续的期刊成果，请刷新后重试。');
+      const r=receipt.result;
+      f.querySelector('[data-jr-latest]').innerHTML='<p>已找到：'+esc(jrTitle(r))+'</p><p>已存说明：'+esc(r.note||'无')+'</p><ul>'+r.files.map(s=>'<li>'+esc(s.versions[0].name)+'</li>').join('')+'</ul><p>文件及说明已保留；这里只保存期次信息，原件请在成果中明确更新。</p><a class="button" target="_blank" rel="noopener" href="'+esc(jrHref({id:r.id}))+'">新窗口查看这期</a>';
+      f.dataset.id=r.id;f.dataset.version=r.version;f.dataset.jrForm='metadata';f.dataset.request=crypto.randomUUID();f.dataset.conflict='false';f.dataset.recovering='false';
+      const submit=f.querySelector('[type=submit]');submit.textContent='将当前期次信息保存到这期';submit.disabled=false;
+      f.querySelector('.form-error').textContent='';b.hidden=true;
     }else if(b.hasAttribute('data-jr-rebase')){
       const f=b.closest('form'),r=await api('/api/journal-results/'+encodeURIComponent(f.dataset.id));if(!current())return;
       f.dataset.version=r.version;f.dataset.request=crypto.randomUUID();f.dataset.conflict='false';
@@ -94,7 +93,11 @@ document.addEventListener('click',async event=>{
       if(b.hasAttribute('data-jr-restore-file')){data.series_id=b.dataset.jrRestoreFile;data.file_version=Number(b.dataset.fileVersion);}else data.history_version=Number(b.dataset.jrRestoreMeta);
       await api('/api/journal-results/'+encodeURIComponent(b.dataset.id)+'/restore',{method:'POST',body:data});if(!current())return;await route();toast('已恢复为新版本');
     }
-  }catch(e){if(current()){const error=document.querySelector('[data-jr-page-error]')||b.closest('form')?.querySelector('.form-error');if(error)error.textContent=e.message;else toast(e.message);}}
+  }catch(e){if(current()){
+    const f=b.closest('form'),error=document.querySelector('[data-jr-page-error]')||f?.querySelector('.form-error');
+    if(b.hasAttribute('data-jr-recover')&&e.status===404){f.dataset.recovering='false';const submit=f.querySelector('[type=submit]');submit.disabled=false;submit.textContent='重试保存一期成果';}
+    if(error)error.textContent=e.message;else toast(e.message);
+  }}
   finally{if(current())b.disabled=false;}
 });
 

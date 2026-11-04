@@ -68,21 +68,40 @@ test('lost creation response and changed draft recover the committed result with
   const p=page();Object.assign(p.form.dataset,{jrForm:'create',id:'',series:''});
   for(const [key,value] of Object.entries({journal_name:'Synthetic',year:2026,issue:'1',note:'Original'}))p.fields.set(key,value);
   p.hook(()=>{throw new Error('Response lost after commit');});await p.submit();
+  assert.equal(p.button.disabled,true);assert.match(p.error.textContent,/这期可能已保存/);
   p.fields.set('note','Changed after response lost');
-  p.hook(()=>{const e=new Error('Same request changed');e.status=409;throw e;});await p.submit();
+  await p.submit();assert.equal(p.calls.length,1);
   assert.match(p.conflict.innerHTML,/data-jr-recover/);
   const result={id:'committed-one',journal_name:'Synthetic',year:2026,issue:'1',version:1,note:'Original',files:[{versions:[{name:'synthetic.docx',version:1}]}]};
   p.hook(async()=>({action:'create',result}));await p.click('data-jr-recover');
-  assert.match(p.conflict.innerHTML,/data-jr-continue/);
-  assert.equal(p.form.dataset.jrForm,'create'); // Reading does not choose an overwrite.
-  await p.click('data-jr-continue');
+  assert.equal(p.navigations.length,0);assert.equal(p.button.disabled,false);
+  assert.equal(p.calls.filter(c=>c.options?.method==='PUT').length,0); // Reading does not save changes.
   assert.equal(p.form.dataset.id,'committed-one');assert.equal(p.form.dataset.jrForm,'metadata');
   assert.equal(p.fields.get('files'),p.original);assert.equal(p.fields.get('file_note'),'Uncommitted member note');
   assert.equal(p.fields.get('note'),'Changed after response lost');
-  assert.match(p.button.textContent,/仅保存期次信息/);
+  assert.equal(p.button.textContent,'将当前期次信息保存到这期');
   p.hook(async()=>({id:'committed-one'}));await p.submit();
   const last=p.calls.at(-1);assert.equal(last.url,'/api/journal-results/committed-one');
   assert.equal(last.options.method,'PUT');assert.equal(last.options.body.note,'Changed after response lost');
   assert.equal(last.options.body.version,1);assert.notEqual(last.options.body.request_id,'stable-request-001');
-  assert.equal(p.calls.filter(c=>c.options?.method==='POST').length,2);
+  assert.equal(p.calls.filter(c=>c.options?.method==='POST').length,1);
+});
+
+
+test('a create conflict replaces backend language and stops repeated creation until lookup',async()=>{
+  const p=page();Object.assign(p.form.dataset,{jrForm:'create',id:'',series:''});
+  p.hook(()=>{const e=new Error('同一保存请求的内容已改变');e.status=409;throw e;});await p.submit();
+  assert.equal(p.error.textContent,'这期可能已保存，请先查看结果。');assert.equal(p.button.disabled,true);
+  await p.submit();assert.equal(p.calls.length,1);assert.match(p.conflict.innerHTML,/查看保存结果/);
+});
+
+test('an absent receipt permits retrying the original save without changing its identity',async()=>{
+  const p=page();Object.assign(p.form.dataset,{jrForm:'create',id:'',series:''});
+  p.hook(()=>{throw new Error('Lost response');});await p.submit();
+  p.hook(()=>{const e=new Error('尚未找到这次保存的成果，可重试保存。');e.status=404;throw e;});await p.click('data-jr-recover');
+  assert.equal(p.button.disabled,false);assert.equal(p.button.textContent,'重试保存一期成果');
+  assert.equal(p.form.dataset.request,'stable-request-001');
+  p.hook(async()=>({id:'created-one'}));await p.submit();
+  assert.equal(p.calls.at(-1).options.method,'POST');
+  assert.equal(JSON.parse(p.calls.at(-1).options.body.get('data')).request_id,'stable-request-001');
 });
