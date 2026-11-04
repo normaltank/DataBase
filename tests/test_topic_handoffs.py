@@ -202,7 +202,8 @@ class HandoffTests(unittest.TestCase):
         helper.summary(tid, [final['id']])
         preview = self.clients['researcher'].get(f'/api/collaboration/topics/{tid}/closure-preview').json
         self.call(f'/api/collaboration/topics/{tid}/end', dict(request_id='old26-end-once', confirm=True, lifecycle_version=preview['lifecycle_version'], basis_token=preview['basis_token']))
-        # Synthetic pre-27 fixture: actual legacy meeting/stage and closure formats.
+        # Schema26 has neither the direct-handoff tables (27) nor journal-result
+        # tables (28). Keep its actual meeting/stage and closure formats too.
         with closing(connect(self.data_dir / 'platform.sqlite3')) as db, db:
             meeting = db.execute('SELECT * FROM topic_meetings WHERE topic_id=?',(tid,)).fetchone()
             event = db.execute('SELECT * FROM topic_stage_events WHERE topic_id=?',(tid,)).fetchone()
@@ -215,13 +216,21 @@ class HandoffTests(unittest.TestCase):
             gaps = topic_closure.incomplete(db,saved)
             request_data=json.loads(end['request_json']);request_data['basis_token']=topic_review.fingerprint(saved)
             db.execute('UPDATE topic_closure_events SET basis_json=?,incomplete_json=?,request_json=?,request_hash=? WHERE id=?',(json.dumps(saved,ensure_ascii=False),json.dumps(gaps,ensure_ascii=False),json.dumps(request_data,ensure_ascii=False),topic_review.fingerprint({'action':'end','data':request_data}),end['id']))
-            for table in reversed(topic_handoffs.TABLES):
+            later_tables = ('journal_result_requests', 'journal_result_events', 'journal_result_versions',
+                            'journal_result_series', 'journal_results', *reversed(topic_handoffs.TABLES))
+            for table in later_tables:
                 db.execute(f'DROP TABLE {table}')
+            db.execute("DELETE FROM settings WHERE key IN ('topic_handoffs_migration_backup','journal_results_migration_backup')")
             db.execute('ALTER TABLE topic_stage_events RENAME TO stage_direct_fixture')
             db.execute(topic_stages.SCHEMA[1])
             db.execute('INSERT INTO topic_stage_events SELECT * FROM stage_direct_fixture')
             db.execute('DROP TABLE stage_direct_fixture')
             db.execute("UPDATE settings SET value='26' WHERE key='schema_version'")
+            names = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            self.assertTrue(names.isdisjoint(later_tables))
+            self.assertEqual(db.execute("PRAGMA foreign_key_check").fetchall(), [])
+            stage_columns = {r['name']:r for r in db.execute('PRAGMA table_info(topic_stage_events)')}
+            self.assertEqual(stage_columns['meeting_id']['notnull'], 1)
             tables=(*topic_closure.WORK_TABLES,'topic_stages','topic_stage_events','topic_closures','topic_closure_events','handoff_files')
             before={t:[tuple(r) for r in db.execute(f'SELECT * FROM {t} ORDER BY 1')] for t in tables}
         destination=Path(self.temp.name)/'old26-restored'
@@ -231,6 +240,7 @@ class HandoffTests(unittest.TestCase):
         with closing(connect(destination/'platform.sqlite3')) as db:
             self.assertEqual(before,{t:[tuple(r) for r in db.execute(f'SELECT * FROM {t} ORDER BY 1')] for t in tables})
         lead=self.login('researcher',upgraded)
+        self.assertEqual(lead.get('/health').json['schema'], 28)
         b=lead.get(f'/api/collaboration/topics/{tid}/handoffs').json
         self.assertEqual(b['lifecycle_events'][0]['basis'],saved)
         self.assertEqual(b['stage_events'][0]['meeting_id'],meeting['id'])
