@@ -43,6 +43,33 @@ class JournalResultsTests(unittest.TestCase):
         self.assertEqual([r['id'] for r in listing['items']],[rid])
         self.assertEqual(self.clients['colleague'].get('/api/collaboration/journals').json['items'],[])
 
+    def test_lost_create_response_can_be_looked_up_without_recreating_or_changing_originals(self):
+        props = dict(journal_name='Recovered synthetic journal', year=2026, issue='1',
+                     note='Original note', request_id='lost-create-response-001')
+        response = self.save(props)
+        self.assertEqual(response.status_code, 201, response.json)
+        rid = response.json['id']
+        props['note'] = 'New unsaved note'
+        self.assertEqual(self.save(props).status_code, 409)
+        receipt_path = '/api/journal-results/requests/lost-create-response-001'
+        receipt = self.clients['researcher'].get(receipt_path)
+        self.assertEqual(receipt.status_code, 200, receipt.json)
+        self.assertEqual(receipt.json['action'], 'create')
+        result = receipt.json['result']
+        self.assertEqual((result['id'], result['note'], result['version']), (rid, 'Original note', 1))
+        self.assertEqual(self.clients['colleague'].get(receipt_path).status_code, 404)
+        self.assertEqual(self.app.test_client().get(receipt_path).status_code, 401)
+        self.assertEqual(self.clients['researcher'].get(receipt_path+'-absent').status_code, 404)
+        updated = self.call('/api/journal-results/'+rid,
+                            dict(props, version=result['version'], request_id='explicit-recovery-001'),
+                            method='PUT')
+        self.assertEqual(updated.status_code, 200, updated.json)
+        current = self.clients['researcher'].get('/api/journal-results/'+rid).json
+        self.assertEqual(current['note'], 'New unsaved note')
+        self.assertEqual(len(current['files']), 1)
+        self.assertEqual(len(current['files'][0]['versions']), 1)
+        self.assertEqual(self.clients['researcher'].get('/api/journal-results').json['total'], 1)
+
     def test_parallel_files_explicit_update_and_shared_history(self):
         rid = self.save().json['id']
         path = '/api/journal-results/'+rid

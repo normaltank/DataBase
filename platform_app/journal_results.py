@@ -343,6 +343,16 @@ def register(app,ctx):
         result = service().save('create',props,uploads)
         return jsonify(result),200 if result['replayed'] else 201
 
+    @app.get('/api/journal-results/requests/<key>')
+    def journal_results_request(key):
+        s = service()
+        receipt = s.db.execute('SELECT * FROM journal_result_requests WHERE actor_id=? AND request_id=?',
+                               (s.actor['id'], key)).fetchone()
+        if not receipt:
+            abort(404, '尚未找到这次保存的成果，可重试保存。')
+        return jsonify(action=json.loads(receipt['payload_json'])['action'],
+                       result=s.detail(receipt['result_id']))
+
     @app.get('/api/journal-results/<rid>')
     def journal_results_detail(rid):
         return jsonify(service().detail(rid))

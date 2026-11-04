@@ -9,9 +9,9 @@ function ingestionKeepRequests(view){try{sessionStorage.setItem('ingestion-reque
 function ingestionValues(source){return {enabled:!!source.enabled,frequency_hours:Number(source.frequency_hours),inclusion_rule:source.inclusion_rule,backfill_days:Number(source.backfill_days||30)};}
 function ingestionDirty(item){return ingestionFields.some(key=>item.draft[key]!==item.saved[key]);}
 function ingestionRunnable(item){return item.saved.enabled&&!ingestionDirty(item)&&!item.busy;}
-function ingestionAccept(data,revisions,drafts){
+function ingestionAccept(data,revisions,drafts,localRevision){
   const actor=state.me?.id;
-  if(!ingestionView||ingestionView.actor!==actor)ingestionView={actor,items:new Map(),selected:new Set(),tokens:ingestionRequestTokens(actor),unavailable:[],refreshing:false,batch:false,summary:''};
+  if(!ingestionView||ingestionView.actor!==actor)ingestionView={actor,items:new Map(),selected:new Set(),tokens:ingestionRequestTokens(actor),unavailable:[],refreshing:false,batch:false,summary:'',localRevision:0,localBusy:false};
   const view=ingestionView, present=new Set();
   for(const source of data.items){
     const id=source.source_id, saved=ingestionValues(source), old=view.items.get(id);present.add(id);
@@ -21,7 +21,10 @@ function ingestionAccept(data,revisions,drafts){
     if(old)Object.assign(old,{source,saved,draft});else view.items.set(id,{source,saved,draft});
   }
   for(const id of view.items.keys())if(!present.has(id)){view.items.delete(id);view.selected.delete(id);}
-  view.unavailable=data.unavailable||[];view.heartbeat=data.worker_heartbeat;view.local=data.public_collection;view.journals=data.journals||[];return view;
+  view.unavailable=data.unavailable||[];view.journals=data.journals||[];
+  // A read started before (or during) a local save cannot undo its receipt.
+  if(localRevision===undefined||localRevision===view.localRevision&&!view.localBusy){view.heartbeat=data.worker_heartbeat;view.local=data.public_collection;}
+  return view;
 }
 function ingestionLocalHtml(view){
   const missing=view.journals.filter(j=>!j.registered),local=view.local;
@@ -33,15 +36,17 @@ function ingestionLocalStatus(local){
 }
 async function ingestionLocalSave(enabled){
   const form=document.querySelector('[data-form="public-collection"]');if(!form)return;
-  const view=ingestionView,current=()=>view===ingestionView&&state.me?.id===view.actor;
+  const view=ingestionView;if(!view||view.actor!==state.me?.id||view.localBusy)return;
+  const current=()=>view===ingestionView&&state.me?.id===view.actor;
+  view.localBusy=true;view.localRevision++;
   const status=form.querySelector('[data-public-collection-status]'),buttons=form.querySelectorAll('button');
   const source_ids=[...form.querySelectorAll('input[name="public-source"]:checked')].map(i=>i.value);
   for(const button of buttons)button.disabled=true;
   try{
     const result=await api('/api/ingestion/local',{method:'PUT',body:{enabled,source_ids}});
-    if(current()){view.local=result;status.textContent=ingestionLocalStatus(view.local);}
+    if(current()){view.localRevision++;view.local=result;status.textContent=ingestionLocalStatus(view.local);}
   }catch(error){if(current())status.textContent=error.message+'；选择已保留。';}
-  finally{for(const button of buttons)button.disabled=false;}
+  finally{view.localBusy=false;if(current())for(const button of buttons)button.disabled=false;}
 }
 function ingestionRunsHtml(s){
   const coverage=s.coverage||{},latest=s.runs.find(r=>r.coverage.returned!==undefined),counts=latest?latest.entries.reduce((all,e)=>(all[e.stage]=(all[e.stage]||0)+1,all),{}):{};
@@ -58,7 +63,9 @@ function ingestionCardHtml(view){
 }
 async function ingestionSystemCard(){
   if(state.me?.role!=='admin')return '';
-  return ingestionCardHtml(ingestionAccept(await api('/api/ingestion')));
+  const actor=state.me.id,view=ingestionView,localRevision=view?.actor===actor?view.localRevision:0;
+  const data=await api('/api/ingestion');if(state.me?.id!==actor||view!==ingestionView)return '';
+  return ingestionCardHtml(ingestionAccept(data,undefined,undefined,localRevision));
 }
 function ingestionForm(id){return document.querySelector('[data-form="ingestion-config"][data-id="'+id+'"]');}
 function ingestionPaint(view=ingestionView){
@@ -141,12 +148,12 @@ async function ingestionExecute(ids,action,runId){
 async function ingestionRefresh(){
   const view=ingestionView;if(!view||view.refreshing)return;
   const revisions=new Map([...view.items].map(([id,item])=>[id,item.revision]));
-  const drafts=new Map([...view.items].map(([id,item])=>[id,item.draft]));
+  const drafts=new Map([...view.items].map(([id,item])=>[id,item.draft])),localRevision=view.localRevision;
   view.refreshing=true;ingestionPaint(view);
   try{
     const data=await api('/api/ingestion');if(view!==ingestionView||state.me?.id!==view.actor)return;
     // Merge against the current draft, including edits made while the request waited.
-    ingestionAccept(data,revisions,drafts);view.summary='状态已刷新，未保存的修改和选择已保留。';
+    ingestionAccept(data,revisions,drafts,localRevision);view.summary='状态已刷新，未保存的修改和选择已保留。';
   }catch(error){view.summary='刷新失败：'+error.message+'；当前输入和选择已保留。';}
   finally{view.refreshing=false;ingestionPaint(view);}
 }
