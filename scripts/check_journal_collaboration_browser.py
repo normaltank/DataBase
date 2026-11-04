@@ -43,7 +43,8 @@ def main():
                 login(page,base,'researcher')
                 # Set after navigation too, so the first blank tab is covered.
                 worker.evaluate('async ({url,zoom})=>{const t=(await chrome.tabs.query({})).find(x=>x.url.startsWith(url));await chrome.tabs.setZoom(t.id,zoom);}',{'url':base,'zoom':zoom})
-                page.get_by_role('button',name='期刊编译',exact=True).click()
+                page.get_by_text('旧期刊工作',exact=True).click()
+                page.get_by_role('button',name='查阅旧期刊工作',exact=True).click()
                 expect(page.get_by_role('heading',name='期刊编译',exact=True)).to_be_visible()
                 page.get_by_text('旧期刊工作',exact=True).click()
                 page.get_by_role('button',name='新建期刊工作',exact=True).click()
@@ -53,6 +54,10 @@ def main():
                 page.get_by_label('出处线索',exact=False).fill('https://example.invalid/journal · 尚未建立独立期刊档案')
                 page.get_by_role('button',name='保存期刊工作',exact=True).click()
                 expect(page.get_by_role('heading',name=name,exact=True)).to_be_visible()
+                # Preserve this check's original complete-archive return contract;
+                # the current workbench deliberately composes a different back link.
+                page.goto(page.url+'&full=1')
+                expect(page.get_by_role('heading',name=name,exact=True)).to_be_visible()
                 work_url=page.url
                 first,second=original('期刊原稿一'),original('期刊修订成品二')
                 long_name='期刊概览_'+('原刊跨期材料与正文出处'*8)+'.docx'
@@ -61,7 +66,7 @@ def main():
                 page.get_by_role('button',name='保存文件新版本',exact=True).click()
                 expect(page.get_by_role('link',name='下载期刊原件 v1',exact=True)).to_be_visible()
                 expect(page.get_by_label('期刊编译文件',exact=False)).to_be_hidden()
-                page.get_by_role('button',name='提交期刊文件',exact=True).click()
+                page.locator('[data-journal-upload] > summary').click()
                 page.get_by_label('期刊编译文件',exact=False).set_input_files({'name':'修订成品.docx','mimeType':'application/vnd.openxmlformats-officedocument.wordprocessingml.document','buffer':second})
                 page.get_by_label('材料类型',exact=True).select_option('product')
                 page.get_by_label('简短说明',exact=False).fill('实际成品，另行记录采用。')
@@ -109,7 +114,7 @@ def main():
                 page.get_by_role('button',name=name+' · 2025年第1—3期 · 跨期整体概览',exact=True).click()
                 expect(page.get_by_text('当前成品',exact=True)).to_be_visible()
                 # Real keyboard can reach the note after the file/select controls.
-                page.get_by_role('button',name='提交期刊文件',exact=True).click()
+                page.locator('[data-journal-upload] > summary').click()
                 page.get_by_label('期刊编译文件',exact=False).focus()
                 page.keyboard.press('Tab')
                 expect(page.get_by_label('材料类型',exact=True)).to_be_focused()

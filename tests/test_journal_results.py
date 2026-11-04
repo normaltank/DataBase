@@ -250,3 +250,20 @@ class JournalResultsTests(unittest.TestCase):
             return SimpleNamespace(request=request)
         result = continue_journal_results(adapter('researcher'),adapter('colleague'),{'journal_result':rid})
         self.assertEqual(result['version'],5)
+
+    def test_explicit_journal_relation_follows_a_confirmed_source_merge(self):
+        old = self.call('/api/sources',{'kind':'journal','name':'虚构旧档案'}).json['id']
+        keep = self.call('/api/sources',{'kind':'journal','name':'虚构保留档案'}).json['id']
+        rid = self.save({'journal_name':'成果自己的刊名','year':2026,'issue':'特刊','journal_id':old,'request_id':'merged-source-result'}).json['id']
+        merged = self.call('/api/merge',{'type':'source','keep_id':keep,'duplicate_id':old,'keep_version':1,'duplicate_version':1,'confirmed':True},'admin')
+        self.assertEqual(merged.status_code,200,merged.json)
+        self.assertEqual(self.clients['colleague'].get('/api/journal-results?journal_id='+keep).json['total'],1)
+        detail = self.clients['colleague'].get('/api/journal-results/'+rid).json
+        self.assertEqual(detail['journal_id'],keep)
+        self.assertEqual(detail['journal_name'],'成果自己的刊名')
+        self.assertEqual(self.clients['colleague'].get('/api/journal-results/'+rid+'/history').json['items'][0]['snapshot']['journal_id'],old)
+        duplicate = self.save({'journal_name':'另外的标题写法','year':2026,'issue':'特刊','journal_id':keep,'request_id':'merged-source-duplicate'})
+        self.assertEqual(duplicate.status_code,409)
+        distinct = self.call('/api/sources',{'kind':'journal','name':'明确不同的另一期刊档案'}).json['id']
+        separate = self.save({'journal_name':'成果自己的刊名','year':2026,'issue':'特刊','journal_id':distinct,'request_id':'distinct-journal-result'})
+        self.assertEqual(separate.status_code,201,separate.json)

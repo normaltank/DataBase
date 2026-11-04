@@ -56,8 +56,13 @@ def metadata(data, access, base=None):
     if type(year) is not int or not 1 <= year <= 9999 or not props['journal_name'] or not props['issue']:
         abort(400,'请填写刊名、年份和成果期次。')
     jid = data.get('journal_id',base['journal_id'] if base else None) or None
-    if jid is not None and (not isinstance(jid,str) or access.source(jid)['kind'] != 'journal'):
-        abort(400,'请选择已有期刊档案。')
+    if jid is not None:
+        if not isinstance(jid,str):
+            abort(400,'请选择已有期刊档案。')
+        source = access.source(jid)
+        if source['kind'] != 'journal':
+            abort(400,'请选择已有期刊档案。')
+        jid = source['id']
     return {**props,'year':year,'journal_id':jid}
 
 
@@ -78,6 +83,8 @@ class JournalResults:
 
     def detail(self,rid):
         item = dict(self.get(rid))
+        if item['journal_id']:
+            item['journal_id'] = self.access.source(item['journal_id'])['id']
         item['files'] = []
         for series in self.db.execute('SELECT * FROM journal_result_series WHERE result_id=? ORDER BY created_at,id',(rid,)):
             versions = []
@@ -126,7 +133,10 @@ class JournalResults:
                         abort(404,'历史版本不存在。')
                     source = json.loads(event[0])
                 props = metadata(source,self.access,base)
-                duplicate = self.db.execute('SELECT id FROM journal_results WHERE (lower(trim(journal_name))=lower(?) OR (journal_id IS NOT NULL AND journal_id=?)) AND year=? AND issue=? AND id<>?',(props['journal_name'],props['journal_id'],props['year'],props['issue'],rid or '')).fetchone()
+                candidates = self.db.execute('SELECT id,journal_id,journal_name FROM journal_results WHERE year=? AND issue=? AND id<>?',(props['year'],props['issue'],rid or ''))
+                duplicate = next((row for row in candidates if
+                                  (self.access.source(row['journal_id'])['id']==props['journal_id'] if props['journal_id'] and row['journal_id']
+                                   else row['journal_name'].strip().casefold()==props['journal_name'].casefold())),None)
                 if duplicate:
                     abort(409,'相同期刊、年份与成果期次已存在，请打开已有一期添加文件。编号：'+duplicate['id'])
                 stamp = now()
@@ -313,11 +323,15 @@ def register(app,ctx):
         year,jid,q = request.args.get('year',''),request.args.get('journal_id',''),request.args.get('q','').casefold().strip()
         if year and (not re.fullmatch(r'[0-9]{1,4}',year) or not 1 <= int(year) <= 9999):
             abort(400,'年份格式不正确。')
+        if jid:
+            jid = ctx.records().source(jid)['id']
         items = []
         for row in ctx.db().execute('SELECT * FROM journal_results ORDER BY year DESC,issue COLLATE NOCASE DESC,updated_at DESC,id'):
-            if (year and row['year']!=int(year)) or (jid and row['journal_id']!=jid):
+            if year and row['year']!=int(year):
                 continue
             item = s.detail(row['id'])
+            if jid and item['journal_id']!=jid:
+                continue
             text = ' '.join([item['journal_name'],item['issue'],item['authors'],*[v['name'] for f in item['files'] for v in f['versions']]])
             if not q or q in text.casefold():
                 items.append(item)
