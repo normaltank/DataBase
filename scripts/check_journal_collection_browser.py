@@ -94,6 +94,15 @@ def main():
                         page.wait_for_timeout(150)
                     page.get_by_role('button',name='刷新状态（保留草稿）',exact=True).click()
                     expect(page.locator('.ingestion-card')).to_contain_text('本轮已完成')
+                    # A's archive and B's collector must share the same source ID.
+                    journal_id=next(s['source_id'] for s in status['items'] if s['adapter']=='eep-crossref-v1')
+                    csrf=context.request.get(base+'/api/session').json()['csrf']
+                    linked=context.request.post(base+'/api/journal-results',multipart={
+                        'data':json.dumps(dict(journal_id=journal_id,journal_name='东欧政治',year=2026,issue='合成关联期次',request_id='journal118-integrated-link')),
+                        'files':{'name':'synthetic-result.txt','mimeType':'text/plain','buffer':b'SYNTHETIC linked journal result'}},
+                        headers={'X-CSRF-Token':csrf})
+                    assert linked.status==201,linked.text()
+                    result_id=linked.json()['id']
                     for width,zoom in ((1366,1),(900,1),(390,1),(1366,2)):
                         page.set_viewport_size({'width':width,'height':900})
                         zoom_worker.evaluate('async ({url,zoom})=>{const t=(await chrome.tabs.query({})).find(x=>x.url.startsWith(url));await chrome.tabs.setZoom(t.id,zoom);}',{'url':base,'zoom':zoom})
@@ -119,6 +128,13 @@ def main():
                     expect(page.locator('.library-row')).to_have_count(1)
                     page.locator('.library-row .record-title button').first.click()
                     expect(page.locator('.acquisition-reading')).to_contain_text('公开题录JSON')
+                    page.goto(base+'/#journal-results?id='+result_id)
+                    page.get_by_role('link',name='查找本刊文章',exact=True).click()
+                    expect(page.locator('.library-row')).to_have_count(1)
+                    page.goto(base+'/#sources?id='+journal_id)
+                    expect(page.get_by_role('link',name='按本刊查找成果',exact=True)).to_have_attribute('href','#journal-results?journal_id='+journal_id)
+                    page.get_by_role('link',name='东欧政治 · 2026 · 合成关联期次',exact=True).click()
+                    expect(page.locator('[data-jr-detail]')).to_have_attribute('data-jr-detail',result_id)
                     assert context.request.get(base+'/api/admin/ai').json()['attempts']==[]
                     assert len(requests)==3,requests
                     assert errors==[],errors

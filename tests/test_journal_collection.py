@@ -1,5 +1,6 @@
 """Synthetic Crossref JSON via member HTTP and public transport, never real services."""
 import json
+import io
 import unittest
 from unittest.mock import patch
 from urllib.parse import urlsplit, parse_qs
@@ -238,6 +239,40 @@ class JournalCollectionTests(unittest.TestCase):
         status=self.clients['admin'].get('/api/sources/'+sid+'/ingestion').json
         self.assertTrue(status['coverage']['cursor']['pending'])
         self.assertEqual(self.clients['researcher'].get('/api/records').json['total'],25)
+
+    def test_collected_article_and_linked_result_keep_one_journal_identity_after_restore(self):
+        from pathlib import Path
+        from platform_app.maintenance import restore_backup
+        from platform_app.web import create_app
+        sid=self.source()
+        self.assertEqual(self.worker(sid,[work()])[0]['saved'],1)
+        client=self.clients['researcher']
+        props=dict(journal_id=sid,journal_name=JOURNALS[0][3],year=2026,issue='合成整期',request_id='collected-journal-result')
+        original=b'SYNTHETIC linked journal result'
+        response=client.post('/api/journal-results',data={'data':json.dumps(props),'files':(io.BytesIO(original),'synthetic.txt')},
+            headers={'X-CSRF-Token':client.get('/api/session').json['csrf']})
+        response.request.close()
+        self.assertEqual(response.status_code,201,response.json)
+        result_id=response.json['id']
+        self.assertEqual(client.get('/api/journal-results?journal_id='+sid).json['total'],1)
+        self.assertEqual(client.get('/api/records?source='+sid).json['total'],1)
+        archive=Path(self.temp.name)/'linked-result-and-acquisition.zip'
+        with self.call('/api/backup',user='admin') as response:
+            archive.write_bytes(response.data)
+        target=Path(self.temp.name)/'linked-restored'
+        restore_backup(archive,target)
+        restored=create_app(target,testing=True).test_client()
+        token=restored.get('/api/session').json['csrf']
+        restored.post('/api/login',json={'username':'colleague','password':'LocalDemo2026!'},headers={'X-CSRF-Token':token})
+        result=restored.get('/api/journal-results/'+result_id).json
+        self.assertEqual(result['journal_id'],sid)
+        with restored.get(result['files'][0]['versions'][0]['file_url']) as file:
+            self.assertEqual(file.data,original)
+        records=restored.get('/api/records?source='+sid).json
+        self.assertEqual(records['total'],1)
+        detail=restored.get('/api/records/'+records['items'][0]['id']).json
+        self.assertEqual(detail['serial_id'],sid)
+        self.assertEqual(detail['automatic_acquisition']['snapshots'][0]['metadata']['fields']['doi'],'10.5555/synthetic.2159-9165')
 
 
 if __name__ == '__main__':
