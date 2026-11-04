@@ -113,7 +113,7 @@ def verify(path, expected_sha256=None):
                 for event in topic['stage_events']:
                     require(event['topic_id'] == wid and stage == 'selection' and event['from_stage'] == stage and event['to_stage'] == 'compilation' and event['version'] == version + 1, 'Inconsistent stage event chain')
                     require(event['actor_id'] == topic['lead_id'] and bool(event['created_at']), 'Invalid stage actor')
-                    if scope != 'products':
+                    if scope != 'products' and event['meeting_id'] is not None:
                         basis = meetings.get(event['meeting_id'])
                         require(basis and basis['version'] == event['meeting_version'] and bool(basis['assignments']), 'Missing stage meeting basis')
                     stage, version = event['to_stage'], event['version']
@@ -161,6 +161,38 @@ def verify(path, expected_sha256=None):
                 for fid, f in adopted.items():
                     require(fid in all_finals and f == all_finals[fid], 'Summary adoption differs from exact final')
                     original(f)
+            handoffs = m.get('handoffs', {'materials': []})
+            materials = handoffs['materials']
+            material_refs, version_refs, review_ids = set(), set(), set()
+            direct = {'topic_materials': set(), 'topic_material_versions': set(), 'topic_material_reviews': set()}
+            require(scope != 'products' or not materials, 'Material approval is not a published product')
+            for material in materials:
+                require(material['ref'] not in material_refs and material['stage'] in ('selection', 'compilation'), 'Duplicate material or invalid stage')
+                material_refs.add(material['ref'])
+                if not material['legacy']:
+                    require(material['topic_id'] == wid and material['ref'] == 'material:' + material['id'], 'Wrong direct material identity')
+                    direct['topic_materials'].add(material['id'])
+                    series(material['versions'])
+                for v in material['versions']:
+                    require(v['ref'] not in version_refs and v['topic_id'] == wid and v['author_id'] == material['owner_id'], 'Wrong material version owner')
+                    version_refs.add(v['ref'])
+                    owner = ('candidate', v['id']) if v['ref'].startswith('candidate:') else ('submission', v['id']) if v['ref'].startswith('manuscript:') else ('material-version', v['id'])
+                    original(v, owner)
+                    if not material['legacy']:
+                        require(v['material_id'] == material['id'] and v['ref'] == 'version:' + v['id'], 'Wrong direct version series')
+                        direct['topic_material_versions'].add(v['id'])
+                    for r in v['reviews']:
+                        if r.get('legacy'):
+                            require(scope != 'process' or r['decision'] != 'legacy_final', 'Legacy final in process materials')
+                            continue
+                        require(r['id'] not in review_ids and r['topic_id'] == wid and r['version_ref'] == v['ref'] and r['decision'] in ('approved', 'returned') and r['actor_id'] == topic['lead_id'], 'Wrong material review')
+                        review_ids.add(r['id'])
+                        direct['topic_material_reviews'].add(r['id'])
+                        original(r, ('material-review', r['id']))
+            for material in materials:
+                if material.get('source_ref'):
+                    previous = [(m, v) for m in materials for v in m['versions'] if v['ref'] == material['source_ref']]
+                    require(len(previous) == 1 and previous[0][0]['legacy'] and previous[0][0]['owner_id'] == material['owner_id'] and previous[0][0]['stage'] == material['stage'], 'Wrong legacy continuation')
             if 'lifecycle_state' in topic:
                 lifecycle, version, closed_stage = 'open', 1, None
                 origin = topic['lifecycle_origin']
@@ -169,6 +201,8 @@ def verify(path, expected_sha256=None):
                            'topic_manuscripts': {s['id'] for a in workflow['assignments'] for s in a['submissions']},
                            'topic_returns': {r['id'] for a in workflow['assignments'] for r in a['returns']},
                            'topic_finals': set(all_finals), 'topic_summaries': {s['id'] for s in summaries}}
+                legacy_covered = dict(covered)
+                covered.update(direct)
                 identities(topic['lifecycle_events'])
                 for event in topic['lifecycle_events']:
                     expected_action, target = ('end', 'closed') if lifecycle == 'open' else ('reopen', 'open')
@@ -176,10 +210,10 @@ def verify(path, expected_sha256=None):
                     require(event['topic_id'] == wid and event['version'] == version + 1 and event['action'] == expected_action and event['from_state'] == lifecycle and event['to_state'] == target, 'Inconsistent end/reopen event chain')
                     require(saved['topic_id'] == wid and saved['lifecycle_version'] == version and event['stage'] == saved['stage'] and event['stage'] in ('selection', 'compilation'), 'Invalid end/reopen work basis')
                     require(event['actor_id'] == topic['lead_id'] and bool(event['created_at']), 'Invalid end/reopen actor')
-                    require(set(saved['materials']) == set(covered), 'Invalid end/reopen material basis')
+                    require(set(saved['materials']) == set(covered if saved.get('format_version') == 2 else legacy_covered), 'Invalid end/reopen material basis')
                     for table, ids in saved['materials'].items():
                         require(isinstance(ids, list) and len(ids) == len(set(ids)) and all(isinstance(x, str) for x in ids), 'Invalid end/reopen identities')
-                        included = scope == 'all' or (scope == 'process' and table in ('topic_candidates', 'topic_meetings', 'topic_manuscripts', 'topic_returns')) or (scope == 'products' and table in ('topic_finals', 'topic_summaries'))
+                        included = scope == 'all' or (scope == 'process' and table in ('topic_candidates', 'topic_meetings', 'topic_manuscripts', 'topic_returns', 'topic_materials', 'topic_material_versions', 'topic_material_reviews')) or (scope == 'products' and table in ('topic_finals', 'topic_summaries'))
                         if included:
                             require(set(ids) <= covered[table], 'Missing declared end/reopen basis')
                     if event['action'] == 'end':

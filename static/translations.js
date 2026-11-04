@@ -1,15 +1,14 @@
 'use strict';
 function historicalPreviewVersion(job){
-  const p=job.preview_import;
-  return '<article class="detail-section"><h4>历史机器结果 · 尚未人工校订'+(job.stale?' · 当前原文已变化':' · 本包题录与节选输入一致')+'</h4>'
-    +'<p>本包导入历史结果，未调用翻译服务；原译节选独立截取，未必逐句或逐段对齐，完整摘要和译文未随包。</p>'
-    +'<p>'+esc(job.provider)+' / '+esc(job.model)+' · 历史原资料版本 '+p.source_version+' · 本包调用 0 次</p>'
-    +'<div class="comparison-grid"><section><h5>随包原题名与摘要'+(p.abstract_mode==='excerpt'?'节选':'')+'</h5><p class="prose">'+esc(job.input_title)+'</p><p class="prose">'+esc(job.input_abstract||'原摘要未取得；仅译题名。')+'</p></section>'
-    +'<section><h5>历史机器中文'+(p.abstract_mode==='excerpt'?'节选':'题名')+'</h5><p class="prose">'+esc(job.output_title)+'</p><p class="prose">'+esc(job.output_abstract||'无原摘要，不补造摘要。')+'</p></section></div>'
-    +'<details><summary>历史来源与节选依据</summary><p>历史任务 '+esc(p.source_job_id)+' · 原资料 '+esc(p.source_record_id)+'</p>'
-    +'<p>取得路径：'+esc(p.acquisition_path)+'。'+esc(p.acquisition_limitation)+'</p>'
-    +'<p class="prose">历史完整输入 SHA256：'+esc(p.source_input_hash)+'</p><p class="prose">本包节选输入 SHA256：'+esc(p.excerpt_input_hash)+'</p></details></article>';
+  const p=job.preview_import,excerpt=p.abstract_mode==='excerpt'?'节选':'';
+  return '<article class="detail-section"><h4>机器译'+(job.output_abstract?'文':'题')+(job.stale?' · 原文已变化':'')+'</h4>'
+    +'<p>'+esc(job.provider)+' / '+esc(job.model)+' · 原资料版本 '+p.source_version+'</p>'
+    +'<div class="comparison-grid"><section><h5>原文'+excerpt+'</h5><p class="prose">'+esc(job.input_title)+'</p>'+(job.input_abstract?'<p class="prose">'+esc(job.input_abstract)+'</p>':'')+'</section>'
+    +'<section><h5>机器中文'+excerpt+'</h5><p class="prose">'+esc(job.output_title)+'</p>'+(job.output_abstract?'<p class="prose">'+esc(job.output_abstract)+'</p>':'')+'</section></div>'
+    +'<details><summary>来源版本</summary><p>历史任务 '+esc(p.source_job_id)+' · 原资料 '+esc(p.source_record_id)+'</p>'
+    +'<p class="prose">原输入 SHA256：'+esc(p.source_input_hash)+'</p><p class="prose">节选输入 SHA256：'+esc(p.excerpt_input_hash)+'</p></details></article>';
 }
+
 function translationPanel(record) {
   if(isResearchContent(record.kind))return '';
   const labels={queued:'等待显式执行',running:'执行中',failed:'失败',succeeded:'机器译文 · 待人工复核'};

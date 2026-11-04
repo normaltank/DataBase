@@ -86,7 +86,7 @@ document.addEventListener('submit',async event=>{
   const base='/api/collaboration/topics/'+encodeURIComponent(form.dataset.topic);
   try{
     if(form._conflict)throw new Error('请先核对最新交接，当前文件与说明已保留。');
-    const fd=new FormData(form),data={request_id:form.dataset.request,topic_version:Number(form.dataset.topicVersion),meeting_version:Number(form.dataset.meetingVersion),note:fd.get('note')};
+    const fd=new FormData(form),data={request_id:form.dataset.request,topic_version:Number(form.dataset.topicVersion),note:fd.get('note')};
     let path;
     if(type==='topic-review-meeting'){
       data.version=Number(form.dataset.meetingVersion);data.assignments=[...form.querySelectorAll('[data-assignment-row]')].map(row=>{const a={};for(const key of ['title','author_id','source','candidate_id','candidate_item','country'])a[key]=row.querySelector('[name="'+key+'"]').value;if(row.dataset.id)a.id=row.dataset.id;return a;});path=base+'/meetings';
@@ -100,15 +100,16 @@ document.addEventListener('submit',async event=>{
 });
 
 async function topicStageConfirm(tid){
-  const base='/api/collaboration/topics/'+encodeURIComponent(tid),[t,w]=await Promise.all([api(base),api(base+'/workflow')]);
-  if(!t.can_enter_compilation)throw new Error('请先核对有效分工和当前负责人资格。');
-  modal('确认分工，进入编译阶段','<form data-form="topic-stage-enter" data-topic="'+esc(tid)+'" data-topic-version="'+t.version+'" data-stage-version="'+t.stage_version+'" data-meeting-version="'+w.meeting_version+'" data-request="'+crypto.randomUUID()+'">'+topicReviewDecision(w.meetings[0])+'<div class="form-error" role="alert"></div><div class="form-actions"><button class="button primary" type="submit">确认以上分工，进入编译</button></div></form>',true);
+  const account=state.me?.id,t=await api('/api/collaboration/topics/'+encodeURIComponent(tid));
+  if(account!==state.me?.id)return;
+  if(!t.can_enter_compilation)throw new Error('当前不能进入编译，请刷新本期状态。');
+  modal('进入编译','<form data-form="topic-stage-enter" data-account="'+esc(account)+'" data-topic="'+esc(tid)+'" data-topic-version="'+t.version+'" data-stage-version="'+t.stage_version+'" data-request="'+crypto.randomUUID()+'"><p>进入编译后，仍可补交选题材料。</p><div class="form-error" role="alert"></div><div class="form-actions"><button class="button primary" type="submit">进入编译</button></div></form>',true);
 }
 document.addEventListener('submit',async event=>{
   const form=event.target;if(form.dataset.form!=='topic-stage-enter')return;
-  event.preventDefault();const button=form.querySelector('[type=submit]'),error=form.querySelector('.form-error');button.disabled=true;
+  event.preventDefault();if(form.dataset.saving==='true'||form.dataset.account!==state.me?.id)return;form.dataset.saving='true';const button=form.querySelector('[type=submit]'),error=form.querySelector('.form-error');button.disabled=true;
   try{
-    await api('/api/collaboration/topics/'+encodeURIComponent(form.dataset.topic)+'/enter-compilation',{method:'POST',body:{request_id:form.dataset.request,topic_version:Number(form.dataset.topicVersion),stage_version:Number(form.dataset.stageVersion),meeting_version:Number(form.dataset.meetingVersion)}});
-    closeModal();if(typeof workbenchAfterWrite==='function')workbenchAfterWrite('topic-stage-enter');await route();toast('已确认分工，进入编译阶段');
-  }catch(e){if(form.isConnected){error.textContent=e.message;button.disabled=false;}}
+    await api('/api/collaboration/topics/'+encodeURIComponent(form.dataset.topic)+'/enter-compilation',{method:'POST',body:{request_id:form.dataset.request,topic_version:Number(form.dataset.topicVersion),stage_version:Number(form.dataset.stageVersion)}});
+    if(form.dataset.account!==state.me?.id||!form.isConnected)return;closeModal();if(typeof workbenchAfterWrite==='function')workbenchAfterWrite('topic-stage-enter');await route();toast('已进入编译');
+  }catch(e){if(form.isConnected){error.textContent=e.message;button.disabled=false;}}finally{form.dataset.saving='false';}
 });

@@ -8,6 +8,14 @@
 .source-filter-options>summary{min-height:30px;display:inline-flex;align-items:center;font-size:14px}
 .source-applied{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:10px 0;font-size:14px;color:var(--text-muted)}
 .source-profile{display:grid;gap:14px}
+.source-profile.source-profile>.source-profile-heading,.source-profile.source-profile>.source-profile-group{padding:16px 0;border:0;border-bottom:1px solid var(--border);border-radius:0;box-shadow:none;background:var(--surface)}
+.source-profile.source-profile>.source-profile-group>summary{font-size:15px;min-height:36px;padding:6px 0}
+.source-profile.source-profile>.source-profile-group[open]>summary{margin-bottom:12px}
+.source-profile.source-profile .source-profile-relations .person-section{padding:12px 0;border:0;border-radius:0;box-shadow:none}
+.source-profile .source-content-empty{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px 12px;padding:10px 0;border-top:1px solid var(--border)}
+.source-profile .source-content-empty h4{font-size:15px;margin:0}
+.source-profile .source-content-empty h4 span{font-weight:400;margin-left:8px}
+@media(max-width:700px){.source-profile.source-profile>.source-profile-group>summary{min-height:44px}}
 .source-profile .back-link{display:inline-flex;align-items:center;gap:6px;width:fit-content;font-size:14px;font-weight:500}
 .source-profile-heading{padding:20px 24px;background:var(--surface);border:1px solid var(--border);border-radius:9px;box-shadow:var(--shadow-card)}
 .source-profile-heading .detail-title{margin:8px 0 4px}

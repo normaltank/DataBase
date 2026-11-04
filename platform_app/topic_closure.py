@@ -54,18 +54,23 @@ def require_open(db, tid):
         abort(409, "本期已结束，材料仍可查阅和导出。文件与说明已保留，请联系负责人重开后再继续。")
 
 
-def basis(db, topic):
+def basis(db, topic, format_version=2):
     from . import topic_stages
     stage, lifecycle = topic_stages.state(db, topic["id"]), state(db, topic["id"])
     qualification = db.execute("SELECT version FROM lead_qualifications WHERE member_id=?", (topic["lead_id"],)).fetchone()
-    return {"topic_id": topic["id"], "topic_version": topic["version"], "stage": stage["stage"], "stage_version": stage["version"],
+    from . import topic_handoffs
+    if not db.execute("SELECT 1 FROM sqlite_master WHERE name='topic_materials'").fetchone():
+        format_version = 1
+    return {**({"format_version": 2} if format_version == 2 else {}), "topic_id": topic["id"], "topic_version": topic["version"], "stage": stage["stage"], "stage_version": stage["version"],
             "lifecycle_version": lifecycle["version"], "qualification_version": qualification[0] if qualification else 0,
             "active_member_ids": [r[0] for r in db.execute("SELECT p.member_id FROM topic_participants p JOIN users u ON u.id=p.member_id WHERE p.topic_id=? AND p.active=1 AND u.active=1 ORDER BY p.member_id", (topic["id"],))],
-            "materials": {table: [r[0] for r in db.execute(f"SELECT id FROM {table} WHERE topic_id=? ORDER BY id", (topic["id"],))] for table in WORK_TABLES}}
+            "materials": topic_handoffs.identities(db, topic["id"]) if format_version == 2 else {table: [r[0] for r in db.execute(f"SELECT id FROM {table} WHERE topic_id=? ORDER BY id", (topic["id"],))] for table in WORK_TABLES}}
 
 
 def incomplete(db, saved):
     """Derive status from the saved work identities, not later submissions."""
+    if saved.get("format_version") == 2:
+        return []
     def rows(table):
         return [db.execute(f"SELECT * FROM {table} WHERE id=?", (eid,)).fetchone() for eid in saved["materials"][table]]
     meetings, manuscripts, returns, finals = [rows(t) for t in ("topic_meetings", "topic_manuscripts", "topic_returns", "topic_finals")]
@@ -107,7 +112,8 @@ def validate_backup(db):
             raise ValueError("主题结束状态、历史或确认依据无效。")
 
     def work_identity(saved):
-        return {key: saved[key] for key in ("topic_version", "stage", "stage_version", "materials")}
+        from . import topic_handoffs
+        return {**{key: saved[key] for key in ("topic_version", "stage", "stage_version")}, "materials": {table: saved['materials'].get(table, []) for table in (*WORK_TABLES, *topic_handoffs.TABLES)}}
 
     for topic in db.execute("SELECT * FROM collaboration_topics"):
         row = state(db, topic["id"])
@@ -136,7 +142,9 @@ def validate_backup(db):
                 for stage_event in db.execute("SELECT * FROM topic_stage_events WHERE topic_id=? AND version<=? ORDER BY version", (topic["id"], saved["stage_version"])):
                     expected_stage, stage_version = stage_event["to_stage"], stage_event["version"]
                 require(saved["stage_version"] == stage_version and saved["stage"] == expected_stage and event["stage"] == expected_stage)
-                require(set(saved["materials"]) == set(WORK_TABLES))
+                from . import topic_handoffs
+                require(saved.get("format_version", 1) in {1, 2})
+                require(set(saved["materials"]) == set((*WORK_TABLES, *topic_handoffs.TABLES) if saved.get("format_version") == 2 else WORK_TABLES))
                 for table, ids in saved["materials"].items():
                     require(isinstance(ids, list) and len(ids) == len(set(ids)))
                     for eid in ids:
@@ -192,7 +200,7 @@ def register(app, ctx):
                 abort(409, "本期结束状态已变化，请核对最新状态。")
             saved = basis(db, topic)
             if action == "end" and (data.get("confirm") is not True or data.get("basis_token") != review.fingerprint(saved)):
-                return jsonify(error="本期交稿、审稿或分工已变化，请重新核对当前缺项后确认结束。", latest_preview={"stage": saved["stage"], "lifecycle_version": saved["lifecycle_version"], "basis_token": review.fingerprint(saved), "incomplete": incomplete(db, saved)}), 409
+                return jsonify(error="本期材料或状态已变化，请重新确认结束。", latest_preview={"stage": saved["stage"], "lifecycle_version": saved["lifecycle_version"], "basis_token": review.fingerprint(saved), "incomplete": incomplete(db, saved)}), 409
             stage = topic_stages.state(db, tid)["stage"]
             if action == "reopen" and stage != current["closed_stage"]:
                 abort(409, "结束前阶段与当前记录不一致，请先核对恢复材料。")

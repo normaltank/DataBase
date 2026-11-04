@@ -23,7 +23,7 @@ def work_items(db, actor, access):
         work = collaboration.projection(db, actor, row)
         workflow = topic_review.workflow_projection(db, actor, row)
         activity = [row['updated_at']]
-        for table in ('topic_candidates', 'topic_meetings', 'topic_manuscripts', 'topic_returns', 'topic_finals', 'topic_summaries', 'topic_stage_events', 'topic_closure_events'):
+        for table in ('topic_candidates', 'topic_meetings', 'topic_manuscripts', 'topic_returns', 'topic_finals', 'topic_summaries', 'topic_stage_events', 'topic_closure_events', 'topic_material_versions', 'topic_material_reviews'):
             stamp = db.execute(f'SELECT MAX(created_at) FROM {table} WHERE topic_id=?', (row['id'],)).fetchone()[0]
             if stamp:
                 activity.append(stamp)
@@ -112,26 +112,9 @@ def material_payload(ctx, business, wid, scope):
     payload = {'format': 'work-materials-v1', 'business': business, 'work_id': wid, 'scope': scope,
                'exported_at': now(), 'files': [], 'exclusions': '不含未提交文件、关联成果正文及附件、关联原文或其他工作；不据此宣称这些内容已经导出。'}
     if business == 'topic':
-        topic = collaboration.topic_for(db, actor, wid)
-        payload['topic'] = collaboration.projection(db, actor, topic)
-        payload['stage_coverage'] = '阶段与结束状态为导出时当前状态；升级、人工转换、结束／重开及确认缺项依据单独列明，不代表各份旧材料提交时已有该状态。'
-        workflow = topic_review.workflow_projection(db, actor, topic)
-        candidates = collaboration.candidate_projection(db, wid) if scope != 'products' else []
-        if scope == 'products':
-            workflow['meetings'] = []
-            for a in workflow['assignments']:
-                a['submissions'] = [s for s in a['submissions'] if any(f['submission_id'] == s['id'] for f in a['finals'])]
-                a['returns'] = []
-        elif scope == 'process':
-            workflow['summaries'] = []
-            for a in workflow['assignments']:
-                a['finals'] = []
-        payload.update(candidates=candidates, workflow=workflow)
-        originals = candidates + workflow['meetings'] + workflow['summaries'] + [s for a in workflow['assignments'] for k in ('submissions', 'returns', 'finals') for s in a[k]]
-        for summary in workflow['summaries']:
-            summary['adopted_final_ids'] = json.loads(db.execute('SELECT adoptions_json FROM topic_summaries WHERE id=?', (summary['id'],)).fetchone()[0])
-            originals += summary['adoptions']
-        payload['coverage'] = {'all': '本期全部已提交过程、定稿和汇总及其历史版本', 'products': '本期全部已确认定稿及汇总版本，含汇总采用的具体稿件；不含候选、会议文件及返修意见', 'process': '本期全部选题报告、会议、稿件与返修意见；不含定稿决定及整期汇总'}[scope]
+        from . import topic_handoffs
+        topic_archive, originals = topic_handoffs.archive(db, actor, wid, scope)
+        payload.update(topic_archive)
     elif business == 'journal':
         access = topic_finals.access(db, actor, ctx.data_dir)
         work, _ = journal.JournalWorks(db, access).get(wid)
