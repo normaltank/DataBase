@@ -76,6 +76,71 @@ class JournalCollectionTests(unittest.TestCase):
                 self.assertEqual(self.clients['researcher'].get(snapshot['download_url']).data, body)
                 self.assertEqual(self.clients['admin'].get('/api/admin/ai').json['attempts'], [])
 
+    def test_existing_shared_article_gains_only_missing_proven_journal_relation(self):
+        sid = self.source()
+        publisher = self.call('/api/sources', dict(name='Human publisher', kind='institution')).json['id']
+        created = self.call('/api/records', dict(kind='journal_article', title='Human title', authors='Human byline',
+                           doi=work()['DOI'], abstract='Human abstract', source_id=publisher,
+                           visibility='shared', volume='Human volume', issue='Human issue'))
+        self.assertEqual(created.status_code, 201, created.json)
+        rid = created.json['id']
+        path = '/api/records/'+rid
+        reviewed = self.call('/api/review/record/'+rid, dict(version=1, review_scope='metadata_only',
+                             review_note='Independent synthetic metadata check'), user='admin')
+        self.assertEqual(reviewed.status_code, 200, reviewed.json)
+        before = self.clients['researcher'].get(path).json
+        self.assertFalse(before['serial_id'])
+        result, _, body = self.worker(sid, [work()])
+        self.assertEqual(result['saved'], 1, result)
+        records = self.clients['colleague'].get('/api/records?source='+sid).json
+        self.assertEqual([r['id'] for r in records['items']], [rid])
+        current = self.clients['researcher'].get(path).json
+        self.assertEqual(current['serial_id'], sid)
+        for key in ('kind', 'title', 'authors', 'abstract', 'source_id', 'visibility', 'owner_id', 'author_id',
+                    'author_confirmed', 'status', 'doi', 'volume', 'issue', 'related_source_ids'):
+            self.assertEqual(current[key], before[key], key)
+        self.assertEqual(current['status'], 'verified')
+        self.assertEqual(self.clients['researcher'].get('/api/records').json['total'], 1)
+        snap = current['automatic_acquisition']['snapshots'][0]
+        self.assertEqual(self.clients['researcher'].get(snap['download_url']).data, body)
+        history = self.clients['researcher'].get('/api/history/record/'+rid).json['items']
+        self.assertIn('补齐有据刊物关联', history[0]['action'])
+        self.call('/api/sources/'+sid+'/ingestion/run', user='admin')
+        self.worker(sid, [work()])
+        self.assertEqual(self.clients['researcher'].get(path).json['serial_id'], sid)
+        self.assertEqual(self.clients['researcher'].get('/api/records').json['total'], 1)
+
+    def test_public_collection_preserves_manual_other_journal_and_private_duplicate(self):
+        sid = self.source()
+        other = self.call('/api/sources', dict(name='Human selected other journal', kind='journal')).json['id']
+        private_work = dict(work(), DOI='10.5555/private-duplicate')
+        manual = self.call('/api/records', dict(kind='journal_article', title='Manual relation',
+                           doi=work()['DOI'], serial_id=other, visibility='shared')).json['id']
+        private = self.call('/api/records', dict(kind='journal_article', title='Private original',
+                            doi=private_work['DOI'], visibility='restricted')).json['id']
+        private_path = '/api/records/'+private
+        before = self.clients['researcher'].get(private_path).json
+        result, _, _ = self.worker(sid, [work(), private_work])
+        self.assertEqual((result['saved'], result['blocked']), (1, 1), result)
+        self.assertEqual(self.clients['researcher'].get('/api/records/'+manual).json['serial_id'], other)
+        self.assertEqual(self.clients['researcher'].get(private_path).json, before)
+        self.assertEqual(self.clients['colleague'].get(private_path).status_code, 404)
+        self.assertEqual(self.clients['colleague'].get('/api/records?source='+sid).json['total'], 0)
+        self.assertEqual(self.clients['researcher'].get('/api/records').json['total'], 2)
+        entry = next(e for e in self.clients['admin'].get('/api/sources/'+sid+'/ingestion').json['runs'][0]['entries'] if e['stage']=='blocked')
+        self.assertIsNone(entry['record_id'])
+
+    def test_no_journal_relation_without_matching_issn_evidence(self):
+        sid = self.source()
+        created = self.call('/api/records', dict(kind='journal_article', title='No unproven relation',
+                           doi=work()['DOI'], visibility='shared')).json['id']
+        path = '/api/records/'+created
+        before = self.clients['researcher'].get(path).json
+        result, _, _ = self.worker(sid, [dict(work(), ISSN=['0000-0000'])])
+        self.assertEqual(result['saved'], 0, result)
+        self.assertEqual(self.clients['researcher'].get(path).json, before)
+        self.assertEqual(self.clients['researcher'].get('/api/records?source='+sid).json['total'], 0)
+
     def test_indexed_pages_resume_and_later_metadata_preserves_human_correction(self):
         sid = self.source()
         page = [dict(work(), DOI=f'10.5555/synthetic.{n}') for n in range(25)]

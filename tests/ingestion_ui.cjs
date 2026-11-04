@@ -22,6 +22,9 @@ function page(storage = new Map()) {
   const root = {isConnected:true, querySelector:selector=>{
     if(!nodes.has(selector))nodes.set(selector,{...noopNode});return nodes.get(selector);
   }, querySelectorAll:()=>[]};
+  const localStatus={textContent:''},localButtons=[{disabled:false},{disabled:false}];
+  const localInputs=[{value:'a',checked:true},{value:'b',checked:false}];
+  const localForm={querySelector:()=>localStatus,querySelectorAll:selector=>selector==='button'?localButtons:localInputs.filter(i=>i.checked)};
   const calls = [];
   let apiHook;
   const context = vm.createContext({console, Map, Set, Number, String, Array, Object, JSON, Date,
@@ -30,7 +33,7 @@ function page(storage = new Map()) {
     state:{me:{id:'admin', role:'admin'}}, esc:x=>String(x??''), dateTime:x=>String(x??''),
     sourceHref:x=>'#'+x, linkButton:()=>'', detailPair:()=>'', toast(){}, loadLookups:async()=>{},
     document:{addEventListener:(type,handler)=>{(listeners[type]??=[]).push(handler)},
-      querySelector:selector=>selector.includes('ingestion-config') ? forms.get(selector.match(/data-id="([^"]+)"/)?.[1]) : root,
+      querySelector:selector=>selector.includes('public-collection') ? localForm : selector.includes('ingestion-config') ? forms.get(selector.match(/data-id="([^"]+)"/)?.[1]) : root,
       querySelectorAll:()=>[]},
     api:async (path, options)=>{
       calls.push({path,options,actor:context.state.me?.id});
@@ -56,7 +59,7 @@ function page(storage = new Map()) {
     return fire('click',button);
   };
   const select=async(id,checked)=>fire('change',{dataset:{ingestionSelect:id},checked,closest:()=>null});
-  return {context, forms, saved, calls, fire, edit, click, select, nodes, hook:fn=>apiHook=fn};
+  return {context, forms, saved, calls, fire, edit, click, select, nodes,localInputs,localStatus, hook:fn=>apiHook=fn};
 }
 
 test('saving one source preserves another source draft through the actual submit handler', async()=>{
@@ -194,4 +197,48 @@ for(const outcome of ['response','error'])test('registering journals stops after
   });
   await p.click('register-journals');
   assert.equal(p.calls.filter(call=>call.path==='/api/sources'&&call.options).length,1);
+});
+
+
+for(const enabled of [false,true])test(`late refresh cannot undo completed local permission save (${enabled})`,async()=>{
+  const p=page(),old={available:true,enabled:!enabled,source_ids:['a'],worker_state:enabled?'stopped':'running'};
+  p.hook(async()=>({items:[...p.saved.values()],public_collection:old}));await p.context.ingestionSystemCard();
+  const stale={items:[...p.saved.values()],public_collection:old};let release;
+  const gate=new Promise(resolve=>release=resolve);
+  p.hook(async(path,options)=>{if(!options){await gate;return stale;}if(path==='/api/ingestion/local')return {...old,enabled,worker_state:enabled?'running':'stopping'};});
+  const refresh=p.click('refresh');await p.edit('b','frequency_hours',37);
+  p.localInputs[0].checked=false;p.localInputs[1].checked=true;
+  await p.context.ingestionLocalSave(enabled);release();await refresh;
+  const local=vm.runInContext('ingestionView.local',p.context);
+  assert.equal(local.enabled,enabled);assert.equal(local.worker_state,enabled?'running':'stopping');
+  assert.equal(p.localInputs[1].checked,true);assert.equal(p.forms.get('b').elements.frequency_hours.value,'37');
+});
+
+test('refresh begun during local save cannot later replace its response',async()=>{
+  const p=page(),old={available:true,enabled:true,source_ids:['a'],worker_state:'running'};
+  p.hook(async()=>({items:[...p.saved.values()],public_collection:old}));await p.context.ingestionSystemCard();
+  let releaseRead,releaseSave;const read=new Promise(r=>releaseRead=r),save=new Promise(r=>releaseSave=r);
+  p.hook(async(path,options)=>{if(!options){await read;return {items:[...p.saved.values()],public_collection:old};}await save;return {...old,enabled:false,worker_state:'stopping'};});
+  const saving=p.context.ingestionLocalSave(false),refresh=p.click('refresh');releaseSave();await saving;releaseRead();await refresh;
+  assert.equal(vm.runInContext('ingestionView.local.enabled',p.context),false);
+});
+
+
+test('a new administrator gets local status even when the previous account changed its permission',async()=>{
+  const p=page(),local={available:true,enabled:false,source_ids:[],worker_state:'stopped'};
+  p.hook(async(path,options)=>options?local:{items:[...p.saved.values()],public_collection:local});
+  await p.context.ingestionSystemCard();await p.context.ingestionLocalSave(false);
+  p.context.state.me={id:'another-admin',role:'admin'};
+  const html=await p.context.ingestionSystemCard();assert.match(html,/本机公开采集已暂停/);
+});
+
+test('late initial card read cannot replace a same-account view reopened after switching accounts',async()=>{
+  const p=page(),local={available:true,enabled:false,source_ids:[],worker_state:'stopped'};
+  p.hook(async()=>({items:[...p.saved.values()],public_collection:local}));await p.context.ingestionSystemCard();
+  let release;const gate=new Promise(r=>release=r);
+  p.hook(async()=>{await gate;return {items:[...p.saved.values()],public_collection:{...local,enabled:true}};});
+  const pending=p.context.ingestionSystemCard();
+  p.context.state.me={id:'another-admin',role:'admin'};p.context.ingestionAccept({items:[],public_collection:local});
+  p.context.state.me={id:'admin',role:'admin'};p.context.ingestionAccept({items:[],public_collection:local});
+  release();await pending;assert.equal(vm.runInContext('ingestionView.local.enabled',p.context),false);
 });

@@ -442,17 +442,27 @@ class RecordRevisions:
             snapshot_changed = snapshot is not None and not any(s['sha256']==snapshot['sha256'] for s in snapshots)
             if snapshot_changed:
                 snapshots.append(snapshot)
-            changed = found is None or evidence_changed or snapshot_changed or bool(page_error)
+            # A verified Crossref response can fill a missing publication link on
+            # the same shared article; existing human relations and ACLs stand.
+            journal_link = bool(found is not None and row['kind']=='journal_article' and not row['serial_id']
+                and adapter.get('mode')=='crossref' and snapshot and snapshot.get('metadata')
+                and snapshot.get('adapter')==adapter['id'] and not page_error
+                and acquired['fields'].get('serial_id')==source['id']
+                and intake.normalize_doi(row['doi'])==snapshot.get('doi')
+                and set(acquired['raw'].get('ISSN',[])) & set(adapter['issns']))
+            changed = found is None or evidence_changed or snapshot_changed or bool(page_error) or journal_link
             if changed:
                 automatic.setdefault('attempts',[]).append(dict(run_id=run['id'],retrieved_at=now(),error=page_error,
                     outcome='page_failed' if page_error else 'page_saved',snapshot_id=snapshot['id'] if snapshot else None))
             values = dict(raw_json=json.dumps(raw,ensure_ascii=False))
+            if journal_link:
+                values['serial_id'] = source['id']
             if found is None:
                 self.db.execute('UPDATE records SET raw_json=? WHERE id=?',(values['raw_json'],rid))
                 self._history(rid,'系统自动采集：待人工核对')
             elif changed:
                 self._initial_history(rid)
-                self._finish(row,values,'系统取得依据：保留人工字段与核对状态')
+                self._finish(row,values,'系统取得依据：补齐有据刊物关联，保留人工字段与核对状态' if journal_link else '系统取得依据：保留人工字段与核对状态')
             current = self.db.execute('SELECT * FROM records WHERE id=?',(rid,)).fetchone()
             self.db.execute('''INSERT INTO automatic_processing(record_id,source_version,input_hash,created_at)
                 VALUES (?,?,?,?) ON CONFLICT(record_id) DO UPDATE SET source_version=excluded.source_version,input_hash=excluded.input_hash''',

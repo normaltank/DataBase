@@ -9,7 +9,7 @@ function page(){
   const listeners={},calls=[],navigations=[],messages=[];
   const original={name:'synthetic.docx',bytes:'UNCHANGED ORIGINAL'};
   const fields=new Map([['files',original],['file_note','Uncommitted member note']]);
-  const error={textContent:''},conflict={innerHTML:''},button={disabled:false};
+  const error={textContent:''},conflict={innerHTML:''},button={disabled:false,textContent:"Save"};
   const form={dataset:{jrForm:'files',id:'result-one',series:'series-one',version:'2',request:'stable-request-001'},isConnected:true,
     matches:()=>true,hasAttribute:()=>false,querySelector:selector=>selector==='[type=submit]'?button:selector==='.form-error'?error:conflict};
   class FormData {
@@ -30,6 +30,7 @@ function page(){
   });
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../static/journal-results.js'),'utf8'),context);
   return {context,calls,navigations,messages,fields,original,form,error,conflict,button,hook:fn=>hook=fn,
+    click:async attribute=>{const b={dataset:{},disabled:false,isConnected:true,hasAttribute:key=>key===attribute,closest:selector=>selector==='form'?form:b};for(const handler of listeners.click)await handler({target:b});},
     submit:async()=>{for(const handler of listeners.submit)await handler({target:form,preventDefault(){}});}};
 }
 
@@ -60,4 +61,28 @@ test('a save response after account switch cannot navigate or announce success',
   const p=page();let release;const gate=new Promise(resolve=>release=resolve);p.hook(()=>gate);
   const pending=p.submit();p.context.state.me={id:'another-member'};release({id:'result-one'});await pending;
   assert.equal(p.navigations.length,0);assert.equal(p.messages.length,0);
+});
+
+
+test('lost creation response and changed draft recover the committed result without another create',async()=>{
+  const p=page();Object.assign(p.form.dataset,{jrForm:'create',id:'',series:''});
+  for(const [key,value] of Object.entries({journal_name:'Synthetic',year:2026,issue:'1',note:'Original'}))p.fields.set(key,value);
+  p.hook(()=>{throw new Error('Response lost after commit');});await p.submit();
+  p.fields.set('note','Changed after response lost');
+  p.hook(()=>{const e=new Error('Same request changed');e.status=409;throw e;});await p.submit();
+  assert.match(p.conflict.innerHTML,/data-jr-recover/);
+  const result={id:'committed-one',journal_name:'Synthetic',year:2026,issue:'1',version:1,note:'Original',files:[{versions:[{name:'synthetic.docx',version:1}]}]};
+  p.hook(async()=>({action:'create',result}));await p.click('data-jr-recover');
+  assert.match(p.conflict.innerHTML,/data-jr-continue/);
+  assert.equal(p.form.dataset.jrForm,'create'); // Reading does not choose an overwrite.
+  await p.click('data-jr-continue');
+  assert.equal(p.form.dataset.id,'committed-one');assert.equal(p.form.dataset.jrForm,'metadata');
+  assert.equal(p.fields.get('files'),p.original);assert.equal(p.fields.get('file_note'),'Uncommitted member note');
+  assert.equal(p.fields.get('note'),'Changed after response lost');
+  assert.match(p.button.textContent,/仅保存期次信息/);
+  p.hook(async()=>({id:'committed-one'}));await p.submit();
+  const last=p.calls.at(-1);assert.equal(last.url,'/api/journal-results/committed-one');
+  assert.equal(last.options.method,'PUT');assert.equal(last.options.body.note,'Changed after response lost');
+  assert.equal(last.options.body.version,1);assert.notEqual(last.options.body.request_id,'stable-request-001');
+  assert.equal(p.calls.filter(c=>c.options?.method==='POST').length,2);
 });

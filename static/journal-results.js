@@ -56,17 +56,30 @@ document.addEventListener('submit',async event=>{
   }catch(e){
     if(account!==state.me?.id||!f.isConnected)return;error.textContent=e.message;
     if(e.status===409&&f.dataset.id){f.dataset.conflict='true';f.querySelector('[data-jr-conflict]').innerHTML='<button type="button" class="button" data-jr-rebase>读取最新状态，保留当前输入</button><div data-jr-latest></div>';}
-    else if(e.status===409){const id=e.message.match(/编号：([a-f0-9]{32})/)?.[1];if(id)f.querySelector('[data-jr-conflict]').innerHTML=jrLink('打开已有一期，添加文件',{id});}
+    else if(f.dataset.jrForm==='create'){
+      const id=e.status===409?e.message.match(/编号：([a-f0-9]{32})/)?.[1]:null;
+      f.querySelector('[data-jr-conflict]').innerHTML='<button type="button" class="button" data-jr-recover>查询本次保存结果，保留当前输入</button><div data-jr-latest></div>'+(id?jrLink('打开已有一期，添加文件',{id}):'');
+    }
   }finally{f.dataset.saving='false';if(f.isConnected)b.disabled=false;}
 });
 
 document.addEventListener('click',async event=>{
-  const b=event.target.closest('[data-jr-update],[data-jr-rebase],[data-jr-preview],[data-jr-history],[data-jr-restore-file],[data-jr-restore-meta]');if(!b)return;
+  const b=event.target.closest('[data-jr-update],[data-jr-rebase],[data-jr-recover],[data-jr-continue],[data-jr-preview],[data-jr-history],[data-jr-restore-file],[data-jr-restore-meta]');if(!b)return;
   const account=state.me?.id,load=state.loadId;b.disabled=true;
   const current=()=>account===state.me?.id&&load===state.loadId&&b.isConnected;
   try{
     if(b.hasAttribute('data-jr-update')){const f=b.closest('[data-jr-series]').querySelector('[data-jr-update-form]');f.hidden=false;f.querySelector('input').focus();}
-    else if(b.hasAttribute('data-jr-rebase')){
+    else if(b.hasAttribute('data-jr-recover')){
+      const f=b.closest('form'),receipt=await api('/api/journal-results/requests/'+encodeURIComponent(f.dataset.request));if(!current())return;
+      if(receipt.action!=='create')throw new Error('本次请求并非创建成果，请核对保存请求。');
+      const r=receipt.result;f.jrRecovered=r;
+      f.querySelector('[data-jr-latest]').innerHTML='<p>本次已创建：'+esc(jrTitle(r))+' · v'+r.version+'</p><p>已保存说明：'+esc(r.note||'无')+'</p><ul>'+r.files.map(s=>'<li>'+esc(s.versions[0].name)+' · v'+s.versions[0].version+'</li>').join('')+'</ul><p>当前输入、文件选择和文件说明仍保留。可仅修订这期的期次信息；文件不会重复上传，若要更换原件，请打开本期成果明确更新。</p><button type="button" class="button" data-jr-continue>接续已创建成果，仅修订期次信息</button><a class="button" target="_blank" rel="noopener" href="'+esc(jrHref({id:r.id}))+'">新窗口查看已保存成果</a>';
+    }else if(b.hasAttribute('data-jr-continue')){
+      const f=b.closest('form'),r=f.jrRecovered;if(!r)return;
+      f.dataset.id=r.id;f.dataset.version=r.version;f.dataset.jrForm='metadata';f.dataset.request=crypto.randomUUID();f.dataset.conflict='false';
+      f.querySelector('[type=submit]').textContent='仅保存期次信息（不重复上传文件）';
+      f.querySelector('.form-error').textContent='已接续本次创建的一期。当前文件选择与文件说明仍保留；此次保存仅更新期次信息。';
+    }else if(b.hasAttribute('data-jr-rebase')){
       const f=b.closest('form'),r=await api('/api/journal-results/'+encodeURIComponent(f.dataset.id));if(!current())return;
       f.dataset.version=r.version;f.dataset.request=crypto.randomUUID();f.dataset.conflict='false';
       f.querySelector('[data-jr-latest]').innerHTML='<p>最新：'+esc(jrTitle(r))+' · v'+r.version+'</p><ul>'+r.files.map(s=>'<li>'+esc(s.versions[0].name)+' · v'+s.versions[0].version+'</li>').join('')+'</ul><p>当前输入和文件已保留。核对后可继续保存。</p>';
