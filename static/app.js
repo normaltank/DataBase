@@ -83,7 +83,7 @@ async function route(){
   if(!state.me)return showLogin();
   if(typeof continuityRouteStart==='function'&&!continuityRouteStart())return;
   const [page,query='']=location.hash.slice(1).split('?');
-  state.page=navs.some(n=>n[0]===page)?page:'collaboration';state.params=new URLSearchParams(query);
+  state.page=page==='journal-results'||navs.some(n=>n[0]===page)?page:'collaboration';state.params=new URLSearchParams(query);
   const legacyPortals=state.page==='sources'&&state.params.get('group')==='maintenance';
   if(legacyPortals&&state.me.role==='admin')return go('maintenance-sources',state.params);
   const legacyWork=['collaboration','compilations'].includes(state.page)&&state.params.get('scope')==='maintenance';
@@ -94,6 +94,7 @@ async function route(){
   try{
     let html;
     if(denied)html='<section class="panel"><h1>此入口供资料管理员使用</h1><p>研究工作、来源贡献、个人密码与可读内容导出仍可在研究界面使用。</p><div class="row wrap">'+linkButton('返回研究界面','nav','collaboration','button primary')+linkButton('打开我的','nav','personal')+'</div></section>';
+    else if(state.page==='journal-results')html=await journalResultsPage();
     else if(state.page==='maintenance-work')html=await collaborationPage();
     else if(state.page==='collaboration')html=await collaborationPage();
     else if(state.page==='compilations'&&!state.params.has('legacy')&&!state.params.has('kind'))html=await collaborationWorkspacePage(true);
@@ -105,7 +106,7 @@ async function route(){
     else if(isMaintenancePage()&&state.page!=='review')html=await systemPage();
     else if(state.page==='drafts')html=await draftsPage();
     else html=await libraryPage();
-    if(id===state.loadId){document.querySelector('#content').innerHTML=html;if(typeof workbenchAfterRender==='function')workbenchAfterRender();if(typeof sourceAfterRender==='function')sourceAfterRender();if(typeof libraryAfterRender==='function')libraryAfterRender();if(typeof continuityRestore==='function')await continuityRestore();if(navigationFocus){navigationFocus=false;const heading=document.querySelector('#content h1');if(heading){heading.tabIndex=-1;heading.focus({preventScroll:true});}}}
+    if(id===state.loadId){document.querySelector('#content').innerHTML=html;if(typeof workbenchAfterRender==='function')workbenchAfterRender();if(typeof jrAfterRender==='function')jrAfterRender();if(typeof sourceAfterRender==='function')sourceAfterRender();if(typeof libraryAfterRender==='function')libraryAfterRender();if(typeof continuityRestore==='function')await continuityRestore();if(navigationFocus){navigationFocus=false;const heading=document.querySelector('#content h1');if(heading){heading.tabIndex=-1;heading.focus({preventScroll:true});}}}
   }catch(e){if(id===state.loadId&&typeof continuityRouteFailed==='function'&&continuityRouteFailed(e))return;if(id===state.loadId&&state.me)document.querySelector('#content').innerHTML=`<div class="notice error" role="alert">${esc(e.message)}${state.page==='collaboration'||state.page==='compilations'?'<div class="row wrap"><button class="button" data-action="work-retry">重新读取</button><button class="button" data-action="work-back">返回工作查找</button></div>':''}</div>`;}
 }
 async function dashboard(){return readingPersonalPage();}

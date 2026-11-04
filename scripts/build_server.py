@@ -14,7 +14,8 @@ DIRS = {'platform_app', 'static', 'templates', 'server', 'tests', 'portable'}
 FILES = {'app.py', 'requirements.txt', 'requirements-test.txt', 'PRODUCT.md', 'GLOSSARY.md', 'README.md',
          'docs/server-deployment.md', 'docs/portable-preview.md', 'docs/project-showcase.html',
          'portable/__init__.py', 'portable/demo_seed.py', 'portable/public_batch.py',
-         'portable/samples/cee17-preview.json', 'portable/samples/fictional-article.pdf'}
+         'portable/samples/cee17-preview.json', 'portable/samples/fictional-article.pdf',
+         'platform_app/journal_results.py', 'static/journal-results.js', 'static/journal-results.css'}
 
 
 def source_names():

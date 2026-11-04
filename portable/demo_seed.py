@@ -227,12 +227,27 @@ def seed(app):
                     remember(researcher, row['file_url'])
     for sub in researcher.get(journal).json['submissions']:
         remember(researcher, sub['file_url'])
+    result_id = call(researcher, '/api/journal-results', {
+        'journal_id': sources[2], 'journal_name': SOURCE_NAMES[2], 'year': 2026,
+        'issue': '第1—2期（完全虚构）', 'authors': '演示编译署名',
+        'note': '从零创作的虚构中心成果，演示直接保存与并列文件。',
+        'request_id': 'demo-result-create'},
+        file=txt('演示直接归档概览.txt', '虚构概览初版；无审稿或采用步骤。'))['id']
+    result_path = '/api/journal-results/' + result_id
+    series_id = researcher.get(result_path).json['files'][0]['id']
+    call(lead, result_path + '/files', {'version': 1, 'request_id': 'demo-result-parallel'},
+        file=txt('演示并列附录.txt', '独立的虚构附录，与概览并列保存。'))
+    call(lead, result_path + '/files', {'version': 2, 'request_id': 'demo-result-revise', 'series_id': series_id},
+        file=txt('演示直接归档概览-v2.txt', '虚构概览修订版；明确更新这一份，附录保持。'))
+    for series in researcher.get(result_path).json['files']:
+        for version in series['versions']:
+            remember(researcher, version['file_url'])
     from portable.public_batch import seed_public_batch
     public_batch = seed_public_batch(app)
     seed_profile_examples(app, people, researcher, lead)
     payload = {'format': 2, 'synthetic': False, 'fictional_collaboration': True, 'accounts': ['researcher', 'colleague', 'admin'],
         'source_ids': sources, 'person_ids': people, 'article_ids': articles,
-        'complete_topic': tid, 'active_topic': active, 'journal': wid, 'files': files, 'public_batch': public_batch}
+        'complete_topic': tid, 'active_topic': active, 'journal': wid, 'journal_result': result_id, 'files': files, 'public_batch': public_batch}
     (Path(app.config['DATA_DIR']) / 'demo-seed.json').write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
     return payload
 

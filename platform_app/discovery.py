@@ -177,6 +177,8 @@ def register(app, ctx):
             abort(400, '固定来源发现不接受网址或适配器参数。')
         source = source_for(ctx.db(), sid)
         adapter = source_adapters.for_source(source)
+        if adapter['mode']=='crossref':
+            abort(422, '此刊使用持久公开题录采集；请在系统维护的公开来源自动采集中启用并查看结果。')
         if not intake._slots.acquire(blocking=False):
             abort(429, '当前取得请求较多，请稍后重试。')
         try:

@@ -172,6 +172,13 @@ def restore_backup(archive_path, target_dir):
                     if len(direct_files) != len(set(direct_files)) or referenced_ids & set(direct_files):
                         raise ValueError('材料原件不能重复归属。')
                     referenced_ids.update(direct_files)
+                from . import journal_results
+                if int(version) >= journal_results.SCHEMA_VERSION:
+                    journal_results.validate_backup(db)
+                    result_files = journal_results.referenced_files(db)
+                    if referenced_ids & result_files:
+                        raise ValueError('期刊成果原件不能重复归属。')
+                    referenced_ids.update(result_files)
                 handoff_files.validate_backup(db, manifest, referenced_ids)
                 collaboration.validate_backup(db)
                 from . import topic_stages

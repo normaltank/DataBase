@@ -98,6 +98,7 @@ class ReviewRegressionTests(unittest.TestCase):
 
     def test_valueless_profile_attributes_finish_and_shared_portable_worker_continues(self):
         from portable.worker import PortableWorker
+        from portable.public_collection import LocalPublicSettings
         from platform_app.ingestion import run_worker
         page = '<div class id><h1>Ada Example</h1><article class><p>' + ('A complete synthetic career biography. ' * 5) + '</p><a href>Work</a></article></div>'
         gateway = self.mock_external(page, lambda value: [])
@@ -106,12 +107,19 @@ class ReviewRegressionTests(unittest.TestCase):
             self.assertEqual(self.call('/api/people/'+pid+'/profile-suggestions', {'version': 1,
                 'url': 'https://profiles.example/ada', 'identity_confirmation': True, 'request_id': str(index)}).status_code, 201)
         state_dir = Path(self.temp.name)/'worker-state'; state_dir.mkdir()
-        worker = PortableWorker(self.app.config['DATA_DIR'], state_dir, SimpleNamespace(status=lambda: {'enabled': True}), threading.Event())
+        # This cross-platform queue test owns all its files; native Windows
+        # per-user permission storage belongs to the separate portable contract.
+        public = LocalPublicSettings(Path(self.temp.name)/'copy', storage_root=Path(self.temp.name)/'public-settings')
+        self.assertFalse(public.status()['enabled'])
+        with patch('portable.public_collection.user_storage', side_effect=AssertionError('Unexpected native user storage access')):
+            worker = PortableWorker(self.app.config['DATA_DIR'], state_dir,
+                SimpleNamespace(status=lambda: {'enabled': True}), threading.Event(), public_settings=public)
         worker.worker_state = 'running'
         worker.ownership = nullcontext(); worker.ownership.__enter__()
         with patch('platform_app.ingestion.run_worker', side_effect=lambda data, **kw: run_worker(data, once=True, **kw)):
             worker.run()
         self.assertEqual(worker.status()['worker_state'], 'stopped', worker.status())
+        self.assertFalse(worker.status()['public_collection']['enabled'])
         states = [self.get('/api/people/'+pid+'/profile-suggestions') for pid in ids]
         self.assertEqual([s['jobs'][0]['status'] for s in states], ['empty', 'empty'])
         self.assertEqual(gateway.call_count, 2)
