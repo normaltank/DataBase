@@ -33,6 +33,7 @@ SOURCE_FILES = {
     'scripts/build_portable.py', 'scripts/verify_portable.py', 'scripts/check_portable_preview.py', 'scripts/check_lan_release.py',
     'scripts/check_portable_trial.py',
     'scripts/verify_work_materials.py', 'portable/start.bat', 'portable/stop.bat',
+    'platform_app/journal_results.py', 'static/journal-results.js', 'static/journal-results.css',
 } | COUNTRY_DATA_FILES
 
 

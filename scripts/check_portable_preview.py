@@ -116,7 +116,7 @@ def verify_seed(root, client, admin):
     records = client.request('/api/records?size=100')['items']
     assert len(records) == 62, len(records)
     assert all('演示' in x['title'] for x in records if x['id'] not in seed['public_batch']['article_ids'])
-    assert len(seed['files']) == 11
+    assert len(seed['files']) == 14
     for file in seed['files']:
         content = client.request(file['url'], raw=True)
         assert sha(content) == file['sha256'] and len(content) == file['bytes']
@@ -133,9 +133,21 @@ def verify_seed(root, client, admin):
         '5ade15e130d9041879060dfda9a802539c4dcb7c31c2723a8317fc82ff6029cc',
         '409fd91477fefd63f373c4a8cf4c3954da9051518a0422c15209d98ace36221c',
     }
+    result_archive = client.request('/api/journal-results/' + seed['journal_result'])
+    assert result_archive['version'] == 3 and len(result_archive['files']) == 2
+    assert sorted(len(s['versions']) for s in result_archive['files']) == [1, 2]
+    result_files = [v for s in result_archive['files'] for v in s['versions']]
+    assert {v['name'] for v in result_files} == {'演示直接归档概览.txt', '演示直接归档概览-v2.txt', '演示并列附录.txt'}
+    result_hashes = set()
+    for version in result_files:
+        raw = client.request(version['file_url'], raw=True)
+        assert raw.startswith('【完全虚构的演示样例，不是研究结论】'.encode('utf-8'))
+        assert sha(raw) == version['sha256'] and len(raw) == version['bytes']
+        result_hashes.add(sha(raw))
+    original_hashes |= result_hashes
     assert {f['sha256'] for f in seed['files']} == original_hashes
     on_disk = originals(root / 'data')
-    assert len(on_disk) == 12, on_disk
+    assert len(on_disk) == 15, on_disk
     assert {h for p, h in on_disk.items() if not p.startswith('avatars/')} == original_hashes
     person = client.request('/api/people/' + seed['person_ids'][0])
     avatar = client.request(person['avatar']['url'], raw=True)
@@ -315,6 +327,35 @@ def continue_work(researcher, lead, admin, seed):
     return workflow, journal
 
 
+def continue_journal_results(researcher, lead, seed):
+    """Native HTTP checks share new results without touching legacy adoption."""
+    path = '/api/journal-results/' + seed['journal_result']
+    before = researcher.request(path)
+    series = next(s for s in before['files'] if len(s['versions']) == 2)
+    original_versions = series['versions']
+    lead.request(path + '/files', {'version': before['version'], 'request_id': 'native-result-parallel'},
+                 file=('虚构原生并列文件.txt', b'DEMO native parallel result'))
+    current = researcher.request(path)
+    request = {'version': current['version'], 'request_id': 'native-result-revision', 'series_id': series['id']}
+    raw = b'DEMO native explicit revision'
+    lead.request(path + '/files', request, file=('虚构原生修订.txt', raw))
+    lead.request(path + '/files', request, file=('虚构原生修订.txt', raw))
+    after = researcher.request(path)
+    assert after['version'] == before['version'] + 2 and len(after['files']) == 3
+    revised = next(s for s in after['files'] if s['id'] == series['id'])
+    assert [v['version'] for v in revised['versions']] == [3, 2, 1]
+    assert revised['versions'][1:] == original_versions
+    assert researcher.request(revised['versions'][0]['file_url'], raw=True) == raw
+    exported = researcher.request('/api/journal-results/export?ids=' + seed['journal_result'], raw=True)
+    with zipfile.ZipFile(io.BytesIO(exported)) as archive:
+        result = json.loads(archive.read('content.json'))['journal_results'][0]
+        assert result['version'] == after['version'] and len(result['history']) == after['version']
+        for file_series in result['files']:
+            for version in file_series['versions']:
+                assert sha(archive.read(version['path'])) == version['sha256']
+    return after
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--package', required=True, type=Path)
@@ -364,7 +405,9 @@ def main():
         result['checks'].append('public preview: 65 sources / 38 core; shared collection with 56 machine titles, 23 independent abstract excerpts / 33 title-only; historical provenance and separate input hashes; zero local calls/tasks/fees')
         result['checks'].append('first start: exact synthetic account/source/person/record/original inventory; role login; avatar; PDF/TXT parser; exact topic v2 adoption; independent journal v2')
         active_workflow, journal = continue_work(researcher, lead, admin, seed)
+        result_archive = continue_journal_results(researcher, lead, seed)
         result['checks'].append('real HTTP continuation: member source contribution/admin metadata review; selection review/direct stage advance/return/revision/version approval; shared journal v3 explicitly adopted')
+        result['checks'].append('native journal results: direct shared archive, parallel file, explicit series revision, idempotent retry, all-version readable export')
         for kind, wid in [('topic', seed['complete_topic']), ('journal', seed['journal'])]:
             raw = researcher.request(f'/api/collaboration/materials/{kind}/{wid}?scope=all', raw=True)
             path = evidence / f'{kind}-materials.zip'
@@ -374,6 +417,7 @@ def main():
         export = researcher.request('/api/export/content', raw=True)
         with zipfile.ZipFile(io.BytesIO(export)) as z:
             assert 'content.json' in z.namelist()
+            assert any(r['id'] == seed['journal_result'] for r in json.loads(z.read('content.json'))['journal_results'])
         raw_docx = docx()
         rid = researcher.request('/api/records', {'title': '演示｜验收新增DOCX', 'kind': 'report',
             'sharing_confirmed': True}, file=('演示索引.docx', raw_docx))['id']
@@ -404,6 +448,7 @@ def main():
         assert restored_reader.request('/api/collaboration/topics/' + seed['complete_topic'] + '/workflow') == workflow
         assert restored_reader.request('/api/collaboration/topics/' + seed['active_topic'] + '/handoffs') == active_workflow
         assert restored_reader.request('/api/collaboration/journals/' + seed['journal']) == journal
+        assert restored_reader.request('/api/journal-results/' + seed['journal_result']) == result_archive
         restored_admin = HTTP(second_base)
         restored_admin.login('admin')
         assert verify_public_batch(restored_reader, restored_admin, seed) == public_snapshots
