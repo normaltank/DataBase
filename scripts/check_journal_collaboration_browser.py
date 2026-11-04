@@ -45,6 +45,7 @@ def main():
                 worker.evaluate('async ({url,zoom})=>{const t=(await chrome.tabs.query({})).find(x=>x.url.startsWith(url));await chrome.tabs.setZoom(t.id,zoom);}',{'url':base,'zoom':zoom})
                 page.get_by_role('button',name='期刊编译',exact=True).click()
                 expect(page.get_by_role('heading',name='期刊编译',exact=True)).to_be_visible()
+                page.get_by_text('旧期刊工作',exact=True).click()
                 page.get_by_role('button',name='新建期刊工作',exact=True).click()
                 name=f'合成刊物 {width} / {int(zoom*100)}%'
                 page.get_by_label('已知刊名',exact=False).fill(name)
