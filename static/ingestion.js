@@ -33,13 +33,14 @@ function ingestionLocalStatus(local){
 }
 async function ingestionLocalSave(enabled){
   const form=document.querySelector('[data-form="public-collection"]');if(!form)return;
+  const view=ingestionView,current=()=>view===ingestionView&&state.me?.id===view.actor;
   const status=form.querySelector('[data-public-collection-status]'),buttons=form.querySelectorAll('button');
   const source_ids=[...form.querySelectorAll('input[name="public-source"]:checked')].map(i=>i.value);
   for(const button of buttons)button.disabled=true;
   try{
-    ingestionView.local=await api('/api/ingestion/local',{method:'PUT',body:{enabled,source_ids}});
-    status.textContent=ingestionLocalStatus(ingestionView.local);
-  }catch(error){status.textContent=error.message+'；选择已保留。';}
+    const result=await api('/api/ingestion/local',{method:'PUT',body:{enabled,source_ids}});
+    if(current()){view.local=result;status.textContent=ingestionLocalStatus(view.local);}
+  }catch(error){if(current())status.textContent=error.message+'；选择已保留。';}
   finally{for(const button of buttons)button.disabled=false;}
 }
 function ingestionRunsHtml(s){
@@ -180,9 +181,10 @@ document.addEventListener('click',async event=>{
   const action=button.dataset.action,view=ingestionView;
   if(action==='ingestion-local-pause'){await ingestionLocalSave(false);return;}
   if(action==='ingestion-register-journals'){
+    const current=()=>view===ingestionView&&state.me?.id===view.actor;
     button.disabled=true;
-    try{for(const journal of view.journals.filter(j=>!j.registered)){const {registered,adapter,...fields}=journal;await api('/api/sources',{method:'POST',body:fields});}await loadLookups();await ingestionRefresh();}
-    catch(error){view.summary='登记失败：'+error.message+'；已登记的来源保留。';ingestionPaint();}
+    try{for(const journal of view.journals.filter(j=>!j.registered)){if(!current())return;const {registered,adapter,...fields}=journal;await api('/api/sources',{method:'POST',body:fields});}if(!current())return;await loadLookups();if(current())await ingestionRefresh();}
+    catch(error){if(current()){view.summary='登记失败：'+error.message+'；已登记的来源保留。';ingestionPaint();}}
     finally{button.disabled=false;}return;
   }
   if(action==='ingestion-all'){for(const [id,item] of view.items)if(!item.busy)view.selected.add(id);ingestionPaint();return;}

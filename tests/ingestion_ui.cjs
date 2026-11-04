@@ -28,7 +28,7 @@ function page(storage = new Map()) {
     encodeURIComponent, crypto:require('node:crypto').webcrypto,
     sessionStorage:{getItem:key=>storage.get(key),setItem:(key,value)=>storage.set(key,value)},
     state:{me:{id:'admin', role:'admin'}}, esc:x=>String(x??''), dateTime:x=>String(x??''),
-    sourceHref:x=>'#'+x, linkButton:()=>'', detailPair:()=>'', toast(){},
+    sourceHref:x=>'#'+x, linkButton:()=>'', detailPair:()=>'', toast(){}, loadLookups:async()=>{},
     document:{addEventListener:(type,handler)=>{(listeners[type]??=[]).push(handler)},
       querySelector:selector=>selector.includes('ingestion-config') ? forms.get(selector.match(/data-id="([^"]+)"/)?.[1]) : root,
       querySelectorAll:()=>[]},
@@ -178,4 +178,20 @@ test('returning to the same account with a replacement view does not resume an o
   assert.equal(p.calls.filter(c=>c.options).length,1,'view replacement must stop the second write even when the account id matches again');
   p.hook(null);await p.fire('submit',p.forms.get('b'));
   assert.equal(p.calls.filter(c=>c.options).length,2,'the new view can submit its own intent');
+});
+
+for(const outcome of ['response','error'])test('registering journals stops after account changes during '+outcome,async()=>{
+  const p=page();
+  const journals=['one','two','three'].map(name=>({name,original_name:name,kind:'journal',website:'https://example.org/'+name,issn:'synthetic',registered:false}));
+  p.hook((path,options)=>!options?{items:[...p.saved.values()],journals}:undefined);
+  await p.context.ingestionSystemCard();
+  p.hook((path,options)=>{
+    if(path==='/api/sources'&&options){
+      p.context.state.me={id:'other-admin',role:'admin'};
+      if(outcome==='error')throw new Error('Synthetic failure after account change');
+      return {id:'synthetic-created'};
+    }
+  });
+  await p.click('register-journals');
+  assert.equal(p.calls.filter(call=>call.path==='/api/sources'&&call.options).length,1);
 });
