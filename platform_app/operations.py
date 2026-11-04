@@ -254,9 +254,14 @@ def register(app, ctx):
         final_files = topic_finals.prepare_export(db(), records)
         from . import journal_collaboration
         journal_works = journal_collaboration.export_projection(db(),ctx.records(),set(records))
+        from . import journal_results
+        result_service = journal_results.JournalResults(db(),user(),ctx.records(),ctx.data_dir)
+        # General content export includes shared journal archives only when no
+        # record/person/collection selection narrows its declared scope.
+        result_archives = journal_results.export_projection(result_service) if not request.args else []
         payload = {"format": "research-content-v1", "exported_at": now(), "selected_ids": [r["id"] for r in selected],
                    "records": list(records.values()), "sources": sources, "collections": collections, "attachments": list(attachments.values()),
-                   "people": people, "avatars": list(avatars.values()), "journal_works": journal_works}
+                   "people": people, "avatars": list(avatars.values()), "journal_works": journal_works, "journal_results": result_archives}
         from .archive_suggestions import export_projection as archive_export
         try:
             payload['archive_suggestions'] = archive_export(db(), [source['id'] for source in sources],
@@ -406,6 +411,9 @@ def register(app, ctx):
                     archive.writestr(work['path'],page(work['journal_name'],journal_collaboration.export_html(work)))
                 index += '</ul>'
                 journal_collaboration.write_export_files(archive,ctx.data_dir,db(),journal_works)
+            if result_archives:
+                index += '<h2>期刊成果及全部原件版本</h2><ul>'+''.join('<li><a href="'+item['path']+'">'+html.escape(item['journal_name']+' · '+str(item['year'])+' · '+item['issue'])+'</a></li>' for item in result_archives)+'</ul>'
+                journal_results.write_export(archive,result_service,result_archives)
             index += "<h2>来源介绍与登记</h2><ul>"
             for source in sources:
                 index += '<li><a href="' + source_paths[source["id"]] + '">' + html.escape(source["name"]) + '</a></li>'

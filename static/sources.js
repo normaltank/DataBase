@@ -111,7 +111,7 @@ async function sourceProfile(s,preview=false,requested=s.id){
   const publications=(s.related||[]).map(x=>linkButton(esc(x.name),'source-detail',x.id,'detail-link')).join('');
   if(publications)relations+=`<section class="detail-section"><h4>主办或出版的刊物</h4>${publications}</section>`;
   const contentSections=s.kind==='portal'?[]:await Promise.all([['published',isInstitution(s)?'机构发布资料':'刊物刊载资料'],['associated','一般关联资料'],['translations','目录译稿'],['outputs','中心成果']].map(([key,label])=>sourceContentSection(s,key,label,undefined,preview)));
-  const content=contentSections.join('');
+  const content=(s.kind==='journal'?await journalSourceResults(s):'')+contentSections.join('');
   const notes=isInstitution(s)||s.kind==='journal'?await noteSubjectProfile(isInstitution(s)?'institution':'journal',s.id,Number(state.params.get('note_page')||1)):'';
   const items=[{id:'source-introduction',label:'来源介绍'}];
   if(content)items.push({id:'source-content',label:'来源内容'});
