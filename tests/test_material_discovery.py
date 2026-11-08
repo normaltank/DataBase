@@ -96,4 +96,3 @@ class MaterialDiscoveryTests(unittest.TestCase):
         self.assertEqual(self.client.get('/api/export',query_string=query).data.decode('utf-8-sig').count(first),0)
         self.call('/api/logout')
         self.assertEqual(self.client.get('/api/material-discovery').status_code,401)
-
