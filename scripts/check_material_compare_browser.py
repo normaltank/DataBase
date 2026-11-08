@@ -205,6 +205,7 @@ class MaterialCompareBrowserTests(unittest.TestCase):
                 first, second = columns.nth(0).bounding_box(), columns.nth(1).bounding_box()
                 self.assertAlmostEqual(first['x'],second['x'],delta=2)
                 self.assertGreater(second['y'],first['y'])
+                expect(page.locator('#toast.show')).to_have_count(0)
                 page.screenshot(path=str(self.evidence/f'fields-{label}.png'),full_page=True)
                 compare.get_by_role('button',name='阅读这篇',exact=True).first.focus()
                 page.keyboard.press('Enter')

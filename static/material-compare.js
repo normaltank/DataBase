@@ -150,7 +150,7 @@ document.addEventListener('click',event=>{
   }
 });
 // Catch the existing reader's close action before it restores a hidden comparison control.
-document.addEventListener('click',event=>{
+window.addEventListener('click',event=>{
   if(materialCompare.mode==='reader'&&event.target.closest('[data-action="library-reader-close"]')){event.preventDefault();event.stopImmediatePropagation();materialCompareReturn();}
 },true);
 document.addEventListener('keydown',event=>{
