@@ -131,8 +131,8 @@ def main():
                 page.screenshot(path=str(root/f'europe-{width}-zoom-{zoom}.png'),full_page=True)
                 page.screenshot(path=str(root/f'viewport-{width}-zoom-{zoom}.png'))
                 page.locator('.material-discovery').screenshot(path=str(root/f'panel-{width}-zoom-{zoom}.png'))
-                controls=page.locator('.material-discovery button,.material-discovery select').evaluate_all('(elements)=>elements.map(el=>({text:el.textContent,x:el.getBoundingClientRect().x,right:el.getBoundingClientRect().right,width:innerWidth}))')
-                assert all(control['x']>=0 and control['right']<=control['width'] for control in controls),controls
+                controls=page.locator('.material-discovery button,.material-discovery select').evaluate_all('(elements)=>elements.map(el=>({text:el.textContent,x:el.getBoundingClientRect().x,right:el.getBoundingClientRect().right,width:document.documentElement.clientWidth,panel:el.closest(".material-discovery").getBoundingClientRect().right}))')
+                assert all(control['x']>=0 and control['right']<=control['width'] and control['right']<=control['panel']+1 for control in controls),controls
                 control=page.locator('.material-country-list [data-material-country=LV]')
                 control.focus();page.keyboard.press('Enter')
                 expect(page.locator('.material-scope')).to_contain_text('23 条')
