@@ -343,7 +343,13 @@ class MaterialCompareBrowserTests(unittest.TestCase):
             compare = page.get_by_role('region',name='资料比较',exact=True)
             expect(compare).to_contain_text('合成机器译文，与原始摘要分别保存。')
             self.assertFalse(page.evaluate('document.documentElement.scrollWidth > innerWidth'))
-            page.screenshot(path=str(self.evidence/'real-browser-zoom-200-percent.png'),full_page=True)
+            # Old Chromium clips full_page images at browser zoom. Capture the
+            # real viewport at successive fields so every frame is complete.
+            page.screenshot(path=str(self.evidence/'real-browser-zoom-200-percent.png'))
+            compare.locator('.material-compare-field').nth(3).scroll_into_view_if_needed()
+            page.screenshot(path=str(self.evidence/'real-browser-zoom-200-percent-chinese.png'))
+            compare.locator('.material-compare-field').nth(7).scroll_into_view_if_needed()
+            page.screenshot(path=str(self.evidence/'real-browser-zoom-200-percent-dates.png'))
             page.keyboard.press('Escape')
             expect(page.get_by_role('button',name='比较已选资料',exact=True)).to_be_focused()
         finally:
