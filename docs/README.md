@@ -1,6 +1,6 @@
 # 项目文档目录
 
-整理日期：2026-10-26。本页按用途导航，不另建任务台账；待办与依赖以 [GitHub Issues](https://github.com/normaltank/DataBase/issues) 为准。文档职责与归档方法见 [写作约定](agents/documentation.md)。
+整理日期：2026-11-08。本页按用途导航，不另建任务台账；待办与依赖以 [GitHub Issues](https://github.com/normaltank/DataBase/issues) 为准。文档职责与归档方法见 [写作约定](agents/documentation.md)。
 
 ## 当前入口
 
@@ -14,16 +14,20 @@
 | Markdown 写作和归档 | [文档约定](agents/documentation.md) |
 | GitHub 任务操作、分流及领域文件 | [任务跟踪](agents/issue-tracker.md) · [标签](agents/triage-labels.md) · [领域约定](agents/domain.md) |
 | 当前实现及尚缺能力 | [施工说明](施工说明.md) |
+| 按主题找规格、核对规则版本 | [规格索引](specs/README.md) |
+| 查当次开发、审查与历史证据 | [执行记录索引](../work/README.md) |
+| 界面设计语言 | [DESIGN](../DESIGN.md) |
+| 便携试用、校园网与服务器操作 | [便携说明](portable-preview.md) · [服务器说明](server-deployment.md) |
 | 用户决定及历史答复 | [需求讨论记录](需求讨论记录.md) |
 | 长期研究方向与分期建议 | [长期愿景](长期研究愿景与演进路线.md) |
 
 ## 期刊成果归档与三刊公开采集
 
-2026-11-04 用户确认直接按期保存中心期刊成果、并列文件与显式版本更新、中心成员共管，并授权当前便携副本导入三份历史PDF及加入三刊真实公开采集。长期规则见[PRODUCT](../PRODUCT.md#期刊成果归档与公开题录2026-11-04-已确认)，决定见[R030](需求讨论记录.md#r030期刊成果归档与三刊公开采集)，范围与验证见[规格1.0](specs/期刊成果归档与三刊公开采集.md)，入口事实见[三刊核查](../work/三刊公开题录采集核查.md)。本条是已确认范围，施工及发布状态以相应GitHub任务为准；旧#54/#66不因此完成。
+2026-11-04 用户确认直接按期保存中心期刊成果、并列文件与显式版本更新、中心成员共管，并授权当前便携副本导入三份历史PDF及加入三刊真实公开采集。长期规则见[PRODUCT](../PRODUCT.md#期刊成果归档与公开题录2026-11-04-已确认)，决定见[R030](需求讨论记录.md#r030期刊成果归档与三刊公开采集)，范围与验证见[规格1.0](specs/期刊成果归档与三刊公开采集.md)，入口事实见[三刊核查](../work/三刊公开题录采集核查.md)。本范围已由[PR #119](https://github.com/normaltank/DataBase/pull/119)交付，包含归档、三刊真实采集及当次现用副本导入验证；[#116](https://github.com/normaltank/DataBase/issues/116)已关闭。旧#54/#66的其余范围继续独立跟踪。
 
 ## 两阶段直接材料交接与界面简化
 
-2026-11-04 用户已冻结[规格1.0](specs/两阶段材料交接与研究界面简化.md)，以直接上传、按版本审阅及负责人推进取代主题日常流程的会议分工前置；决定见[R029](需求讨论记录.md#r029两阶段直接材料交接与研究界面简化)，长期规则见[PRODUCT](../PRODUCT.md)。[#111](https://github.com/normaltank/DataBase/issues/111)及子任务跟踪施工和交付，旧规格与旧验收保留历史身份。
+2026-11-04 用户已冻结[规格1.0](specs/两阶段材料交接与研究界面简化.md)，以直接上传、按版本审阅及负责人推进取代主题日常流程的会议分工前置；决定见[R029](需求讨论记录.md#r029两阶段直接材料交接与研究界面简化)，长期规则见[PRODUCT](../PRODUCT.md)。[PR #114](https://github.com/normaltank/DataBase/pull/114)已交付，[#111](https://github.com/normaltank/DataBase/issues/111)及子任务已关闭。旧会议分工前置与旧验收按各自历史范围读取。
 
 ## 中心编译协作平台
 
@@ -31,7 +35,7 @@
 
 现有资料管理和自动采集作为底座继续复用，旧规格保留发布身份，未交付任务仍由GitHub跟踪；协作交稿不以前置逐篇原文入库、全来源采集或模板自动识别为条件。期刊档案、年度指标和完整目次另见下方期刊设计入口。
 
-2026-11-02 的[主题编译补充规格 1.1](specs/主题编译阶段与结束.md)冻结两阶段及结束／重开：用户已确认保留材料并锁定，可重新开启；[R026](需求讨论记录.md#2026-11-02-后续答复结束后保留材料并锁定可重开)追加真实问题、原答案和新状态，原待答记录及[版本 1.0 固定稿](https://github.com/normaltank/DataBase/blob/c33aaddea6de997da44caed938ef01ce0de7c40f/docs/specs/主题编译阶段与结束.md)保留历史身份。结束部分待施工与验收，[#95](https://github.com/normaltank/DataBase/issues/95) 整项尚未完成；旧协作规格及交付保持原范围。
+2026-11-02 的[主题编译补充规格 1.1](specs/主题编译阶段与结束.md)冻结两阶段及结束／重开：用户已确认保留材料并锁定，可重新开启；[R026](需求讨论记录.md#2026-11-02-后续答复结束后保留材料并锁定可重开)追加真实问题、原答案和新状态，原待答记录及[版本 1.0 固定稿](https://github.com/normaltank/DataBase/blob/c33aaddea6de997da44caed938ef01ce0de7c40f/docs/specs/主题编译阶段与结束.md)保留历史身份。[#95](https://github.com/normaltank/DataBase/issues/95)已交付并关闭；主题日常上传与推进现按上方两阶段直接材料交接读取，旧协作规格及验收保持原范围。
 
 ## 自采集、自维护与前端重设计
 
@@ -39,7 +43,7 @@
 
 ## 档案筛选与 AI 辅助维护
 
-[规格 1.0](specs/档案筛选与AI辅助维护.md)及 [R025](需求讨论记录.md#r025档案筛选与ai辅助维护)记录2026-11-02确认的国名／档案筛选、官网取证与来源建议、作者候选及人工采用。三项完整后统一交付，当前待施工；父任务沿用 [#46](https://github.com/normaltank/DataBase/issues/46)，作者接续 [#64](https://github.com/normaltank/DataBase/issues/64)，两个新任务编号以父任务发布为准。本轮收紧旧版明确依据自动正式关联许可，当前规则见 [PRODUCT](../PRODUCT.md#有据档案建议与人工采用2026-11-02-已确认)；旧规格及讨论保留历史身份，正式交付包与服务器部署仍属后续安排。
+[规格 1.0](specs/档案筛选与AI辅助维护.md)及 [R025](需求讨论记录.md#r025档案筛选与ai辅助维护)记录2026-11-02确认的国名／档案筛选、官网取证与来源建议、作者候选及人工采用。作者建议[#64](https://github.com/normaltank/DataBase/issues/64)、国家筛选[#92](https://github.com/normaltank/DataBase/issues/92)与来源建议[#93](https://github.com/normaltank/DataBase/issues/93)已由[PR #94](https://github.com/normaltank/DataBase/pull/94)交付；父任务[#46](https://github.com/normaltank/DataBase/issues/46)保留其他未完成范围。本轮收紧旧版明确依据自动正式关联许可，当前规则见 [PRODUCT](../PRODUCT.md#有据档案建议与人工采用2026-11-02-已确认)；旧规格及讨论保留历史身份；源码部署包已由[PR #99](https://github.com/normaltank/DataBase/pull/99)交付，实际服务器安装与运行结果按对应部署证据判断。
 
 ## 研究资料质量与辅助整理
 
@@ -59,7 +63,7 @@
 
 [规格 1.0](specs/拉脱维亚来源发现试点.md)限定 LIIA Opinions 官方 RSS、最近 30 天、手动发现和逐条人工入库，保留取得依据与覆盖限制。它从 [#46](https://github.com/normaltank/DataBase/issues/46) 的大范围提案中独立推进；期刊模板设计、其他来源及后台自动巡检分别处理。
 
-本轮软件开发的 HTTP、实际浏览器、导出及完整恢复证据见[开发验收](../work/LIIA近期发现开发验收.md)；使用见 [README](../README.md#从-liia-来源发现近期资料)，集成及独立审查状态由 [#56](https://github.com/normaltank/DataBase/issues/56) 记录。
+本轮软件开发的 HTTP、实际浏览器、导出及完整恢复证据见[开发验收](../work/LIIA近期发现开发验收.md)；使用见 [README](../README.md#从官方来源发现近期资料)，集成及独立审查状态由 [#56](https://github.com/normaltank/DataBase/issues/56) 记录。
 
 ## 个人常用检索
 
@@ -153,6 +157,13 @@ PR #53 审查返修的合并后重试防重、多来源队列草稿保全及本�
 - [交付规格](specs/使用体验与UI改进.md) · [最终独立验收](../work/使用体验独立验收.md)。
 - [后端执行](../work/使用体验后端执行记录.md) · [前端执行](../work/使用体验前端执行记录.md) · [当次接口契约](../work/使用体验接口契约.md)。开发交接阶段的待验收或启动受阻状态保留为历史，后续交付结果见最终验收。
 - [计划](../.planning/2026-10-23-research-ux-ui/task_plan.md) · [发现](../.planning/2026-10-23-research-ux-ui/findings.md) · [进度](../.planning/2026-10-23-research-ux-ui/progress.md)。
+
+## HTML 文档与应用文件
+
+- [项目展示页](project-showcase.html)：项目介绍的 HTML 来源，供展示和构建发行时选用。
+- [便携使用说明模板](../portable/quick-start.html)：构建时复制为演示包内的“使用说明.html”；便携操作的 Markdown 入口是[便携说明](portable-preview.md)。
+- `templates/index.html` 是应用页面模板；`tests/fixtures/**/*.html` 是合成测试输入，均保留在原代码位置。
+- `dist/` 中的解压副本和临时 HTML 预览属于本地生成物；保留最新发行与有独有内容的归档后清理，当前使用路径以本机实际实例为准。
 
 ## 应用样例
 
