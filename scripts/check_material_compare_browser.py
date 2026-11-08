@@ -158,6 +158,65 @@ class MaterialCompareBrowserTests(unittest.TestCase):
         expect(page.locator('[data-library-selection-count]')).to_have_text('已选 2 条')
         expect(page.get_by_role('button', name='比较已选资料', exact=True)).to_be_focused()
 
+    def test_comparison_reader_blocks_page_shortcuts_and_normal_reader_keeps_them(self):
+        page = self.page
+        self.start_selection()
+        page.locator('[data-library-select]').nth(0).check()
+        page.get_by_role('button', name='下一页', exact=True).click()
+        expect(page.locator('.pagination')).to_contain_text('第 2 / 3 页')
+        expect(page.locator('.library-row')).to_contain_text(['Comparison original 2', 'Comparison original 3'])
+        page.locator('[data-library-select]').nth(0).check()
+        page.get_by_role('button', name='比较已选资料', exact=True).click()
+        compare = page.get_by_role('region', name='资料比较', exact=True)
+        expect(compare).to_contain_text('Comparison original 0')
+        expect(compare).to_contain_text('Comparison original 2')
+        compare.get_by_role('button', name='阅读这篇', exact=True).nth(1).click()
+        title = page.locator('.library-reader [data-reading-title]')
+        expect(title).to_have_text('Comparison original 2')
+        for key in ['j', 'Alt+ArrowDown', 'k', 'Alt+ArrowUp']:
+            with self.subTest(selection='0,2', key=key):
+                page.get_by_role('button', name='返回比较', exact=True).click()
+                expect(compare).to_be_visible()
+                compare.get_by_role('button', name='阅读这篇', exact=True).nth(1).click()
+                expect(title).to_have_text('Comparison original 2')
+                page.keyboard.press(key)
+                expect(title).to_have_text('Comparison original 2')
+                expect(page.locator('.library-reader-head')).to_contain_text('比较中的资料')
+        page.keyboard.press('Escape')
+        expect(compare).to_be_visible()
+        compare.get_by_role('button', name='关闭比较', exact=True).click()
+        expect(page.locator('.pagination')).to_contain_text('第 2 / 3 页')
+        expect(page.locator('[data-library-selection-count]')).to_have_text('已选 2 条')
+
+        # Select 0/3 so previous-page-item shortcuts would escape to unselected 2.
+        page.locator('[data-library-select]').nth(0).uncheck()
+        page.locator('[data-library-select]').nth(1).check()
+        page.get_by_role('button', name='比较已选资料', exact=True).click()
+        expect(compare).to_contain_text('Comparison original 0')
+        expect(compare).to_contain_text('Comparison original 3')
+        compare.get_by_role('button', name='阅读这篇', exact=True).nth(1).click()
+        expect(title).to_have_text('Comparison original 3')
+        for key in ['k', 'Alt+ArrowUp', 'j', 'Alt+ArrowDown']:
+            with self.subTest(selection='0,3', key=key):
+                page.get_by_role('button', name='返回比较', exact=True).click()
+                expect(compare).to_be_visible()
+                compare.get_by_role('button', name='阅读这篇', exact=True).nth(1).click()
+                expect(title).to_have_text('Comparison original 3')
+                page.keyboard.press(key)
+                expect(title).to_have_text('Comparison original 3')
+        page.get_by_role('button', name='返回比较', exact=True).click()
+        expect(compare).to_be_visible()
+        compare.get_by_role('button', name='关闭比较', exact=True).click()
+        expect(page.locator('.pagination')).to_contain_text('第 2 / 3 页')
+        expect(page.locator('[data-library-selection-count]')).to_have_text('已选 2 条')
+
+        page.locator('.library-row').nth(0).get_by_role('button', name='Comparison original 2', exact=True).click()
+        expect(title).to_have_text('Comparison original 2')
+        for key, number in [('j', 3), ('k', 2), ('Alt+ArrowDown', 3), ('Alt+ArrowUp', 2)]:
+            with self.subTest(mode='ordinary reader', key=key):
+                page.keyboard.press(key)
+                expect(title).to_have_text('Comparison original ' + str(number))
+
     def test_three_machine_original_and_quantity_guard(self):
         page = self.page
         self.start_selection()
