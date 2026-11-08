@@ -2,6 +2,7 @@
 .material-comparing>:not(.material-compare){display:none!important}
 .material-compare-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:24px}
 .material-compare-head h2{margin:0;font-size:24px;line-height:1.4}
+.material-compare-head h2:focus-visible{outline:3px solid var(--focus);outline-offset:3px}
 .material-compare-field{margin:0;padding:18px 0;border-top:1px solid var(--border)}
 .material-compare-field h3{font-size:15px;line-height:1.5;margin:0 0 12px;color:var(--text-muted)}
 .material-compare-values{display:grid;grid-template-columns:minmax(0,1fr);gap:24px}
