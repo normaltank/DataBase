@@ -10,7 +10,6 @@ function materialCompareReset(restore=false){
   materialCompare.epoch++;materialCompare.mode=null;materialCompare.ids=[];materialCompare.entries.clear();
   previous?.classList.remove('material-comparing','material-comparison-reading');
   previous?.querySelector('.material-compare')?.remove();
-  previous?.querySelectorAll('[data-material-return]')?.forEach(button=>button.remove());
   if(restore&&previous?.isConnected){
     const focus=materialCompare.focus?.isConnected?materialCompare.focus:previous.querySelector('[data-material-compare="open"]');
     focus?.focus({preventScroll:true});
@@ -122,15 +121,20 @@ async function materialCompareReturn(){
   materialCompare.root.classList.remove('material-comparison-reading');materialCompare.root.classList.add('material-comparing');
   materialCompareRender(true);await materialCompareRead();
 }
+function materialCompareReaderControls(){
+  const head=materialCompare.root?.querySelector('.library-reader-head');if(!head)return;
+  const close=head.querySelector('[data-action="library-reader-close"]');if(close)close.textContent='返回比较';
+  const steps=head.querySelector('.row');if(steps)steps.hidden=true;
+  const position=head.querySelector('p');if(position)position.textContent='比较中的资料';
+}
 document.addEventListener('click',event=>{
-  const button=event.target.closest('[data-material-compare],[data-material-retry],[data-material-remove],[data-material-read],[data-material-return]');
+  const button=event.target.closest('[data-material-compare],[data-material-retry],[data-material-remove],[data-material-read]');
   if(!button)return;
   if(button.dataset.materialCompare==='select'){
     const root=button.closest('.library-workspace');if(!root.classList.contains('library-organizing'))root.querySelector('[data-action="reading-organize"]')?.click();
     root.querySelector('.reading-tools').open=false;root.querySelector('[data-library-select]')?.focus();
   }else if(button.dataset.materialCompare==='open')materialCompareOpen(button);
   else if(button.dataset.materialCompare==='close')materialCompareReset(true);
-  else if(button.hasAttribute('data-material-return'))materialCompareReturn();
   else if(button.dataset.materialRetry)materialCompareRead();
   else if(button.dataset.materialRemove){
     const id=button.dataset.materialRemove;materialCompare.ids=materialCompare.ids.filter(value=>value!==id);materialCompare.entries.delete(id);
@@ -139,7 +143,8 @@ document.addEventListener('click',event=>{
     materialCompare.epoch++;materialCompare.mode='reader';
     materialCompare.root.classList.remove('material-comparing');materialCompare.root.classList.add('material-comparison-reading');
     materialCompare.root.querySelector('.material-compare').hidden=true;
-    libraryOpenReader(button.dataset.materialRead,button).then(()=>{
+    const reading=libraryOpenReader(button.dataset.materialRead,button);materialCompareReaderControls();
+    reading.then(()=>{
       if(materialCompare.mode==='reader'&&!libraryWorkspace.readerId)materialCompareReturn();
     });
   }
@@ -155,7 +160,7 @@ document.addEventListener('keydown',event=>{
 },true);
 document.addEventListener('library:reader-rendered',event=>{
   if(materialCompare.mode!=='reader'||materialCompare.root!==event.detail.root.closest('.library-workspace'))return;
-  event.detail.root.parentElement.querySelector('.library-reader-head').insertAdjacentHTML('afterbegin','<button type="button" class="button tiny" data-material-return>返回比较</button>');
+  materialCompareReaderControls();
 });
 document.addEventListener('library:rendered',materialCompareMount);
 document.addEventListener('library:selection-change',materialCompareStatus);

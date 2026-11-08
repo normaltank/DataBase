@@ -148,6 +148,8 @@ class MaterialCompareBrowserTests(unittest.TestCase):
         page.screenshot(path=str(self.evidence/'two-cross-page-1366.png'), full_page=True)
         compare.get_by_role('button', name='阅读这篇', exact=True).first.click()
         expect(page.locator('.library-reader')).to_contain_text('Synthetic saved body.')
+        expect(page.locator('.library-reader-head')).to_contain_text('比较中的资料')
+        expect(page.get_by_role('button',name='返回比较',exact=True)).to_have_count(1)
         page.get_by_role('button', name='返回比较', exact=True).click()
         expect(compare).to_be_visible()
         compare.get_by_role('button', name='关闭比较', exact=True).click()
