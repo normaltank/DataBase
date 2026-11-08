@@ -154,7 +154,11 @@ window.addEventListener('click',event=>{
   if(materialCompare.mode==='reader'&&event.target.closest('[data-action="library-reader-close"]')){event.preventDefault();event.stopImmediatePropagation();materialCompareReturn();}
 },true);
 document.addEventListener('keydown',event=>{
-  if(event.key!=='Escape'||!materialCompare.mode||event.defaultPrevented||event.isComposing||keyboardEditing(event))return;
+  if(!materialCompare.mode||event.defaultPrevented||event.isComposing||event.keyCode===229||keyboardEditing(event))return;
+  if(materialCompare.mode==='reader'&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&((event.altKey&&['ArrowUp','ArrowDown'].includes(event.key))||(!event.altKey&&['j','k'].includes(event.key)))){
+    event.preventDefault();event.stopImmediatePropagation();return;
+  }
+  if(event.key!=='Escape')return;
   event.preventDefault();event.stopImmediatePropagation();
   if(materialCompare.mode==='reader')materialCompareReturn();else materialCompareReset(true);
 },true);
