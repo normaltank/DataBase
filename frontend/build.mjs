@@ -19,6 +19,8 @@ for(const [from,to] of [['@xyflow/react/dist/style.css','flow.css'],['diff2html/
   await copyFile(path.join(root,'node_modules',from),path.join(output,to));
 await writeFile(path.join(output,'cytoscape-csp.css'),'.__________cytoscape_container{position:relative}\n');
 const licenseRoot=path.join(output,'licenses');await mkdir(licenseRoot,{recursive:true});
+await copyFile(path.join(root,'prototype-LICENSE.txt'),path.join(licenseRoot,'prototype-LICENSE.txt'));
+
 // Include all installed runtime transitive licenses, and build-tool licenses.
 for(const entry of await readdir(path.join(root,'node_modules'),{withFileTypes:true})){
   if(!entry.isDirectory()||entry.name.startsWith('.'))continue;

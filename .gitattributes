@@ -28,3 +28,4 @@ server/licenses/** -text whitespace=-blank-at-eol,cr-at-eol
 
 # Preserve exact generated JS/worker/CSS and upstream license bytes across hosts.
 static/vendor/visual/** -text
+frontend/prototype-LICENSE.txt -text

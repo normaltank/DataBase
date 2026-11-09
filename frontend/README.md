@@ -11,6 +11,8 @@ Their source is `frontend/<name>.js` and output is
 `static/vendor/visual/<name>.js`. Missing entries are skipped by the full build;
 a missing requested single entry is an error. Do not change the lock or loader
 when adding these named modules. Avoid importing fixture or prototype HTML.
+The adapted prototype geometry/picking MIT notice is preserved in
+`prototype-LICENSE.txt` and copied with the generated licenses.
 All runtime dependencies are exact versions in package-lock.json. Runtime needs
 no Node or CDN. Static files already follow the application's portable packaging.
 
