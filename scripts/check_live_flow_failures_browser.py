@@ -28,6 +28,7 @@ def main():
             db.execute('INSERT INTO maintenance_steps VALUES(?,?,?,?,?,?,?,?,?,?,?)',
                 (f'flow-step-{position}',jid,position,f'call-{position}',name,'{}','completed','{}','{}',store.now(),store.now()))
     db.close()
+    empty_jid=fixture.queue('no-step-contract')
     server=make_server('127.0.0.1',0,fixture.app,threaded=True)
     thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
     base=f'http://127.0.0.1:{server.server_port}'
@@ -37,6 +38,24 @@ def main():
             browser=p.chromium.launch(headless=True)
             context=browser.new_context(viewport={'width':1366,'height':900})
             try:
+                empty=context.new_page();install(empty);empty.goto(base+'/#maintenance-agent')
+                empty.get_by_role('button',name='资料管理员',exact=True).click()
+                empty.locator(f'[data-maintenance-select="{empty_jid}"]').click()
+                expect(empty.locator('[data-trace-detail]')).to_contain_text('尚无执行步骤')
+                expect(empty.locator('[data-flow-status]')).to_contain_text('尚无图节点')
+                expect(empty.locator('[data-flow-slot]')).to_be_hidden()
+                verify_workers(empty)
+                db=store.connect(fixture.data_dir/'platform.sqlite3')
+                with db:
+                    db.execute("UPDATE maintenance_jobs SET status='running' WHERE id=?",(empty_jid,))
+                    db.execute('INSERT INTO maintenance_steps VALUES(?,?,1,?,?,?,?,?,?,?,?)',('first-real-step',empty_jid,'first-call','read','{}','completed','{}','{}',store.now(),store.now()))
+                db.close()
+                empty.get_by_role('button',name='刷新状态',exact=True).click()
+                expect(empty.locator('.react-flow__node')).to_have_count(1)
+                expect(empty.locator('[data-flow-status]')).to_contain_text('流程图可点选')
+                expect(empty.locator('[data-flow-slot]')).to_be_visible()
+                assert empty.locator('[data-flow-command]').evaluate_all('buttons=>buttons.every(button=>!button.disabled)')
+                verify_workers(empty);empty.close();checks.append('zero-step empty graph; actual first step restores graph, controls and true Worker')
                 for failure in ['module','worker']:
                     page=context.new_page();install(page)
                     errors=[];page.on('pageerror',lambda error:errors.append(str(error)))
@@ -44,6 +63,7 @@ def main():
                     page.route(blocked,lambda route:route.abort())
                     page.goto(base+'/#maintenance-agent')
                     if page.get_by_role('button',name='资料管理员',exact=True).count():page.get_by_role('button',name='资料管理员',exact=True).click()
+                    page.locator(f'[data-maintenance-select="{jid}"]').click()
                     status=page.locator('[data-flow-status]')
                     expect(status).to_contain_text('未能加载' if failure=='module' else '排列失败',timeout=16000)
                     verify_workers(page)

@@ -13,9 +13,12 @@ function visualFlowUpdate(host,snapshot,onSelect){
     host.addEventListener('click',event=>{const command=event.target.closest('[data-flow-command]')?.dataset.flowCommand;if(!command)return;if(command==='retry'){model.instance?.dispose();model.instance=null;visualFlowMount(host);}else if(command==='in')model.instance?.zoomIn();else if(command==='out')model.instance?.zoomOut();else if(command==='selected')model.instance?.focusSelected();else model.instance?.fit();});
   }
   model.snapshot=snapshot;model.onSelect=onSelect;const legend=host.querySelector('[data-flow-legend]');if(legend.textContent!==(snapshot.legend||''))legend.textContent=snapshot.legend||'';
+  const empty=!snapshot.nodes.length;host.querySelector('[data-flow-slot]').hidden=empty;
+  host.querySelectorAll('[data-flow-command]').forEach(button=>{button.disabled=empty;});
+  if(empty){model.instance?.dispose();model.instance=null;host.querySelector('[data-flow-status]').textContent='尚无图节点；实际步骤出现后再显示流程图。';return;}
   if(model.instance)model.instance.update(snapshot);else visualFlowMount(host);
 }
-function visualFlowCurrent(host,model){return host.isConnected&&host._actualFlow===model&&state.me?.id===model.actor&&state.loadId===model.page&&!document.hidden;}
+function visualFlowCurrent(host,model){return host.isConnected&&host._actualFlow===model&&state.me?.id===model.actor&&state.loadId===model.page&&!document.hidden&&model.snapshot.nodes.length>0;}
 async function visualFlowMount(host){
   const model=host._actualFlow;if(!model||model.loading||model.instance||!visualFlowCurrent(host,model)||host.getBoundingClientRect().width<=0||host.querySelector('[data-flow-slot]').getBoundingClientRect().height<=0)return;
   model.loading=true;

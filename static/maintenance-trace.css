@@ -64,6 +64,7 @@
 [data-trace-diff] .d2h-diff-table td{padding:0}
 [data-trace-diff] .d2h-code-line,[data-trace-diff] .d2h-code-side-line{display:flex;box-sizing:border-box;white-space:normal;overflow-wrap:anywhere;padding:0 8px 0 5em;width:100%}
 [data-trace-diff] .d2h-code-linenumber{width:4.5em;color:#58697b}
+[data-trace-diff] .d2h-info{color:#58697b;background:#f0f4f9}
 [data-trace-diff] .d2h-code-line-prefix{display:block;flex:0 0 1em}
 [data-trace-diff] .d2h-code-line-ctn{flex:1;min-width:0;width:auto;white-space:pre-wrap;overflow-wrap:anywhere;vertical-align:top}
 [data-trace-diff] .d2h-file-header{display:none}

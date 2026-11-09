@@ -41,7 +41,7 @@ export function mount(container, options={}) {
     if(signature===topology){if(!elk)select();return;}
     topology=signature;
     const turn=++generation;stop();
-    if(!next.nodes.length){nodes=[];edges=[];render();return;}
+    if(!next.nodes.length){nodes=[];edges=[];render();options.onStatus?.('尚无图节点；实际记录出现后再显示流程图。');return;}
     let layout;
     try{
       layout=new ELK({workerFactory:()=>new Worker('/static/vendor/visual/elk-worker.min.js')});elk=layout;
