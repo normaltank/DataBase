@@ -188,10 +188,12 @@ def main():
                     shot=cdp.send('Page.captureScreenshot',{'format':'png','fromSurface':True,'captureBeyondViewport':False})
                     file=f'{name}-native200-raw.png';(out/file).write_bytes(base64.b64decode(shot['data']))
                     result['captures'].append({'file':file,'zoom':actual_zoom,'method':'CDP raw viewport native tabs.setZoom2','metrics':page.evaluate('({innerWidth,innerHeight,scrollY})')})
-                    detail.locator('.trace-change').scroll_into_view_if_needed()
-                    shot=cdp.send('Page.captureScreenshot',{'format':'png','fromSurface':True,'captureBeyondViewport':False})
-                    file=f'{name}-native200-values-raw.png';(out/file).write_bytes(base64.b64decode(shot['data']))
-                    result['captures'].append({'file':file,'zoom':actual_zoom,'method':'CDP raw viewport, selected change scrolled into view; native tabs.setZoom2','metrics':page.evaluate('({innerWidth,innerHeight,scrollY})')})
+                    for side,label in [(0,'before'),(1,'after')]:
+                        basis=detail.locator('.trace-diff>div').nth(side).locator('[data-key="field-evidence"]')
+                        basis.evaluate('e=>e.scrollIntoView({block:"center"})')
+                        shot=cdp.send('Page.captureScreenshot',{'format':'png','fromSurface':True,'captureBeyondViewport':False})
+                        file=f'{name}-native200-{label}-raw.png';(out/file).write_bytes(base64.b64decode(shot['data']))
+                        result['captures'].append({'file':file,'zoom':actual_zoom,'method':'CDP raw viewport, '+label+' basis scrolled to center; native tabs.setZoom2','metrics':page.evaluate('({innerWidth,innerHeight,scrollY})')})
                     zoom.evaluate('async url=>{const tab=(await chrome.tabs.query({})).find(t=>t.url===url);await chrome.tabs.setZoom(tab.id,1);}',page.url)
                 assert not errors,errors
                 result['browser_errors']=errors
