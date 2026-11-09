@@ -5,6 +5,9 @@ const maintenanceTracePending=new Map();
 const maintenanceTraceRoots=new Set();
 const maintenanceTraceFields={keywords:'标签',introduction_html:'简介',bylines:'作者归属',affiliations:'署名单位',countries:'研究对象国',name:'姓名',original_name:'原名',chinese_name:'中文名',aliases:'其他名称',employments:'任职',abstract:'摘要',title:'题名',original_title:'原题名',orcid:'ORCID',doi:'DOI',issn:'ISSN',sources:'简介出处',country:'国家',location:'所在地',research_scope:'研究范围',website:'网站',serial_id:'所属刊物',source_id:'发布机构',version:'版本',id:'编号',target_id:'对象编号',institution_id:'机构编号',role:'角色',start_date:'开始日期',end_date:'结束日期',raw_name:'原始署名',status:'状态',target_type:'对象类型',url:'原文链接',publication_title:'刊物',volume:'卷',issue:'期',pages:'页码',published_on:'发表日期',language:'语种',relationships:'机构关系',institution_types:'机构类型',host_id:'主办机构',publisher_id:'出版机构',host_evidence:'主办依据',classification:'分类',kind:'类型',evidence:'依据',quote:'原文引句',human_status:'人工核对',machine:'机器来历',items:'关系条目'};
 Object.assign(maintenanceTraceFields,{country_evidence:'国别依据',host_country_status:'主办国确认',international_status:'国际属性',international_evidence:'国际属性依据',catalogue_url:'目录网址',introduction_text:'简介文本',notes:'备注',type:'关系类型',byline_id:'署名编号',evidence_url:'依据网址',evidence_quote:'依据原句',verified:'人工核对',removed:'已移除'});
+Object.assign(maintenanceTraceFields,{human_checked:'人工核对',record_id:'资料编号',person_id:'人物编号',origin_record_id:'原始署名资料编号',original_authors:'原始作者署名',original_target_id:'原关联对象编号',original_target_type:'原关联对象类型',selected_target_id:'所选对象编号',selected_target_type:'所选对象类型',selected_byline_id:'所选署名编号',position:'署名顺序',removed_at:'移除时间',raw_authors:'原始作者署名'});
+Object.assign(maintenanceTraceFields,{byline:'署名',person:'人物',selected_institution_id:'所选机构编号',original_institution_id:'原机构编号',original_byline_id:'原署名编号',byline_snapshot_json:'署名引用快照',original_byline_json:'原始署名快照'});
+const maintenanceRelationBookkeeping=new Set(['version','record_version','byline_version','manual_revision','created_at','updated_at','can_edit']);
 function maintenanceStepStatus(step){return step.status==='pending'?'等待执行':step.result?.error?'执行遇到问题':step.status==='completed'?'已执行':step.status;}
 function maintenanceTraceText(value){
   if(value===null||value===undefined||value==='')return '未填写';
@@ -14,10 +17,13 @@ function maintenanceTraceText(value){
 }
 function maintenanceTraceValue(value,depth=0,field=''){
   if(depth>7)return '<span>内容层级较深，请查看对象档案。</span>';
-  if(typeof value==='string'&&['relationships','institution_types'].includes(field)){try{const parsed=JSON.parse(value);if(Array.isArray(parsed))return maintenanceTraceValue(parsed,depth+1,field);}catch(failure){/* Preserve the actual unparsed historical value. */}}
+  if(typeof value==='string'&&['relationships','institution_types','byline_snapshot_json','original_byline_json'].includes(field)){try{const parsed=JSON.parse(value);if(parsed&&typeof parsed==='object')return maintenanceTraceValue(parsed,depth+1,field);}catch(failure){/* Preserve the actual unparsed historical value. */}}
   if(Array.isArray(value))return value.length?`<ul>${value.map((v,i)=>`<li data-key="value-${i}">${maintenanceTraceValue(v,depth+1,field)}</li>`).join('')}</ul>`:'<span>无条目</span>';
   if(value&&typeof value==='object'){
-    if(value.items)return maintenanceTraceValue(value.items,depth+1);
+    if(Array.isArray(value.items)){
+      const context=Object.fromEntries(Object.entries(value).filter(([key])=>key!=='items'&&!maintenanceRelationBookkeeping.has(key)));
+      return maintenanceTraceValue(value.items,depth+1)+`${Object.keys(context).length?`<details class="trace-long"><summary>关系原始身份与引用</summary>${maintenanceTraceValue(context,depth+1)}</details>`:''}`;
+    }
     const target=value.target||value.institution;
     const entries=Object.entries(value).filter(([k])=>!['target','institution','created_at','updated_at'].includes(k));
     return `${target?maintenanceObjectLink(target.type==='person'?'person':'source',target.id,target.name):''}<dl class="trace-values">${entries.map(([k,v])=>`<div data-key="field-${esc(k)}"><dt>${esc(maintenanceTraceFields[k]||k)}</dt><dd>${maintenanceTraceValue(v,depth+1,k)}</dd></div>`).join('')}</dl>`;
@@ -42,8 +48,10 @@ function maintenanceTraceSource(job,evidence){
 function maintenanceTraceChanged(field,change){
   if(field==='version')return false;
   if(['bylines','affiliations','employments'].includes(field)){
-    const identity=value=>(value?.items||[]).map(item=>[item.id,item.raw_name,item.target_id,item.institution_id,item.role,item.start_date,item.end_date]);
-    return JSON.stringify(identity(change.before))!==JSON.stringify(identity(change.after));
+    // Preserve all recorded business fields, including basis, confirmation,
+    // original identities and removal. Only revision bookkeeping is incidental.
+    const substantive=value=>Array.isArray(value)?value.map(substantive):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).filter(key=>!maintenanceRelationBookkeeping.has(key)).sort().map(key=>[key,substantive(value[key])])):value;
+    return JSON.stringify(substantive(change.before))!==JSON.stringify(substantive(change.after));
   }
   return JSON.stringify(change.before)!==JSON.stringify(change.after);
 }

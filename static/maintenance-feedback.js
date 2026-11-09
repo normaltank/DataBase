@@ -42,7 +42,7 @@ async function readMaintenanceFeedback(panel){
   try{result=await api('/api/maintenance/targets/'+panel.dataset.feedbackKind+'/'+encodeURIComponent(panel.dataset.feedbackId));}
   catch(failure){
     if(panel.isConnected&&state.me?.id===actor&&panel._feedbackTurn===turn){
-      if([401,403,404].includes(failure.status)){panel.querySelector('[data-feedback-history]').replaceChildren();panel.querySelector('[data-feedback-status]').textContent='对象或所据材料已不可访问，已清除处理详情。';}
+      if([401,403,404].includes(failure.status)){panel.querySelector('[data-feedback-history]').replaceChildren();panel.querySelector('[data-feedback-brief]').textContent='';panel.querySelector('[data-feedback-status]').textContent='对象或所据材料已不可访问，已清除处理详情。';}
       panel.querySelector('.form-error').textContent=failure.message+'；处理记录未更新，可刷新结果。'+(panel._feedbackSuccess?' 最后成功更新：'+dateTime(panel._feedbackSuccess):'');
     }
     throw failure;
