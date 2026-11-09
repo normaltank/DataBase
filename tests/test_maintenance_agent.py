@@ -132,7 +132,13 @@ class MaintenanceAgentTests(unittest.TestCase):
         client=self.login('researcher',app)
         self.assertEqual(self.job(jid,client)['turns'],14)
         self.assertEqual(len(client.get('/api/records/'+self.rid+'/bylines').json['items']),1)
-        self.assertEqual(run_pending(self.data_dir),{'tasks':0,'completed':0})
+        # Newly created related profiles can receive their own maintenance pass;
+        # discovery must not requeue the article or replay its settled requests.
+        calls=self.provider.call_count
+        self.assertEqual(run_pending(self.data_dir,limit=0),{'tasks':0,'completed':0})
+        self.assertEqual(self.provider.call_count,calls)
+        article_jobs=[job for job in client.get('/api/maintenance/jobs').json['items'] if job['target_type']=='record' and job['target_id']==self.rid]
+        self.assertEqual([job['id'] for job in article_jobs],[jid])
 
     def test_unknown_search_preserves_reservation_across_resume_and_restore(self):
         normal=self.respond;requests=[]
