@@ -419,6 +419,45 @@ class MaintenanceAgentTests(unittest.TestCase):
             for name,value in files.items():archive.writestr(name,value)
         with self.assertRaisesRegex(ValueError,'AI维护'):restore_backup(bad,self.data_dir.parent/'must-not-restore')
 
+    def test_latest_progress_after_36_read_only_turns_guides_a_partial_save_before_more_pages(self):
+        from platform_app.maintenance_agent import run_pending
+        phase={'react':False};progress={};normal=self.respond
+        def model():
+            evidence=next((x['evidence_id'] for x in self.tool_results if x.get('method')=='deepseek-fetch-markdown'),'')
+            if not phase['react']:
+                if not evidence:return 'fetch',{'url':'https://uni.example/alex'}
+                return 'read_evidence',{'evidence_id':evidence,'query':'Baltic cooperation'}
+            self.assertEqual(progress['turn_limit'],48)
+            if progress['saved_changes']==0:
+                self.assertEqual(progress['phase'],'save_supported_partial_result_or_finish')
+                self.assertGreaterEqual(progress['consecutive_read_only_steps'],36)
+                self.assertEqual(progress['remaining_turns'],12)
+                self.assertTrue(progress['available_evidence'])
+                return 'save_record',{'id':self.rid,'version':1,'data':{'keywords':'波罗的海合作'},'evidence_id':evidence,'quote':'Baltic cooperation is authored by Alex Vale.'}
+            if progress['phase']=='read_back_saved_changes':return 'read',{'target_type':'record','id':self.rid}
+            return 'finish',{'reason':'已保存有据标签，未知编号留缺。'}
+        def supplier(request,*args,**kwargs):
+            nonlocal progress
+            if phase['react'] and request.full_url.endswith('/chat/completions'):
+                body=json.loads(request.data)
+                self.assertEqual(body['messages'][-1]['role'],'user')
+                progress=json.loads(body['messages'][-1]['content'])['maintenance_progress']
+            return normal(request,*args,**kwargs)
+        self.next_action=model;self.provider.side_effect=supplier
+        jid=self.queue('readonly-trace');run_pending(self.data_dir)
+        self.assertEqual(self.job(jid)['turns'],24)
+        self.call('/api/maintenance/jobs/'+jid+'/resume')
+        run_pending(self.data_dir,stopping=lambda:self.rounds>=36)
+        self.assertEqual(self.job(jid)['turns'],36)
+        self.assertEqual(self.detail(self.rid)['keywords'],'old label')
+        before=sum(s['name'] in {'fetch','search'} for s in self.job(jid)['steps'])
+        phase['react']=True
+        self.assertEqual(run_pending(self.data_dir),{'tasks':1,'completed':1})
+        final=self.job(jid)
+        self.assertEqual(final['turns'],39)
+        self.assertEqual(self.detail(self.rid)['keywords'],'波罗的海合作')
+        self.assertEqual(sum(s['name'] in {'fetch','search'} for s in final['steps']),before)
+
     def test_same_name_is_recalled_but_identity_is_not_merged_and_article_unit_is_not_employment(self):
         created=self.call('/api/people',{'name':'Alex Vale','introduction_html':'<p>Physicist at South Laboratory.</p>','change_note':'Independent synthetic identity'})
         self.assertEqual(created.status_code,201,created.json)

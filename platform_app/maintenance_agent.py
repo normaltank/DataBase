@@ -210,6 +210,7 @@ TOOLS=[
     schema('fetch','Read public web URL as provider-processed Markdown, not original HTML. Returns evidence_id.',{'url':STRING},['url']),
     schema('read_evidence','Read saved evidence without another paid request. Search query locates a passage anywhere in the full text; offset/limit page through it. Exact quotes for writes must come from actual text.',{'evidence_id':STRING,'query':STRING,'offset':INTEGER,'limit':INTEGER},['evidence_id']),
     schema('read_field','Read any current object field completely in pages. Text fields return exact text; structured fields return serialized JSON with object/collection version and path. Concatenate all pages before parsing or replacing a full relationship list. Larger limits are clamped to 4000; follow the actual next_offset.',{'target_type':STRING,'id':STRING,'field':STRING,'offset':INTEGER,'limit':INTEGER},['target_type','id','field']),
+    schema('read_feedback','Read the complete saved feedback snapshot by index, newest first. For incomplete head/tail previews, query the relevant correction anywhere or page through exact text. This local read does not fetch the web. Follow actual next_offset.',{'index':INTEGER,'query':STRING,'offset':INTEGER,'limit':INTEGER},['index']),
     schema('save_profile','Create or update person/source. Supply id+version to update; omitted id creates identity, never name-based merge. Find existing identities first. Person data: name,original_name,chinese_name,aliases,introduction_html,sources,orcid. Source data: name,original_name,kind(institution/think_tank/journal/serial),country,location,classification,research_scope,website,issn,introduction_html,host_id,publisher_id,host_evidence,relationships,institution_types. Unknown identifiers stay empty. Provide evidence_id and exact quote.',{'target_type':{'type':'string','enum':['person','source']},'id':STRING,'version':INTEGER,'data':OBJECT,**BASIS},['target_type','data','evidence_id','quote']),
     schema('save_record','Update external article metadata; id+current version required. data: title,original_title,abstract,keywords,countries,doi,url,publication_title,serial_id,source_id,issn,volume,issue,pages,published_on,language. No original text, attachments, ACL or member author fields.',{'id':STRING,'version':INTEGER,'data':OBJECT,**BASIS},['id','version','data','evidence_id','quote']),
     schema('set_bylines','Replace full current byline list. Read first; preserve raw_name; include existing id to revise. items: id?,raw_name,target_type(person/institution),target_id. version is byline collection version; record_version is article version. Machine identity immediately formal, human check remains separate.',{'id':STRING,'version':INTEGER,'record_version':INTEGER,'items':ARRAY,**BASIS},['id','version','record_version','items','evidence_id','quote']),
@@ -221,6 +222,7 @@ PROMPT='''Maintain this research library autonomously. Select tools, observe act
 PROMPT+=' Write introductions, concise subject labels and completion notes in Chinese for this Chinese research interface. Preserve original names, original titles, quoted source text and actual identifiers; do not translate or overwrite originals as a shortcut.'
 PROMPT+=' Observations are bounded previews of fully saved results. Use read_evidence with query or offset for omitted passages, including facts near the end; use read_field for long local fields. These local reads cost no search/fetch request. A preview is not the whole source.'
 PROMPT+=' Work incrementally: once actual evidence supports a useful field or relationship, save that supported change before surveying unrelated missing details. Do not exhaust every page, identifier or unknown value before the first write. Prioritize the requested correction, article-author association, known article affiliation and journal, then useful subject labels. Leave unknown ORCID, dates and other facts missing. Query evidence for a specific fact rather than reading entire bibliographies. Do not repeat an identical read unless resolving a conflict or performing the final check. Field references and incomplete JSON pages are not complete relationship lists: read every page for the same version before a full replacement. Finish after checking the useful changes and target; partial useful completion is allowed with omissions recorded.'
+PROMPT+=' Feedback is ordered newest first. A feedback head/tail preview is incomplete; use read_feedback(index, query or offset) to inspect the relevant full correction, including omitted middle text. Retain earlier corrections when maintaining the same object; do not infer that a preview contains every issue.'
 
 
 def bounded_preview(value, budget):
@@ -258,8 +260,87 @@ def object_preview(obj,kind,budget):
             if isinstance(value,dict) and isinstance(value.get('items'),list):ref['total']=len(value['items'])
             result[field]=ref
     if len(json.dumps(result,ensure_ascii=True))>budget:
-        return {k:obj[k] for k in ['id','version','name','title'] if k in obj} | {'complete':False,'field_names':list(obj),'read_field':{'target_type':kind,'id':obj['id']}}
+        return {k:obj[k] for k in ['id','version','name','title'] if k in obj and (k in {'id','version'} or len(json.dumps(obj[k],ensure_ascii=True))<=200)} | {'complete':False,'field_names':list(obj),'read_field':{'target_type':kind,'id':obj['id']}}
     return result
+
+
+def feedback_source(db,job,value,index):
+    """Resolve a snapshot entry against its currently readable original job."""
+    texts=value.get('feedback',[]);sources=value.get('feedback_sources',[])
+    if type(index) is not int or not 0<=index<len(texts) or not isinstance(texts[index],str):return None
+    if index<len(sources):rows=db.execute('SELECT * FROM maintenance_jobs WHERE id=? AND feedback=?',(sources[index],texts[index]))
+    else:
+        # Earlier snapshots contain strings only. Resolve their original source
+        # without discarding the persisted text or assuming current visibility.
+        rows=db.execute("""SELECT j.* FROM maintenance_jobs j WHERE j.feedback=? AND
+            ((j.target_type=? AND j.target_id=?) OR EXISTS(SELECT 1 FROM maintenance_steps s WHERE s.job_id=j.id
+            AND json_extract(s.result_json,'$.changed_target[0]')=? AND json_extract(s.result_json,'$.changed_target[1]')=?))
+            ORDER BY j.created_at DESC,j.rowid DESC""",(texts[index],job['target_type'],job['target_id'],job['target_type'],job['target_id']))
+    for row in rows:
+        try:
+            target(db,machine(db),row['target_type'],row['target_id']);check_dependencies(db,machine(db),row['id'])
+        except HTTPException:continue
+        return row
+    return None
+
+
+def user_preview(db,job,value):
+    """Keep a bounded goal and all feedback references; originals stay durable."""
+    snapshot=value;value=dict(value);texts=value.get('feedback',[])
+    value.pop('feedback_sources',None)
+    available=[feedback_source(db,job,snapshot,i) is not None for i in range(len(texts))]
+    value['feedback']=[text if available[i] else {'index':i,'unavailable':True} for i,text in enumerate(texts)]
+    if 'goal' in value:value['goal']=object_preview(value['goal'],job['target_type'],8500)
+    size=lambda x:len(json.dumps(x,ensure_ascii=True))
+    if size(value)<=10000:return value
+    if 'goal' in value:value['goal']=object_preview(snapshot['goal'],job['target_type'],2500)
+    entries=[{'index':i,'text_length':len(text),'complete':False,'read_feedback':{'index':i},'head':'','tail':''} if available[i] else {'index':i,'unavailable':True} for i,text in enumerate(texts)]
+    value['feedback']=entries
+    remaining=max(0,10000-size(value));weights=sum(2 if i==0 else 1 for i in range(len(texts)) if available[i])
+    def prefix(text,limit):
+        lo,hi=0,len(text)
+        while lo<hi:
+            mid=(lo+hi+1)//2
+            if size(text[:mid])-2<=limit:lo=mid
+            else:hi=mid-1
+        return text[:lo]
+    for i,text in enumerate(texts):
+        if not available[i]:continue
+        allowance=remaining*(2 if i==0 else 1)//max(1,weights)
+        entries[i]['head']=prefix(text,allowance*2//3)
+        entries[i]['tail']=prefix(text[::-1],allowance//3)[::-1]
+    return value
+
+
+def current_progress(db,job):
+    """Recent actionable state, derived only from durable observations."""
+    current=db.execute('SELECT turns FROM maintenance_jobs WHERE id=?',(job['id'],)).fetchone()
+    grant=continuation(db,job['id']);limit=grant['limit'] if grant else MAX_TURNS
+    steps=[dict(row) for row in db.execute("SELECT * FROM maintenance_steps WHERE job_id=? AND status='completed' ORDER BY position",(job['id'],))]
+    writes={};reads={};attempts=0;streak=0
+    for step in steps:
+        result=json.loads(step['result_json']);args=json.loads(step['arguments_json'])
+        if step['name'] in MUTATIONS:attempts+=1
+        if result.get('changed_target'):writes[tuple(result['changed_target'])]=step['position']
+        if step['name']=='read' and not result.get('error'):reads[(args['target_type'],args['id'])]=step['position']
+    for step in reversed(steps):
+        if step['name'] in MUTATIONS or step['name']=='finish':break
+        streak+=1
+    required=dict(writes)
+    if writes:required.setdefault((job['target_type'],job['target_id']),0)
+    pending=[{'target_type':kind,'id':tid} for (kind,tid),position in required.items() if reads.get((kind,tid),-1)<position]
+    evidence=[{'evidence_id':row['id'],'method':row['method'],'text_length':row['text_length']} for row in db.execute('SELECT id,method,LENGTH(text) AS text_length FROM maintenance_evidence WHERE job_id=? ORDER BY rowid',(job['id'],))]
+    if pending:phase='read_back_saved_changes';action='Read every pending changed object now, then finish the useful result and note omissions.'
+    elif writes:phase='finish_or_continue_useful_work';action='Saved changes are read back. Prefer finish with useful results and omissions; do not start an exhaustive survey.'
+    elif attempts:phase='resolve_save_error';action='Inspect the failed save, read the current object on version conflict, and retry a justified change.'
+    elif evidence and (streak>=3 or limit-current['turns']<=6):
+        phase='save_supported_partial_result_or_finish'
+        action='No change has been saved. Use the already retrieved evidence to save a minimal supported field or relationship now. Do not keep paging bibliographies to fill unknown ORCID or dates. Unknowns can stay missing. If evidence supports no change, read the target and finish honestly with omissions; never fabricate a write.'
+    else:phase='investigate';action='Inspect the relevant feedback and targeted actual evidence, then save a useful supported change without exhausting unrelated unknowns.'
+    return {'phase':phase,'used_turns':current['turns'],'turn_limit':limit,'remaining_turns':limit-current['turns'],
+            'remaining_steps':MAX_STEPS-len(steps),'remaining_web_requests':MAX_WEB-sum(s['name'] in {'search','fetch'} for s in steps),
+            'save_attempts':attempts,'saved_changes':sum(bool(json.loads(s['result_json']).get('changed_target')) for s in steps),
+            'consecutive_read_only_steps':streak,'pending_readback':pending,'available_evidence':evidence,'next_action':action}
 
 
 def model_messages(db,job,messages):
@@ -294,11 +375,10 @@ def model_messages(db,job,messages):
             # subsequent turns as the conversation grows.
             projected.append({**message,'content':dumps(bounded_preview(value,3000 if 'offset' in value and 'text' in value else budget))})
         elif message['role']=='user':
-            value=json.loads(message['content'])
-            if 'goal' in value:value['goal']=object_preview(value['goal'],job['target_type'],8500)
-            projected.append({**message,'content':dumps(value)})
+            projected.append({**message,'content':dumps(user_preview(db,job,json.loads(message['content'])))})
         elif message['role']=='system':projected.append({**message,'content':PROMPT})
         else:projected.append(message)
+    projected.append({'role':'user','content':dumps({'maintenance_progress':current_progress(db,job)})})
     return projected
 
 
@@ -350,6 +430,12 @@ def execute_local(db,job,step,args,data_dir):
             if len(found)>=20:break
         return {'items':found}
     if name=='read':return {'object':read_object(db,actor,args.get('target_type'),args.get('id'),data_dir)}
+    if name=='read_feedback':
+        messages=json.loads(db.execute('SELECT messages_json FROM maintenance_jobs WHERE id=?',(job['id'],)).fetchone()[0])
+        value=json.loads(next(m['content'] for m in messages if m['role']=='user'));index=args.get('index')
+        source=feedback_source(db,job,value,index)
+        if source is None:raise ValueError('反馈不存在或所据资料已不可访问。')
+        return {'index':index,'feedback_job_id':source['id'],'target_type':source['target_type'],'target_id':source['target_id'],**text_page(value['feedback'][index],args)}
     if name=='read_field':
         obj=read_object(db,actor,args.get('target_type'),args.get('id'),data_dir)
         field=args.get('field');value=obj.get(field)
@@ -449,7 +535,7 @@ def save_web_evidence(db,job,step,args,value):
     return {**value,'evidence_id':eid,'method':method}
 
 
-def feedback_context(db,actor,kind,tid):
+def feedback_context(db,actor,kind,tid,*,with_sources=False):
     """Follow actual corrected objects, while respecting current source access."""
     items=[]
     rows=db.execute("""SELECT j.* FROM maintenance_jobs j WHERE j.feedback<>'' AND
@@ -461,7 +547,7 @@ def feedback_context(db,actor,kind,tid):
             target(db,actor,row['target_type'],row['target_id'])
             check_dependencies(db,actor,row['id'])
         except HTTPException:continue
-        items.append(row['feedback'])
+        items.append({'text':row['feedback'],'job_id':row['id']} if with_sources else row['feedback'])
         if len(items)==10:break
     return items
 
@@ -474,8 +560,8 @@ def run_job(db,job,data_dir,stopping):
         current=db.execute('SELECT * FROM maintenance_jobs WHERE id=?',(job['id'],)).fetchone()
         messages=json.loads(current['messages_json'])
         if not messages:
-            feedback=feedback_context(db,machine(db),job['target_type'],job['target_id'])
-            messages=[{'role':'system','content':PROMPT},{'role':'user','content':dumps({'goal':read_object(db,machine(db),job['target_type'],job['target_id'],data_dir),'feedback':feedback})}]
+            feedback=feedback_context(db,machine(db),job['target_type'],job['target_id'],with_sources=True)
+            messages=[{'role':'system','content':PROMPT},{'role':'user','content':dumps({'goal':read_object(db,machine(db),job['target_type'],job['target_id'],data_dir),'feedback':[item['text'] for item in feedback],'feedback_sources':[item['job_id'] for item in feedback]})}]
             with db:db.execute('UPDATE maintenance_jobs SET messages_json=? WHERE id=?',(dumps(messages),job['id']))
         pending=db.execute("SELECT * FROM maintenance_steps WHERE job_id=? AND status='pending' ORDER BY position LIMIT 1",(job['id'],)).fetchone()
         if pending:

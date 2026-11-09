@@ -1,7 +1,7 @@
 'use strict';
 let maintenanceAgentState=null;
 const maintenanceStatuses={queued:'等待处理',running:'正在整理',paused:'已暂停',completed:'已完成',failed:'未完成',cancelled:'已取消'};
-const maintenanceTools={find:'查找已有档案',read:'读取当前内容',read_field:'读取档案片段',read_evidence:'查阅已存材料',search:'搜索公开资料',fetch:'读取公开网页',save_profile:'保存档案',save_record:'整理文章',set_bylines:'关联作者',set_affiliations:'整理署名单位',set_employments:'整理任职',finish:'检查结果'};
+const maintenanceTools={find:'查找已有档案',read:'读取当前内容',read_field:'读取档案片段',read_evidence:'查阅已存材料',read_feedback:'查看问题说明',search:'搜索公开资料',fetch:'读取公开网页',save_profile:'保存档案',save_record:'整理文章',set_bylines:'关联作者',set_affiliations:'整理署名单位',set_employments:'整理任职',finish:'检查结果'};
 const maintenanceRunStates={running:'运行中',waiting:'等待后台',paused:'已暂停',needs_configuration:'缺少配置'};
 function maintenanceOverviewHtml(data){
   const info=data.overview,counts=info.counts;

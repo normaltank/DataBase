@@ -192,5 +192,61 @@ class MaintenanceFeedbackTests(unittest.TestCase):
             self.assertIn(self.clients['colleague'].get('/api/maintenance/targets/record/'+rid).status_code,[400,404])
         self.assertEqual(self.rounds,0)
 
+    def test_long_feedback_history_is_bounded_and_full_corrections_remain_readable_after_restart(self):
+        import hashlib,sqlite3,zipfile
+        from platform_app.maintenance import create_backup,restore_backup
+        texts=[];ids=[]
+        for i in range(6):
+            note='本次关键纠错：标签应为波罗的海合作。' if i==5 else '历史关键纠错：请保留原始署名。'
+            text=(('反馈说明'+str(i))*700)[:1990]+note+('历史说明'*1000)
+            text=text[:3999];texts.append(text)
+            ids.append(self.feedback(text,request_id='long-feedback-'+str(i)))
+        jid=ids[-1];normal=self.respond
+        def model():
+            if self.rounds==1:return 'read_feedback',{'index':0,'query':'本次关键纠错'}
+            if self.rounds==2:
+                self.assertIn('标签应为波罗的海合作',self.tool_results[-1]['text'])
+                return 'read_feedback',{'index':5,'query':'历史关键纠错'}
+            if self.rounds==3:
+                self.assertIn('请保留原始署名',self.tool_results[-1]['text'])
+                return 'fetch',{'url':'https://uni.example/alex'}
+            evidence=next(x['evidence_id'] for x in self.tool_results if x.get('method')=='deepseek-fetch-markdown')
+            if self.rounds==4:return 'save_record',{'id':self.rid,'version':1,'data':{'keywords':'波罗的海合作'},'evidence_id':evidence,'quote':'Baltic cooperation is authored by Alex Vale.'}
+            if self.rounds==5:return 'read',{'target_type':'record','id':self.rid}
+            return 'finish',{'reason':'按本次问题有据修正，保留历史署名。'}
+        def supplier(request,*args,**kwargs):
+            if request.full_url.endswith('/chat/completions'):
+                body=json.loads(request.data)
+                context=json.loads(next(m['content'] for m in body['messages'] if m['role']=='user'))
+                self.assertLessEqual(len(json.dumps(context,ensure_ascii=True)),10000)
+                self.assertEqual([item['index'] for item in context['feedback']],list(range(6)))
+                self.assertEqual(context['feedback'][0]['text_length'],3999)
+                self.assertIn('read_feedback',context['feedback'][0])
+            return normal(request,*args,**kwargs)
+        self.next_action=model;self.provider.side_effect=supplier
+        def stopping():return any(s['name']=='read_feedback' and s['status']=='completed' for s in self.job(jid)['steps'])
+        self.assertEqual(run_pending(self.data_dir,stopping=stopping),{'tasks':1,'completed':0})
+        self.assertEqual(self.job(jid)['status'],'queued')
+        # Resume the old string-only snapshot format as well as the new source
+        # bindings. The complete original feedback and paid observations remain.
+        backup=create_backup(self.data_dir)
+        with zipfile.ZipFile(backup) as archive:files={n:archive.read(n) for n in archive.namelist()}
+        database=self.data_dir.parent/'old-feedback.sqlite3';database.write_bytes(files['platform.sqlite3']);db=sqlite3.connect(database)
+        with db:
+            messages=json.loads(db.execute('SELECT messages_json FROM maintenance_jobs WHERE id=?',(jid,)).fetchone()[0])
+            context=json.loads(messages[1]['content']);context.pop('feedback_sources');messages[1]['content']=json.dumps(context)
+            db.execute('UPDATE maintenance_jobs SET messages_json=? WHERE id=?',(json.dumps(messages),jid))
+        db.close();files['platform.sqlite3']=database.read_bytes();manifest=json.loads(files['manifest.json']);manifest['files']['platform.sqlite3']={'bytes':len(files['platform.sqlite3']),'sha256':hashlib.sha256(files['platform.sqlite3']).hexdigest()};files['manifest.json']=json.dumps(manifest).encode()
+        old=self.data_dir.parent/'old-feedback.zip'
+        with zipfile.ZipFile(old,'w') as archive:
+            for name,value in files.items():archive.writestr(name,value)
+        restored=self.data_dir.parent/'long-feedback-restored';restore_backup(old,restored)
+        self.data_dir=restored;self.app=create_app(restored,testing=True)
+        self.clients={n:self.login(n) for n in ['researcher','colleague','admin']}
+        self.assertEqual(run_pending(restored),{'tasks':1,'completed':1})
+        self.assertEqual(self.detail(self.rid)['keywords'],'波罗的海合作')
+        self.assertEqual(self.detail(self.rid)['authors'],'Alex Vale')
+        self.assertEqual([self.job(old)['feedback'] for old in ids],texts)
+
 
 if __name__=='__main__':unittest.main()

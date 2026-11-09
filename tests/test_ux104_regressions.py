@@ -32,7 +32,7 @@ class ReviewRegressionTests(unittest.TestCase):
             if kw.get('_tools'):
                 goal = json.loads(kw['messages'][1]['content'])['goal']
                 kind = 'record' if 'bylines' in goal else 'person' if 'employments' in goal else 'source'
-                name, args = ('finish', {'reason': '暂无补充资料。'}) if kw['messages'][-1]['role'] == 'tool' else ('read', {'target_type': kind, 'id': goal['id']})
+                name, args = ('finish', {'reason': '暂无补充资料。'}) if any(m['role']=='tool' for m in kw['messages']) else ('read', {'target_type': kind, 'id': goal['id']})
                 message = {'role': 'assistant', 'content': None, 'tool_calls': [{'id': 'synthetic-' + name,
                     'type': 'function', 'function': {'name': name, 'arguments': json.dumps(args)}}]}
                 # Native turns use the provider protocol rather than the old
