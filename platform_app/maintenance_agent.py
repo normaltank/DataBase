@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from flask import abort, jsonify
+from flask import abort, jsonify, request
 from werkzeug.exceptions import HTTPException
 from . import ai_gateway, bylines, affiliations, identity, intake, people, source_profiles, store, workflow
 from .record_revisions import RecordRevisions
@@ -147,14 +147,20 @@ def authorized(db,job):
 def projection(db,actor,jid):
     row=db.execute('SELECT * FROM maintenance_jobs WHERE id=?',(jid,)).fetchone()
     if not row:abort(404,'维护任务不存在。')
-    obj=target(db,actor,row['target_type'],row['target_id'])
+    try:obj=target(db,actor,row['target_type'],row['target_id'])
+    except HTTPException as error:
+        # A formerly eligible public target may now be restricted or internal.
+        # Reads report it as unavailable, even when this actor owns the record;
+        # the enqueue boundary retains its descriptive validation errors.
+        if error.code==400:abort(404,'维护对象已不可访问。')
+        raise
     check_dependencies(db,actor,jid)
     item={k:row[k] for k in ['id','target_type','target_id','status','reason','feedback','priority','created_at','finished_at','turns']}
     item['title']=obj['title'] if row['target_type']=='record' else obj['name']
     item['steps']=[{k:s[k] for k in ['id','position','name','status','created_at','finished_at']} |
                    {'arguments':json.loads(s['arguments_json']),'result':json.loads(s['result_json']),'ai':json.loads(s['ai_json'])}
                    for s in db.execute('SELECT * FROM maintenance_steps WHERE job_id=? ORDER BY position',(jid,))]
-    item['evidence']=[{k:e[k] for k in ['id','url','method','sha256','text','fetched_at']} for e in db.execute('SELECT * FROM maintenance_evidence WHERE job_id=?',(jid,))]
+    item['evidence']=[{k:e[k] for k in ['id','step_id','url','method','sha256','text','fetched_at']} for e in db.execute('SELECT * FROM maintenance_evidence WHERE job_id=?',(jid,))]
     grant=continuation(db,jid)
     if grant:item['continuation']=grant
     return item
@@ -708,7 +714,78 @@ def validate_backup(db):
     except (ValueError,KeyError,TypeError,StopIteration):raise ValueError('AI维护任务、步骤或实际材料无效。') from None
 
 
-def overview(db,actor,items,heartbeat,portable=None):
+def summary_target(db,kind,tid):
+    """Resolve only identity, title and public-maintenance eligibility metadata.
+
+    Maintenance targets/dependencies must be public external records even for
+    admins. No introduction, record body, raw input or evidence is selected.
+    """
+    if kind not in {'record','person','source'}:abort(404)
+    table={'record':'records','person':'people','source':'sources'}[kind]
+    columns='id,title,merged_into,visibility,kind,evidence_record_id' if kind=='record' else 'id,name,merged_into'
+    seen=set()
+    while tid and tid not in seen:
+        seen.add(tid)
+        row=db.execute(f'SELECT {columns} FROM {table} WHERE id=?',(tid,)).fetchone()
+        if not row:abort(404)
+        if row['merged_into']:
+            tid=row['merged_into'];continue
+        if kind=='record' and (row['visibility']!='shared' or row['kind'] in workflow.CONTENT_KINDS or row['evidence_record_id']):abort(404)
+        return row
+    abort(409)
+
+
+def summary_dependencies(db,jid):
+    # Match check_dependencies' recursive ID vocabulary in SQL. json_tree's atom
+    # projection returns only identifiers; Python never loads result JSON, AI
+    # context, full arguments, evidence text or raw provider responses.
+    rows=db.execute('''SELECT DISTINCT j.atom AS dependency_id
+        FROM maintenance_steps AS s, json_tree(s.result_json) AS j
+        WHERE s.job_id=? AND s.status='completed' AND j.type='text'
+        AND j.key IN ('id','record_id','origin_record_id','target_id','selected_target_id','original_target_id')''',(jid,))
+    for row in rows:
+        if db.execute('SELECT 1 FROM records WHERE id=?',(row['dependency_id'],)).fetchone():
+            summary_target(db,'record',row['dependency_id'])
+
+
+def summaries(db,limit=100):
+    """A bounded authorized window, not a global LIMIT followed by filtering."""
+    items=[]
+    for row in db.execute('''SELECT id,target_type,target_id,status,reason,created_at,finished_at,turns
+            FROM maintenance_jobs ORDER BY created_at DESC,rowid DESC'''):
+        try:
+            obj=summary_target(db,row['target_type'],row['target_id'])
+            summary_dependencies(db,row['id'])
+        except HTTPException:continue
+        if len(items)==limit:return items,True
+        item=dict(row)
+        item['title']=obj['title'] if row['target_type']=='record' else obj['name']
+        item['step_count']=db.execute('SELECT count(*) FROM maintenance_steps WHERE job_id=?',(row['id'],)).fetchone()[0]
+        last=db.execute('''SELECT id,name,status,created_at,finished_at FROM maintenance_steps
+                            WHERE job_id=? ORDER BY position DESC LIMIT 1''',(row['id'],)).fetchone()
+        item['last_step']=dict(last) if last else None
+        items.append(item)
+    return items,False
+
+
+def summary_changes(db,items):
+    changes={}
+    for job in items:
+        for row in db.execute('''SELECT name,finished_at,
+            json_extract(result_json,'$.changed_target[0]') AS kind,
+            json_extract(result_json,'$.changed_target[1]') AS target_id,
+            coalesce(json_extract(result_json,'$.object.title'),json_extract(result_json,'$.object.name')) AS title
+            FROM maintenance_steps WHERE job_id=? AND status='completed'
+            AND json_type(result_json,'$.changed_target')='array' ORDER BY position DESC''',(job['id'],)):
+            key=(row['kind'],row['target_id'])
+            change=changes.setdefault(key,{'target_type':key[0],'target_id':key[1],'title':row['title'],
+                'actions':[],'at':row['finished_at'],'job_id':job['id']})
+            if row['name'] not in change['actions']:change['actions'].append(row['name'])
+            change['at']=max(change['at'],row['finished_at'])
+    return sorted(changes.values(),key=lambda x:x['at'],reverse=True)[:8]
+
+
+def overview(db,actor,items,heartbeat,portable=None,window_counts=None):
     policy=ai_gateway.summary(db)
     reasons=policy['blocked_reasons']
     if portable and not portable['enabled']:
@@ -727,15 +804,16 @@ def overview(db,actor,items,heartbeat,portable=None):
         status,reason='waiting','等待后台运行，已保存的任务会继续。'
     else:
         status,reason='running','后台逐批维护公开资料与档案。'
-    counts={};paused_reason=''
-    for row in db.execute("SELECT id,target_type,target_id,status,reason FROM maintenance_jobs WHERE status IN ('queued','running','paused','failed')"):
+    counts=dict(window_counts or {});paused_reason=''
+    rows=[] if window_counts is not None else db.execute("SELECT id,target_type,target_id,status,reason FROM maintenance_jobs WHERE status IN ('queued','running','paused','failed')")
+    for row in rows:
         try:
             target(db,actor,row['target_type'],row['target_id'])
             check_dependencies(db,actor,row['id'])
         except HTTPException:continue
         counts[row['status']]=counts.get(row['status'],0)+1
         if row['status']=='paused' and not paused_reason:paused_reason=row['reason']
-    if status in {'running','waiting'} and counts.get('paused') and not counts.get('queued') and not counts.get('running'):
+    if window_counts is None and status in {'running','waiting'} and counts.get('paused') and not counts.get('queued') and not counts.get('running'):
         status,reason='paused',paused_reason or '任务已暂停，检查费用与配置后可接续。'
     changes={}
     for job in items:
@@ -772,6 +850,21 @@ def register(app,ctx):
     @app.get('/api/maintenance/jobs')
     def maintenance_listing():
         db=ctx.db();actor=ctx.user();items=[]
+        if request.args.get('view')=='summary':
+            member(db,actor)
+            items,has_more=summaries(db)
+            heartbeat=db.execute("SELECT value FROM settings WHERE key='maintenance_worker_heartbeat'").fetchone()
+            heartbeat=heartbeat[0] if heartbeat else ''
+            portable_status=app.config.get('PORTABLE_AI_STATUS')
+            portable=portable_status() if callable(portable_status) else None
+            counts={status:sum(item['status']==status for item in items) for status in STATES}
+            info=overview(db,actor,[],heartbeat,portable,window_counts=counts)
+            info['recent_changes']=summary_changes(db,items)
+            return jsonify(items=items,heartbeat=heartbeat,
+                window={'limit':100,'loaded':len(items),'has_more':has_more,'order':'created_at_desc',
+                        'newest_at':items[0]['created_at'] if items else None,
+                        'oldest_at':items[-1]['created_at'] if items else None},
+                overview=info)
         for row in db.execute('SELECT * FROM maintenance_jobs ORDER BY created_at DESC,rowid DESC LIMIT 100'):
             try:items.append(projection(db,actor,row['id']))
             except HTTPException:continue

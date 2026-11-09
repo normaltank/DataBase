@@ -7,33 +7,37 @@ const {test}=require('node:test');
 function page(){
   const pending=[],listeners={};
   const jobs={innerHTML:'',querySelectorAll:()=>[]};
-  const context=vm.createContext({state:{me:{id:'one'},schema:29,page:'maintenance-agent'},
+  const context=vm.createContext({state:{me:{id:'one'},schema:29,page:'maintenance-agent',loadId:0},
+    MutationObserver:class{observe(){}},AbortController,setTimeout,clearTimeout,
+    maintenancePatch:(node,html)=>{node.innerHTML=html;},
+    maintenanceTraceHtml:()=>'<div>Trace is verified in real Chrome</div>',
     document:{addEventListener:(name,fn)=>{(listeners[name]??=[]).push(fn);},querySelector:s=>s==='[data-maintenance-jobs]'?jobs:null,querySelectorAll:()=>[]},
     api:(url,options)=>new Promise((resolve,reject)=>pending.push({url,options,resolve,reject})),
     esc:String,dateTime:String,linkButton:()=>'<a>Article</a>',CSS:{escape:String},crypto:{randomUUID:(()=>{let n=0;return()=>`request-${++n}`;})()}});
   for(const file of ['maintenance-agent.js','maintenance-feedback.js'])vm.runInContext(fs.readFileSync('static/'+file,'utf8'),context);
   return {context,pending,listeners,jobs,run:code=>vm.runInContext(code,context)};
 }
-const result=status=>({items:[{id:'job',status,title:'Article',target_id:'a',target_type:'record',created_at:'now',steps:[],evidence:[]}],overview:{counts:{},recent_changes:[]}});
+const result=status=>({items:[{id:'job',status,title:'Article',target_id:'a',target_type:'record',created_at:'now',step_count:0,steps:[],evidence:[]}],window:{loaded:1,limit:100,has_more:false},overview:{counts:{},recent_changes:[]}});
 
-test('newer status read wins over an older poll response',async()=>{
-  const p=page();p.run("maintenanceAgentState={actor:'one',jobs:[]};globalThis.first=maintenanceReload(maintenanceAgentState);globalThis.second=maintenanceReload(maintenanceAgentState)");
-  p.pending[1].resolve(result('completed'));await p.context.second;
-  p.pending[0].resolve(result('running'));await p.context.first;
+test('manual and automatic status reads share a single request',async()=>{
+  const p=page(),nodes={};p.context.root={isConnected:true,querySelector:s=>s==='[data-maintenance-jobs]'?p.jobs:(nodes[s]??={textContent:'',innerHTML:''})};
+  p.run("maintenanceAgentState={actor:'one',pageTurn:0,root,jobs:[]};globalThis.first=maintenanceReload(maintenanceAgentState);globalThis.second=maintenanceReload(maintenanceAgentState)");
+  assert.equal(p.pending.length,1);assert.match(p.pending[0].url,/view=summary/);
+  p.pending[0].resolve(result('completed'));await p.context.first;await p.context.second;
   assert.match(p.jobs.innerHTML,/已完成/);assert.doesNotMatch(p.jobs.innerHTML,/正在整理/);
 });
 
-test('target status read ignores an older response and a changed account',async()=>{
+test('target reads share one request and ignore a changed account',async()=>{
   const p=page(),nodes={};
   const panel={dataset:{feedbackActor:'one',feedbackKind:'person',feedbackId:'p'},isConnected:true,
     querySelector:s=>nodes[s]??=( {textContent:'',innerHTML:''} )};
   p.context.panel=panel;
   p.run('globalThis.first=refreshMaintenanceFeedback(panel);globalThis.second=refreshMaintenanceFeedback(panel)');
-  p.pending[1].resolve(result('completed'));await p.context.second;
-  p.pending[0].resolve(result('running'));await p.context.first;
+  assert.equal(p.pending.length,1);
+  p.pending[0].resolve(result('completed'));await p.context.first;await p.context.second;
   assert.equal(nodes['[data-feedback-status]'].textContent,'已完成');
   const late=p.run('refreshMaintenanceFeedback(panel)');p.context.state.me.id='two';
-  p.pending[2].resolve(result('running'));await late;
+  p.pending[1].resolve(result('running'));await late;
   assert.equal(nodes['[data-feedback-status]'].textContent,'已完成');
 });
 

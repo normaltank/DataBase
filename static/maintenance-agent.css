@@ -1,4 +1,22 @@
 .maintenance-agent form{margin-block:16px;max-width:70ch}
+.maintenance-running{display:flex;align-items:baseline;gap:8px 16px;flex-wrap:wrap;border-bottom:1px solid #d6e0eb;padding:8px 0 12px}
+.maintenance-running>span{flex:1;min-width:200px}
+.maintenance-read-status{color:#58697b;margin:8px 0 14px}
+.maintenance-workspace{display:grid;grid-template-columns:250px minmax(0,1fr);border-top:1px solid #d6e0eb;min-width:0}
+.maintenance-job-list{padding:14px 16px 14px 0;border-inline-end:1px solid #d6e0eb;min-width:0}
+.maintenance-job-list h3{margin:0 0 12px;font-size:17px}
+.maintenance-job-list [data-maintenance-window],.maintenance-job-list [data-maintenance-range]{font-size:14px;margin:8px 0}
+[data-maintenance-jobs]{min-width:0}
+.maintenance-job-list [data-maintenance-jobs]{max-height:600px;overflow:auto;scrollbar-gutter:stable}
+.maintenance-job-row{display:grid;gap:6px;width:100%;min-height:44px;font:inherit;padding:12px 10px;text-align:left;color:#243347;background:#fff;border:0;border-top:1px solid #d6e0eb;cursor:pointer;overflow-wrap:anywhere}
+.maintenance-job-row[aria-pressed=true]{background:#eaf1fb;color:#174e9c}
+.maintenance-job-row:hover{background:#f0f4f9}
+.maintenance-job-row:focus-visible{outline:3px solid #b47d00;outline-offset:-3px}
+.maintenance-selected{min-width:0;padding-inline-start:16px}
+.maintenance-current-object{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;padding:12px 0}
+.maintenance-current-object [hidden]{display:none}
+.maintenance-secondary{margin-top:24px;border-top:1px solid #d6e0eb}
+.maintenance-secondary>summary{cursor:pointer;min-height:36px;padding:10px 0}
 .maintenance-status{padding-block:8px 16px;border-bottom:1px solid var(--border,#d6e0eb)}
 .maintenance-status>strong{font-size:17px}
 .maintenance-status p{margin-block:6px}
@@ -21,3 +39,5 @@
 .maintenance-agent pre{white-space:pre-wrap;overflow-wrap:anywhere;max-width:100%}
 .maintenance-agent blockquote{margin:10px 0;padding:8px 12px;background:#f0f4f9;border:1px solid #d6e0eb}
 @media(max-width:700px){.maintenance-agent button,.maintenance-agent input,.maintenance-agent select,.maintenance-job>summary,.maintenance-single>summary{min-height:44px}.maintenance-agent [data-form="maintenance-find"] .row{align-items:stretch}.maintenance-agent input{flex-basis:100%}.maintenance-changes li{display:block}.maintenance-changes span{display:block;margin-top:4px}}
+@media(max-width:1200px){.maintenance-workspace{grid-template-columns:210px minmax(0,1fr)}.maintenance-selected{padding-inline-start:12px}}
+@media(max-width:900px){.maintenance-workspace{display:block}.maintenance-job-list{border-inline-end:0;padding-inline-end:0}.maintenance-job-list [data-maintenance-jobs]{max-height:300px}.maintenance-selected{padding-inline-start:0;border-top:1px solid #d6e0eb}.maintenance-secondary>summary{min-height:44px}}
