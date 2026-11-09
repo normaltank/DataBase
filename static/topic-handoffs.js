@@ -1,5 +1,7 @@
 'use strict';
 
+let handoffReadGeneration=0;
+
 function handoffStatus(status){return {pending:'待审',returned:'退回',approved:'通过',legacy_final:'旧定稿'}[status]||status;}
 function handoffUpload(t,stage,material=null){
   if(!(material?material.can_submit:t.can_submit)||stage==='compilation'&&t.stage!=='compilation')return '';
@@ -35,10 +37,12 @@ async function handoffReadRefresh(root){
   if(root._refreshing)return;
   const account=state.me?.id,load=state.loadId,material=root.closest('[data-material-ref]'),tid=material.closest('[data-collaboration-topic]').dataset.collaborationTopic,status=root.querySelector('[data-lineage-status]');
   if(root.dataset.lineageAccount!==account)return;
+  const generation=++handoffReadGeneration;
   root._refreshing=true;status.textContent='正在读取材料状态…';
   try{
     const t=await api('/api/collaboration/topics/'+encodeURIComponent(tid)+'/handoffs');
     if(account!==state.me?.id||load!==state.loadId||!root.isConnected)return;
+    if(generation!==handoffReadGeneration){status.textContent='已有更新的材料读取，可刷新此材料继续查看。';return;}
     const m=t.materials.find(m=>m.ref===material.dataset.materialRef);if(!m)throw Object.assign(new Error('此材料已不可读，请返回工作查找重新读取。'),{status:403});
     const previous=workbenchState.board?.materials.find(m=>m.ref===material.dataset.materialRef),active=document.activeElement;
     workbenchState.board=t;
@@ -62,10 +66,11 @@ async function handoffReadRefresh(root){
     root._lastUpdated=handoffTime(new Date().toISOString());status.textContent='已更新 · '+root._lastUpdated;
   }catch(error){
     if(account!==state.me?.id||load!==state.loadId||!root.isConnected)return;
+    if(generation!==handoffReadGeneration){status.textContent='已有更新的材料读取，可刷新此材料继续查看。';return;}
     if([401,403,404].includes(error.status)){
       material.closest('.handoff-materials').querySelectorAll('form [type=submit]').forEach(b=>b.disabled=true);
       material.closest('.handoff-materials').querySelectorAll('.handoff-material').forEach(item=>{
-        item.querySelectorAll('.handoff-lineage-tracks,[data-handoff-reading],[data-handoff-version]').forEach(el=>el.replaceChildren());
+        item.querySelectorAll('.handoff-lineage-tracks,[data-handoff-reading],[data-handoff-version]').forEach(el=>{el.replaceChildren();delete el._signature;});
         item.querySelectorAll('[data-handoff-version],[data-action="handoff-current"],form [type=submit]').forEach(b=>b.disabled=true);
         item.querySelector(':scope>.between>h2').textContent='材料暂不可读';item.querySelector(':scope>.between>.badge').textContent='权限待重新核对';item.querySelector('.handoff-owner').textContent='';
         item.querySelectorAll(':scope>details:not(.handoff-upload)').forEach(el=>el.remove());

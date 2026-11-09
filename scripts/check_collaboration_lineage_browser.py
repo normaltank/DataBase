@@ -55,6 +55,7 @@ def main():
         stage='selection', token=fixture.board(tid)['token'], request_id=uuid.uuid4().hex,
         title='合成 · 第二份独立材料', note='第二材料说明'), file=('第二材料.txt', b'SYNTHETIC SECOND MATERIAL'))
     assert second.status_code == 201
+    initial_board = fixture.board(tid)
     (root/'fixture.json').write_text(json.dumps({'topic_id':tid, 'material_ref':ref,
         'second_material_ref':second.json['material_ref'], 'versions':versions,
         'data_dir':str(fixture.data_dir), 'worker_enabled':False}, ensure_ascii=False, indent=2), encoding='utf-8')
@@ -161,7 +162,8 @@ def main():
                         # Native zoom changes CSS viewport dimensions; compositor capture
                         # avoids Playwright's CSS-sized viewport clip producing a blank image.
                         capture = browser.new_cdp_session(page)
-                        shot.write_bytes(base64.b64decode(capture.send('Page.captureScreenshot',{'format':'png','fromSurface':False})['data']))
+                        shot.write_bytes(base64.b64decode(capture.send('Page.captureScreenshot',{'format':'png','fromSurface':True,'captureBeyondViewport':False})['data']))
+                        (root/'native-zoom-metrics.json').write_text(json.dumps(capture.send('Page.getLayoutMetrics'),indent=2),encoding='utf-8')
                         capture.detach()
                     else:
                         page.screenshot(path=str(shot))
@@ -206,6 +208,24 @@ def main():
                 expect(review_form.get_by_role('button',name='通过此版',exact=True)).to_be_disabled()
                 assert upload.locator('[name=file]').evaluate('e=>e.files[0].name') == 'draft.txt'
                 expect(upload.locator('[name=note]')).to_have_value('保留上传草稿')
+                # Independent material reads may finish in reverse order: older state
+                # must not replace a newer board and break its already rendered v4.
+                older_reads = []
+                def reorder(route):
+                    if not older_reads:
+                        older_reads.append(route)
+                    else:
+                        route.continue_()
+                page.route('**/handoffs', reorder)
+                material.get_by_role('button', name='刷新材料状态',exact=True).click()
+                expect(material.locator('[data-lineage-status]')).to_contain_text('正在读取')
+                second_material.get_by_role('button',name='刷新材料状态',exact=True).click()
+                expect(second_material.locator('[data-lineage-status]')).to_contain_text('已更新')
+                older_reads[0].fulfill(status=200,json=initial_board)
+                expect(material.locator('[data-lineage-status]')).not_to_contain_text('正在读取')
+                material.get_by_role('button',name='回当前版',exact=True).click()
+                expect(reading).to_contain_text('当前版 4 · 待审')
+                page.unroute('**/handoffs')
                 # Closed periods deny the existing bound upload without discarding either file.
                 preview = fixture.clients['researcher'].get(f'/api/collaboration/topics/{tid}/closure-preview').json
                 ended = fixture.call(f'/api/collaboration/topics/{tid}/end', dict(request_id=uuid.uuid4().hex, confirm=True, **{k:preview[k] for k in ('basis_token','lifecycle_version')}))
