@@ -57,7 +57,7 @@
 .material-time-range label{display:flex;gap:6px;align-items:center;min-width:0}
 .material-time-range input{width:6.5em;max-width:100%;min-height:34px;font:inherit;font-variant-numeric:tabular-nums;caret-color:#174e9c}
 .material-time-chart{width:100%;height:270px;min-width:0}
-.material-time-lens{width:100%;height:320px;background:#f0f4f9;touch-action:none;overflow:hidden}
+.material-time-lens{position:relative;width:100%;height:320px;background:#f0f4f9;touch-action:none;overflow:hidden}
 .material-time-lens canvas{display:block;width:100%;height:100%}
 .material-window>summary{min-height:36px;cursor:pointer;padding:6px 0;color:#174e9c}
 .material-window-list{display:grid;max-height:250px;overflow:auto;gap:4px;padding:3px}
@@ -68,3 +68,5 @@
 .material-discovery section[hidden]{display:none}
 @media(max-width:700px){.material-time-range input,.material-window>summary{min-height:44px}.material-time-range label{flex-wrap:wrap;flex:1 1 110px}.material-time-chart{height:250px}.material-time-lens{height:240px}}
 @media(max-width:700px){.material-native-years>summary{min-height:44px}}
+
+.material-time-lens-label{position:absolute;transform:translate(-50%,-50%);font-size:14px;line-height:1.4;color:#243347;background:#f0f4f9;padding:0 3px;pointer-events:none;white-space:nowrap;font-variant-numeric:tabular-nums}

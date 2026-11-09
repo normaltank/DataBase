@@ -4,7 +4,7 @@ import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 // Natural Earth paths and prototype sphere/raycast mechanism, with application data only.
 const sphere=(lon,lat,r=2.5)=>{const p=THREE.MathUtils.degToRad(lat),t=THREE.MathUtils.degToRad(lon);return new THREE.Vector3(r*Math.cos(p)*Math.sin(t),r*Math.sin(p),r*Math.cos(p)*Math.cos(t));};
 function inside(x,y,ring){let yes=false;for(let i=0,j=ring.length-1;i<ring.length;j=i++){const [xi,yi]=ring[i],[xj,yj]=ring[j];if(((yi>y)!==(yj>y))&&x<(xj-xi)*(y-yi)/(yj-yi)+xi)yes=!yes;}return yes;}
-export function mount(container,{geometry,snapshot,onSelect,onStatus=()=>{}}){
+export function mount(container,{geometry,snapshot,onSelect,onStatus=()=>{},viewState}){
   const renderer=new THREE.WebGLRenderer({antialias:true});
   renderer.setPixelRatio(Math.min(devicePixelRatio,1.7));renderer.setClearColor(0xf0f4f9);
   container.append(renderer.domElement);renderer.domElement.setAttribute('aria-label','可拖动旋转的研究对象国地球；使用下方文字国别按钮进行键盘筛选');
@@ -57,9 +57,13 @@ export function mount(container,{geometry,snapshot,onSelect,onStatus=()=>{}}){
     if(pin&&(!hit||pin.distance<hit.distance+.08)){onSelect(pin.object.userData.country);return;}
     if(hit){const p=hit.point.clone().normalize(),lon=THREE.MathUtils.radToDeg(Math.atan2(p.x,p.z)),lat=THREE.MathUtils.radToDeg(Math.asin(p.y));const feature=features.find(f=>f.country&&f.rings.some(r=>inside(lon,lat,r)));if(feature)onSelect(feature.country);}
   }
-  function visibility(){if(document.hidden){cancelAnimationFrame(frame);frame=0;}else requestDraw();}
+  function visibility(){if(document.hidden)dispose();}
   function lost(event){event.preventDefault();onStatus('地球图形不可用，可继续使用下方国别文字筛选并重试。');}
   controls.addEventListener('change',requestDraw);renderer.domElement.addEventListener('pointerdown',pointerDown);renderer.domElement.addEventListener('pointerup',pointerUp);renderer.domElement.addEventListener('webglcontextlost',lost);document.addEventListener('visibilitychange',visibility);
   const observer=new ResizeObserver(resize);observer.observe(container);reset();resize();update(current);
-  return {update,resize,reset,dispose(){if(disposed)return;disposed=true;cancelAnimationFrame(frame);observer.disconnect();controls.dispose();document.removeEventListener('visibilitychange',visibility);renderer.domElement.removeEventListener('pointerdown',pointerDown);renderer.domElement.removeEventListener('pointerup',pointerUp);renderer.domElement.removeEventListener('webglcontextlost',lost);resources.forEach(r=>r.dispose());renderer.dispose();renderer.forceContextLoss();renderer.domElement.remove();}};
+  function getViewState(){return {position:camera.position.toArray(),target:controls.target.toArray()};}
+  function restoreViewState(value){if(!value)return;camera.position.fromArray(value.position);controls.target.fromArray(value.target);controls.update();requestDraw();}
+  restoreViewState(viewState);
+  function dispose(){if(disposed)return;disposed=true;cancelAnimationFrame(frame);observer.disconnect();controls.dispose();document.removeEventListener('visibilitychange',visibility);renderer.domElement.removeEventListener('pointerdown',pointerDown);renderer.domElement.removeEventListener('pointerup',pointerUp);renderer.domElement.removeEventListener('webglcontextlost',lost);resources.forEach(r=>r.dispose());renderer.dispose();renderer.forceContextLoss();renderer.domElement.remove();}
+  return {update,resize,reset,getViewState,restoreViewState,dispose};
 }

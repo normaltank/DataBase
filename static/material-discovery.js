@@ -6,28 +6,43 @@ const materialDateNames={published:'发表时间',collected:'首次收录',updat
 function materialDiscoveryHTML(){
   return '<details class="material-discovery"><summary>国别地球与时间探索</summary><div data-material-distribution></div></details>';
 }
+function materialViewCurrent(panel,account,load,hash){
+  return panel.isConnected&&panel.open&&!document.hidden&&state.me?.id===account&&state.loadId===load&&location.hash===hash;
+}
 function materialCurrent(panel,epoch,account,load,hash){
-  return panel.isConnected&&panel.open&&panel._materialEpoch===epoch&&state.me?.id===account&&state.loadId===load&&location.hash===hash;
+  return materialViewCurrent(panel,account,load,hash)&&panel._materialEpoch===epoch;
 }
 async function materialLoad(panel){
   const epoch=(panel._materialEpoch||0)+1;panel._materialEpoch=epoch;
   const account=state.me?.id,load=state.loadId,hash=location.hash,body=panel.querySelector('[data-material-distribution]');
-  panel._materialLoading=true;
+  panel._materialLoading=true;panel.setAttribute('aria-busy','true');
   const inputs=panel.querySelector('[data-material-from]');
   if(inputs)panel._timeDraft={from:inputs.value,to:panel.querySelector('[data-material-to]').value};
   if(!panel._materialData){materialDispose(panel);body.innerHTML='<p role="status">正在读取当前查询的分布…</p>';}
+  materialPanels.add(panel);
   const query=recordQuery();query.delete('page');query.delete('size');
   query.set('visual_window','1');
   try{
+    const session=await api('/api/session');
+    if(session.user?.id!==account)throw Object.assign(new Error('账号已切换，请重新登录。'),{status:401});
+    if(!materialCurrent(panel,epoch,account,load,hash))return;
     const [data,geometry]=await Promise.all([api('/api/material-discovery?'+query),materialDiscovery.geometry||api('/static/geo/material-world-110m.json')]);
     if(!materialCurrent(panel,epoch,account,load,hash))return;
-    materialDiscovery.geometry=geometry;panel._materialData=data;
-    materialRender(panel);
+    const latestSession=await api('/api/session');
+    if(latestSession.user?.id!==account)throw Object.assign(new Error('账号已切换，请重新登录。'),{status:401});
+    if(!materialCurrent(panel,epoch,account,load,hash))return;
+    materialDiscovery.geometry=geometry;
+    const unchanged=panel._materialData&&JSON.stringify(panel._materialData)===JSON.stringify(data);
+    panel._materialData=data;
+    if(!unchanged)materialRender(panel);
+    else if(panel._materialSuspended){panel._materialSuspended=false;materialResume(panel);}
+    else if(panel._materialStale){for(const target of panel.querySelectorAll('[data-material-time-status],[data-material-globe-status]'))target.textContent='分布已重新读取。';}
+    panel._materialStale=false;
   }catch(error){
     if(!materialCurrent(panel,epoch,account,load,hash))return;
-    if(panel._materialData&&![401,403,404].includes(error.status)){panel.querySelector('[data-material-time-status]').textContent='读取失败，保留上次分布与输入。可重试：'+error.message;}
-    else {materialDispose(panel);panel._materialData=null;body.innerHTML='<p role="alert">无法读取地图与时间分布：'+esc(error.message)+'</p><button type="button" class="button" data-material-retry>重新读取分布</button>';}
-  }finally{if(panel._materialEpoch===epoch)panel._materialLoading=false;}
+    if(panel._materialData&&![401,403,404].includes(error.status)){panel._materialStale=true;for(const target of panel.querySelectorAll('[data-material-time-status],[data-material-globe-status]'))target.textContent='读取失败，保留上次分布与输入。可重试：'+error.message;}
+    else {materialDispose(panel);panel._materialData=null;panel._globeView=null;panel._timeView=null;body.innerHTML='<p role="alert">无法读取地图与时间分布：'+esc(error.message)+'</p><button type="button" class="button" data-material-retry>重新读取分布</button>';}
+  }finally{if(panel._materialEpoch===epoch){panel._materialLoading=false;panel.removeAttribute('aria-busy');}}
 }
 function materialRender(panel){
   const data=panel._materialData,geometry=materialDiscovery.geometry;if(!data||!geometry)return;
@@ -47,8 +62,8 @@ function materialRender(panel){
   const date=(data.time_context?.dates||data.dates)[materialDiscovery.role],hasTime=Boolean(p.get('from')||p.get('to')||p.get('date_unknown'));
   const yearMax=Math.max(1,...date.years.map(item=>item.count));
   const legend=[['zero','0 条'],['low','1–'+low+' 条'],...(high>low?[['middle',(low+1)+'–'+high+' 条']]:[]),...(maximum>high?[['high',(high+1)+'–'+maximum+' 条']]:[])];
-  materialDispose(panel);
-  panel.querySelector('[data-material-distribution]').innerHTML=
+  const retainedInputs=Boolean(panel.querySelector('[data-material-from]'));
+  const markup=
     '<p class="material-scope" role="status">当前完整可见查询：<strong>'+data.total+' 条</strong>。多国资料在各国分别计数；数量表示库内资料，不表示研究热度或覆盖完整性。</p>'
     +'<div class="material-controls material-scene-controls" role="group" aria-label="资料探索视图"><button type="button" class="button tiny" data-material-scene="country" aria-pressed="'+(materialDiscovery.scene==='country')+'">国别地球</button><button type="button" class="button tiny" data-material-scene="time" aria-pressed="'+(materialDiscovery.scene==='time')+'">时间探索</button><button type="button" class="button tiny" data-material-retry>刷新分布</button></div>'
     +'<section data-material-country-scene '+(materialDiscovery.scene!=='country'?'hidden':'')+' aria-label="研究对象国分布"><div class="material-heading"><h2>研究对象国</h2><div class="material-controls" role="group" aria-label="地图视角"><button type="button" class="button tiny" data-material-view="europe" aria-pressed="'+(materialDiscovery.view==='europe')+'">欧洲</button><button type="button" class="button tiny" data-material-view="world" aria-pressed="'+(materialDiscovery.view==='world')+'">全世界</button></div></div>'
@@ -70,10 +85,43 @@ function materialRender(panel){
       return '<button class="material-year" type="button" data-material-year="'+item.year+'" aria-pressed="'+active+'" aria-label="'+item.year+'年，'+item.count+'条，按'+materialDateNames[materialDiscovery.role]+'筛选"><span>'+item.year+'年</span><svg class="material-year-track" viewBox="0 0 100 12" preserveAspectRatio="none" aria-hidden="true"><rect width="'+Math.max(1,100*item.count/yearMax)+'" height="12"></rect></svg><strong>'+item.count+' 条</strong></button>';
     }).join('')+'</div></details><button type="button" class="button tiny" data-material-year="unknown" aria-pressed="'+((p.get('date_field')||'published')===materialDiscovery.role&&p.get('date_unknown')==='1')+'">'+materialDateNames[materialDiscovery.role]+'未知 · '+date.unknown+' 条</button>'
     +(!data.total?'<p>当前查询没有资料，可清除国别或时间条件，或调整上方筛选。</p>':'')+'</section>';
-  if(materialDiscovery.scene==='country')materialMountGlobe(panel,countryScope,selected);
-  else materialMountTimeline(panel);
-  if(panel._timeDraft){panel.querySelector('[data-material-from]').value=panel._timeDraft.from;panel.querySelector('[data-material-to]').value=panel._timeDraft.to;}
+  materialPatch(panel.querySelector('[data-material-distribution]'),markup);
+  if(panel._globe)panel._globe.update({countries:countryScope.countries,selected:[...selected]});
+  else if(materialDiscovery.scene==='country')materialMountGlobe(panel,countryScope,selected);
+  if(panel._timeline)panel._timeline.update(materialTimeSnapshot(panel));
+  else if(materialDiscovery.scene==='time')materialMountTimeline(panel);
+  panel._materialSuspended=false;
+  if(!retainedInputs&&panel._timeDraft){panel.querySelector('[data-material-from]').value=panel._timeDraft.from;panel.querySelector('[data-material-to]').value=panel._timeDraft.to;}
   if(materialDiscovery.focus){panel.querySelector(materialDiscovery.focus)?.focus({preventScroll:true});materialDiscovery.focus=null;}
+}
+// Patch the native representation without detaching focused inputs, disclosures or
+// module-owned slots. Stable country/year/record identities survive insertions.
+function materialPatch(body,markup){
+  const template=document.createElement('template');template.innerHTML=markup;
+  const key=node=>node.nodeType===1?['data-material-country','data-material-year','data-material-record','data-material-scene'].find(attr=>node.hasAttribute(attr)):null;
+  const same=(a,b)=>a.nodeType===b.nodeType&&(a.nodeType!==1||a.tagName===b.tagName&&key(a)===key(b)&&(!key(a)||a.getAttribute(key(a))===b.getAttribute(key(b))));
+  function patch(target,source){
+    const wanted=[...source.childNodes];
+    wanted.forEach((next,index)=>{
+      let node=target.childNodes[index];
+      if(!node||!same(node,next)){
+        const match=[...target.childNodes].slice(index+1).find(candidate=>same(candidate,next));
+        if(match){target.insertBefore(match,node||null);node=match;}
+        else{node=next.cloneNode(true);target.insertBefore(node,target.childNodes[index]||null);return;}
+      }
+      if(node.nodeType!==1){if(node.nodeValue!==next.nodeValue)node.nodeValue=next.nodeValue;return;}
+      if(node.matches('[data-material-globe],[data-material-timeline],[data-material-range-status],[data-material-time-status],[data-material-globe-status]'))return;
+      for(const attr of [...node.attributes])if(!next.hasAttribute(attr.name)&&!(attr.name==='open'&&node.tagName==='DETAILS'))node.removeAttribute(attr.name);
+      for(const attr of next.attributes)if(!(node.tagName==='DETAILS'&&attr.name==='open')&&!(node.tagName==='INPUT'&&attr.name==='value')&&node.getAttribute(attr.name)!==attr.value)node.setAttribute(attr.name,attr.value);
+      patch(node,next);
+    });
+    while(target.childNodes.length>wanted.length)target.lastChild.remove();
+  }
+  patch(body,template.content);
+}
+function materialResume(panel){
+  if(materialDiscovery.scene==='time')materialMountTimeline(panel);
+  else if(panel.querySelector('[data-material-flat]').getAttribute('aria-pressed')!=='true')materialMountGlobe(panel,panel._materialData.country_context||panel._materialData,new Set((recordQuery().get('country')||'').split('|').filter(Boolean).map(countryKey)));
 }
 function materialApply(change){
   const query=recordQuery();query.delete('saved_search');query.delete('page');query.delete('size');
@@ -118,23 +166,23 @@ document.addEventListener('keydown',event=>{if(['Enter',' '].includes(event.key)
 for(const name of ['pointerover','focusin'])document.addEventListener(name,event=>{const path=event.target.closest('path[data-material-country]');if(!path)return;const panel=path.closest('.material-discovery');panel.querySelector('[data-material-map-hint]').textContent=path.querySelector('title').textContent+' · 点击筛选';});
 
 const materialPanels=new Set();
-function materialDisposeGlobe(panel){panel._globeGeneration=(panel._globeGeneration||0)+1;panel._globe?.dispose();panel._globe=null;}
-function materialDisposeTimeline(panel){panel._timeGeneration=(panel._timeGeneration||0)+1;panel._timeline?.dispose();panel._timeline=null;}
-function materialDispose(panel){materialDisposeGlobe(panel);materialDisposeTimeline(panel);materialPanels.delete(panel);}
+function materialDisposeGlobe(panel){panel._globeGeneration=(panel._globeGeneration||0)+1;if(panel._globe)panel._globeView=panel._globe.getViewState();panel._globe?.dispose();panel._globe=null;}
+function materialDisposeTimeline(panel){panel._timeGeneration=(panel._timeGeneration||0)+1;if(panel._timeline)panel._timeView=panel._timeline.getViewState();panel._timeline?.dispose();panel._timeline=null;}
+function materialDispose(panel){panel._materialSuspended=true;materialDisposeGlobe(panel);materialDisposeTimeline(panel);materialPanels.delete(panel);}
 async function materialMountGlobe(panel,scope,selected){
   const generation=(panel._globeGeneration||0)+1;panel._globeGeneration=generation;materialPanels.add(panel);
-  const epoch=panel._materialEpoch,account=state.me?.id,load=state.loadId,hash=location.hash;
-  const isCurrent=()=>materialCurrent(panel,epoch,account,load,hash)&&panel._globeGeneration===generation;
+  const account=state.me?.id,load=state.loadId,hash=location.hash;
+  const isCurrent=()=>materialViewCurrent(panel,account,load,hash)&&panel._globeGeneration===generation;
   const status=panel.querySelector('[data-material-globe-status]');
   panel.querySelector('[data-material-globe]').hidden=false;
   try{
     const instance=await visualLoader.mount('globe',panel.querySelector('[data-material-globe]'),{
-      geometry:materialDiscovery.geometry,snapshot:{countries:scope.countries,selected:[...selected]},
+      geometry:materialDiscovery.geometry,viewState:panel._globeView,snapshot:{countries:scope.countries,selected:[...selected]},
       onSelect:value=>{if(isCurrent())materialApply(query=>query.set('country',value));},
       onStatus:message=>{if(isCurrent())status.textContent=message;}
     },{isCurrent});
     if(!isCurrent()){instance?.dispose();return;}panel._globe=instance;
-    instance?.reset(materialDiscovery.view);status.textContent='拖动旋转，滚轮或双指缩放；点击国界或代表点筛选。也可使用下方文字国别。';
+    if(!panel._globeView)instance?.reset(materialDiscovery.view);status.textContent='拖动旋转，滚轮或双指缩放；点击国界或代表点筛选。也可使用下方文字国别。';
   }catch(error){if(isCurrent()){status.textContent='地球暂不可用，可继续使用国别文字筛选或平面地图。';panel.querySelector('[data-material-globe]').hidden=true;}}
 }
 new MutationObserver(()=>{for(const panel of materialPanels)if(!panel.isConnected||state.me?.id!==materialDiscovery.account)materialDispose(panel);}).observe(document.getElementById('app'),{childList:true,subtree:true});
@@ -152,13 +200,13 @@ function materialApplyRange(panel){
   materialApply(query=>{query.delete('date_unknown');query.delete('from');query.delete('to');query.set('date_field',materialDiscovery.role);if(from.value)query.set('from',String(Number(from.value)).padStart(4,'0')+'-01-01');if(to.value)query.set('to',String(Number(to.value)).padStart(4,'0')+'-12-31');});
 }
 async function materialMountTimeline(panel){
-  panel._timeGeneration=(panel._timeGeneration||0)+1;panel._timeline?.dispose();panel._timeline=null;
-  const generation=panel._timeGeneration,epoch=panel._materialEpoch,account=state.me?.id,load=state.loadId,hash=location.hash;
+  materialDisposeTimeline(panel);
+  const generation=panel._timeGeneration,account=state.me?.id,load=state.loadId,hash=location.hash;
   materialPanels.add(panel);
-  const isCurrent=()=>materialCurrent(panel,epoch,account,load,hash)&&panel._timeGeneration===generation;
+  const isCurrent=()=>materialViewCurrent(panel,account,load,hash)&&panel._timeGeneration===generation;
   const slot=panel.querySelector('[data-material-timeline]'),status=panel.querySelector('[data-material-time-status]');slot.replaceChildren();
   try{
-    const instance=await visualLoader.mount('timeline',slot,{snapshot:materialTimeSnapshot(panel),
+    const instance=await visualLoader.mount('timeline',slot,{snapshot:materialTimeSnapshot(panel),viewState:panel._timeView,
       onRange:(from,to)=>{if(!isCurrent())return;panel.querySelector('[data-material-from]').value=from;panel.querySelector('[data-material-to]').value=to;panel.querySelector('[data-material-range-status]').textContent='待应用范围：'+from+'—'+to+' 年。';},
       onSelect:id=>{if(isCurrent()&&panel._materialData.timeline_window.items.some(item=>item.id===id))libraryOpenReader(id,panel.querySelector('[data-material-lens]'));},
       onStatus:message=>{if(isCurrent())status.textContent=message;}
@@ -167,5 +215,11 @@ async function materialMountTimeline(panel){
   }catch(error){if(isCurrent())status.textContent='时间图暂不可用，可继续使用起止年、年份按钮和资料文字窗口，或重试时间图。';}
 }
 function materialRefreshVisible(){if(document.hidden)return;for(const panel of materialPanels)if(panel.isConnected&&panel.open&&!panel._materialLoading)materialLoad(panel);}
-document.addEventListener('visibilitychange',materialRefreshVisible);
+document.addEventListener('visibilitychange',()=>{
+  if(!document.hidden){materialRefreshVisible();return;}
+  for(const panel of materialPanels){
+    panel._materialEpoch=(panel._materialEpoch||0)+1;panel._materialLoading=false;panel.removeAttribute('aria-busy');panel._materialSuspended=true;
+    materialDisposeGlobe(panel);materialDisposeTimeline(panel);
+  }
+});
 window.addEventListener('focus',materialRefreshVisible);

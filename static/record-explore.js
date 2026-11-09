@@ -48,8 +48,8 @@
     details.innerHTML='<summary>关联探索</summary><div class="record-explore-content" aria-live="polite"></div>';
     article.querySelector('.ux-reading-toolbar').after(details);
     const content=details.querySelector('.record-explore-content');
-    let epoch=0,visual=null,visualEpoch=0,model=null,mode='plane',selected=null;
-    const dispose=()=>{visualEpoch++;visual?.dispose();visual=null;};
+    let epoch=0,visual=null,visualEpoch=0,model=null,mode='plane',selected=null,viewState=null;
+    const dispose=()=>{visualEpoch++;if(visual)viewState=visual.getViewState();visual?.dispose();visual=null;};
     const current=token=>token===epoch&&details.isConnected&&account===state.me?.id&&hash===location.hash&&loadId===state.loadId;
     function snapshot(){return {center:model.center,nodes:model.nodes,edges:model.graphEdges,selected:selected||model.center};}
     function select(key){
@@ -61,17 +61,16 @@
       visual?.update(snapshot());
     }
     async function mountGraph(){
-      dispose();const token=visualEpoch,request=epoch,slot=content.querySelector('[data-network-viewport]');
+      dispose();const token=visualEpoch,slot=content.querySelector('[data-network-viewport]');
       if(!slot||!model?.edges.length)return;
-      const valid=()=>token===visualEpoch&&current(request)&&details.open;
+      const valid=()=>token===visualEpoch&&current(epoch)&&details.open&&!document.hidden;
       const status=message=>{if(current(epoch)&&details.open){const target=content.querySelector('[data-network-status]');if(target)target.textContent=message;}};
       status('正在加载关系图…');
-      try{const instance=await window.visualLoader.mount('network',slot,{snapshot:snapshot(),mode,onSelect:select,onStatus:status},{isCurrent:valid});if(valid()){visual=instance;status('');}else instance?.dispose();}
+      try{const instance=await window.visualLoader.mount('network',slot,{snapshot:snapshot(),mode,viewState,onSelect:select,onStatus:status},{isCurrent:valid});if(valid()){visual=instance;status('');}else instance?.dispose();}
       catch(error){if(valid())status('图形未能加载，可继续使用下方文字关系，或重试图形。');}
     }
     async function load() {
       const token=++epoch;
-      visualEpoch++;
       const focusAtStart=document.activeElement,restoreFocus=content.contains(focusAtStart);
       content.setAttribute('aria-busy','true');
       content.querySelector('[data-explore-error]')?.remove();
@@ -93,7 +92,7 @@
         if(latestSession.user?.id!==account)throw Object.assign(new Error('账号已切换'),{status:401});
         const next=projection(fresh,bylines,affiliations,sources);
         const signature=value=>JSON.stringify([value.edges,value.pending,value.record.display_title||value.record.title]);
-        if(model&&signature(model)===signature(next)){model=next;return;}
+        if(model&&signature(model)===signature(next)){model=next;if(!visual)mountGraph();return;}
         const previousSlot=visual&&content.querySelector('[data-network-viewport]');
         model=next;
         if(!model.nodes.some(n=>n.key===selected))selected=model.center;
@@ -103,7 +102,7 @@
         else{dispose();select(selected);mountGraph();}
       } catch(error) {
         if(current(token)&&details.open){
-          if([401,403,404].includes(error.status)){dispose();model=null;content.replaceChildren();}
+          if([401,403,404].includes(error.status)){dispose();viewState=null;model=null;content.replaceChildren();}
           else if(!model)content.replaceChildren();
           content.insertAdjacentHTML('afterbegin','<div data-explore-error><p class="record-explore-empty" role="alert">关联读取失败，'+(model?'当前内容尚未更新。':'请重试。')+'</p><button type="button" class="button tiny" data-explore-refresh>重试读取关联</button></div>');
         }
@@ -111,7 +110,7 @@
         if(current(token)){content.removeAttribute('aria-busy');if(restoreFocus&&!focusAtStart.isConnected&&document.activeElement===document.body){const attr=['data-explore-mode','data-explore-select','data-explore-refresh','data-explore-target'].find(key=>focusAtStart.hasAttribute(key));const target=attr?content.querySelector('['+attr+'="'+CSS.escape(focusAtStart.getAttribute(attr))+'"]'):null;(target||content.querySelector('[data-explore-refresh]'))?.focus({preventScroll:true});}}
       }
     }
-    details.addEventListener('toggle',()=>{if(details.open)load();else{epoch++;dispose();model=null;content.replaceChildren();}});
+    details.addEventListener('toggle',()=>{if(details.open)load();else{epoch++;dispose();viewState=null;model=null;content.replaceChildren();}});
     details.addEventListener('click',event=>{
       if(event.target.closest('[data-explore-refresh]'))load();
       const choose=event.target.closest('[data-explore-select]');if(choose)select(choose.dataset.exploreSelect);
@@ -144,11 +143,13 @@
       article.prepend(button);
     }
     // Revalidate visible relations after returning from another window.
-    const refresh=()=>{if(details.isConnected&&details.open)load();};
+    const refresh=()=>{if(!document.hidden&&details.isConnected&&details.open)load();};
+    const visibility=()=>{if(document.hidden){epoch++;dispose();}else refresh();};
+    document.addEventListener('visibilitychange',visibility);
     window.addEventListener('focus',refresh);
-    const routeChanged=()=>{if(!current(epoch)){dispose();model=null;content.replaceChildren();}};
+    const routeChanged=()=>{if(!current(epoch)){dispose();viewState=null;model=null;content.replaceChildren();}};
     window.addEventListener('hashchange',routeChanged);
-    const observer=new MutationObserver(()=>{if(!details.isConnected){epoch++;dispose();model=null;window.removeEventListener('focus',refresh);window.removeEventListener('hashchange',routeChanged);observer.disconnect();}});
+    const observer=new MutationObserver(()=>{if(!details.isConnected){epoch++;dispose();model=null;window.removeEventListener('focus',refresh);document.removeEventListener('visibilitychange',visibility);window.removeEventListener('hashchange',routeChanged);observer.disconnect();}});
     observer.observe(document.body,{childList:true,subtree:true});
   }
   document.addEventListener('library:reader-rendered',event=>mount(event.detail));
