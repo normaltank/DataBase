@@ -164,6 +164,72 @@ class MaintenanceAgentTests(unittest.TestCase):
         self.assertEqual(requests.count('https://provider.example/v1/tools/search'),1)
         self.assertEqual(self.detail(self.rid)['keywords'],'old label')
 
+    def test_two_fixed_web_unknowns_keep_full_held_budget_but_independent_job_can_complete(self):
+        from decimal import Decimal
+        from platform_app.maintenance_agent import run_pending
+        other_unknown=self.record(kind='journal_article',title='Other interrupted public lookup',url='https://article.example/other')
+        useful=self.record(kind='journal_article',title='Independent useful article',url='https://article.example/useful',keywords='old label')
+        records=[self.rid,other_unknown,useful];jobs=[];web_requests=[];model_requests=[]
+        for i,rid in enumerate(records):
+            response=self.call('/api/maintenance/jobs',{'target_type':'record','target_id':rid,'request_id':'fixed-unknown-'+str(i),'priority':10-i})
+            self.assertEqual(response.status_code,201,response.json);jobs.append(response.json['id'])
+        def supplier(request,*args,**kwargs):
+            body=json.loads(request.data)
+            if '/tools/' in request.full_url:
+                web_requests.append((request.full_url,body))
+                if request.full_url.endswith('/tools/search') or body.get('url')=='https://uni.example/interrupted':raise TimeoutError('Synthetic ended request with unknown fixed charge')
+                return Reply({'content':'Baltic cooperation is authored by Alex Vale.'},request.full_url)
+            model_requests.append(body)
+            goal=json.loads(body['messages'][1]['content'])['goal'];rid=goal['id']
+            observations=[json.loads(m['content']) for m in body['messages'] if m['role']=='tool'];last=observations[-1] if observations else {}
+            if rid==self.rid:name,args='fetch',{'url':'https://uni.example/interrupted'}
+            elif rid==other_unknown:name,args='search',{'query':'Synthetic interrupted search'}
+            elif not observations:name,args='fetch',{'url':'https://uni.example/alex'}
+            elif last.get('method')=='deepseek-fetch-markdown':name,args='save_record',{'id':useful,'version':1,'data':{'keywords':'波罗的海合作'},'evidence_id':last['evidence_id'],'quote':'Baltic cooperation is authored by Alex Vale.'}
+            elif last.get('changed_target'):name,args='read',{'target_type':'record','id':useful}
+            else:name,args='finish',{'reason':'已保存独立任务的有据标签。'}
+            message={'role':'assistant','content':None,'tool_calls':[{'id':'fixed-'+str(len(model_requests)),'type':'function','function':{'name':name,'arguments':json.dumps(args)}}]}
+            return Reply({'model':'deepseek-flash','usage':{'prompt_tokens':30,'completion_tokens':20,'total_tokens':50},'choices':[{'finish_reason':'tool_calls','message':message}]},request.full_url)
+        self.provider.side_effect=supplier
+        cheap={**self.price,'input_cache_hit_per_million':'0.000001','input_cache_miss_per_million':'0.000001','output_per_million':'0.000001'}
+        with patch.dict(os.environ,{'DEEPSEEK_PRICING_JSON':json.dumps(cheap)}):
+            self.assertEqual(run_pending(self.data_dir,limit=2),{'tasks':2,'completed':0})
+            before=self.clients['admin'].get('/api/admin/ai').json
+            unknown=[a for a in before['attempts'] if a['status']=='unknown']
+            self.assertEqual(len(unknown),2)
+            self.assertEqual(before['held_units'],10000)
+            self.assertFalse(any('费用未知' in reason for reason in before['blocked_reasons']))
+            steps=[self.job(j)['steps'] for j in jobs[:2]]
+            from platform_app.maintenance import create_backup,restore_backup
+            restored=self.data_dir.parent/'bounded-unknown-restored';restore_backup(create_backup(self.data_dir),restored)
+            self.data_dir=restored;self.app=create_app(restored,testing=True)
+            self.clients={name:self.login(name) for name in ['researcher','colleague','admin']}
+            self.assertEqual(self.clients['admin'].get('/api/admin/ai').json['held_units'],10000)
+            # Full held cost exhausts this exact cap; cheap model requests still
+            # cannot send even though omitting held cost would leave ample room.
+            used=before['held_units']+before['charged_units']
+            self.call('/api/admin/ai/config',{'cap':str(Decimal(used)/1000000),'currency':'CNY'},user='admin')
+            sent=len(model_requests)
+            self.assertEqual(run_pending(self.data_dir),{'tasks':1,'completed':0})
+            self.assertEqual(len(model_requests),sent)
+            self.assertEqual(self.job(jobs[2])['status'],'paused')
+            self.assertIn('额度',self.job(jobs[2])['reason'])
+            self.call('/api/admin/ai/config',{'cap':'10','currency':'CNY'},user='admin')
+            self.call('/api/maintenance/jobs/'+jobs[2]+'/resume')
+            self.assertEqual(run_pending(self.data_dir),{'tasks':1,'completed':1})
+            self.assertEqual(self.clients['researcher'].get('/api/records/'+useful).json['keywords'],'波罗的海合作')
+            after=self.clients['admin'].get('/api/admin/ai').json
+            self.assertEqual(after['held_units'],10000)
+            self.assertEqual([a for a in after['attempts'] if a['status']=='unknown'],unknown)
+            sent_web=len(web_requests)
+            for j in jobs[:2]:
+                self.call('/api/maintenance/jobs/'+j+'/resume')
+                self.assertEqual(run_pending(self.data_dir),{'tasks':1,'completed':0})
+                self.assertEqual(self.job(j)['status'],'paused')
+            self.assertEqual(len(web_requests),sent_web)
+            self.assertEqual([self.job(j)['steps'] for j in jobs[:2]],steps)
+            self.assertEqual([a for a in self.clients['admin'].get('/api/admin/ai').json['attempts'] if a['status']=='unknown'],unknown)
+
     def test_private_and_internal_targets_are_rejected_before_provider(self):
         private=self.record(kind='journal_article',title='Private',visibility='restricted')
         internal=self.record(kind='research_report',title='Internal report')

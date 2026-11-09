@@ -84,6 +84,18 @@ def cost(tokens, price=None):
     return int(tokens.to_integral_value(rounding=ROUND_CEILING))
 
 
+def bounded_web_unknown(attempt):
+    """An ended Search/Fetch request has its full maximum charge held already."""
+    if attempt['status']!='unknown' or not attempt['finished_at']:return False
+    try:
+        config=json.loads(attempt['config_json']);metering=config.get('metering')
+        return (isinstance(metering,dict) and set(metering)=={'kind','per_success_units'}
+                and metering['kind'] in {'deepseek-search','deepseek-fetch'} and metering['per_success_units']==5000
+                and attempt['currency']=='CNY' and attempt['reserved_units']==5000
+                and attempt['output_bound']==1 and config.get('max_tokens')==1)
+    except (ValueError,TypeError,AttributeError):return False
+
+
 def reserve(db, scope, task, payload, config):
     local_policy(db, config)
     price = config['pricing']
@@ -107,7 +119,8 @@ def reserve(db, scope, task, payload, config):
         legacy = db.execute("SELECT value FROM settings WHERE key='ai_legacy_unknown'").fetchone()
         if (pause and pause[0]=='1') or (legacy and int(legacy[0])>0):
             raise AIBlocked('paused','AI暂停：管理员暂停或旧调用费用待核对。')
-        if db.execute("SELECT 1 FROM ai_attempts WHERE status='unknown'").fetchone():
+        active=list(db.execute("SELECT * FROM ai_attempts WHERE status IN ('sent','unknown')"))
+        if any(row['status']=='unknown' and not bounded_web_unknown(row) for row in active):
             raise AIBlocked('unknown_cost','AI暂停：存在费用未知调用，请管理员核对。')
         rows = db.execute('SELECT * FROM ai_attempts WHERE scope=? AND task=? AND input_hash=? ORDER BY rowid', (scope,task,input_hash)).fetchall()
         if any(r['status'] in {'sent','unknown'} for r in rows):
@@ -122,7 +135,7 @@ def reserve(db, scope, task, payload, config):
             raise AIBlocked('retry_limit','该输入已达到三次供应商调用上限。')
         if round_count and datetime.fromisoformat(now()) < datetime.fromisoformat(rows[-1]['finished_at']) + timedelta(seconds=BACKOFF_SECONDS * 2**(round_count-1)):
             raise AIBlocked('backoff','该输入正在有界退避，请稍后处理。')
-        if db.execute("SELECT COUNT(*) FROM ai_attempts WHERE status IN ('sent','unknown')").fetchone()[0] >= MAX_CONCURRENT:
+        if sum(not bounded_web_unknown(row) for row in active) >= MAX_CONCURRENT:
             raise AIBlocked('capacity','AI全局并发或未知费用占用已满。')
         monthly = list(db.execute('SELECT * FROM ai_attempts WHERE month=?', (month,)).fetchall())
         monthly += [dict(json.loads(r[0]),status='settled',reserved_units=0) for r in db.execute("SELECT details_json FROM ai_events WHERE action='legacy_resolve'") if json.loads(r[0]).get('month')==month]
@@ -361,7 +374,7 @@ def summary(db):
     if paused and paused[0]=='1': reasons.append('管理员已暂停')
     if not policy: reasons.append('尚未设置有效月额度及币种')
     if legacy and int(legacy[0]): reasons.append('升级前运行中的旧调用费用待核对')
-    if any(r['status']=='unknown' for r in rows): reasons.append('存在费用未知调用，保留占用并暂停新调用')
+    if any(r['status']=='unknown' and not bounded_web_unknown(r) for r in rows): reasons.append('存在费用未知调用，保留占用并暂停新调用')
     try:
         _,_,_,config=runtime_configuration()
         local_policy(db,config)
