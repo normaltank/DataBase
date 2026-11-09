@@ -13,7 +13,7 @@
   function render(record,bylines,affiliations) {
     const edges=[],pending=[];
     for(const item of bylines.items||[]) {
-      if(item.status==='confirmed'&&item.target)edges.push(destination(item.target.type==='person'?'person':'source',item.target.id,item.target.name,item.target.type==='person'?'已确认作者':'已确认机构作者','in',item.raw_name));
+      if(item.status==='confirmed'&&item.target)edges.push(destination(item.target.type==='person'?'person':'source',item.target.id,item.target.name,item.machine?(item.target.type==='person'?'AI 关联作者':'AI 关联机构作者'):(item.target.type==='person'?'已确认作者':'已确认机构作者'),'in',item.raw_name));
       else pending.push(item.raw_name);
     }
     if(!bylines.items?.length&&bylines.raw_authors)pending.push(bylines.raw_authors);
