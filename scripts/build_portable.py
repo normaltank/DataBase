@@ -37,6 +37,13 @@ SOURCE_FILES = {
 } | COUNTRY_DATA_FILES
 
 
+def application_data_file(name):
+    """Narrow non-code assets shipped with the same-origin visual modules."""
+    return (name in {'static/geo/material-world-110m.json', 'static/geo/NOTICE.md'} or
+            (name.startswith('static/vendor/visual/licenses/') and
+             Path(name).name.lower().endswith(('license', 'notice', '.txt', '.md'))))
+
+
 def digest(content):
     return hashlib.sha256(content).hexdigest()
 
@@ -82,7 +89,7 @@ def source_paths():
         path = ROOT / name
         if path.is_symlink() or not path.is_file() or ROOT not in path.resolve().parents:
             raise ValueError('Source must be a regular file inside checkout: ' + name)
-        if name not in COUNTRY_DATA_FILES and PurePosixPath(name).parts[0] in SOURCE_DIRS and path.suffix not in {'.py', '.js', '.css', '.html', '.svg', '.png', '.ico', '.woff2'}:
+        if name not in COUNTRY_DATA_FILES and not application_data_file(name) and PurePosixPath(name).parts[0] in SOURCE_DIRS and path.suffix not in {'.py', '.js', '.css', '.html', '.svg', '.png', '.ico', '.woff2'}:
             raise ValueError('Unexpected application source suffix: ' + name)
         yield name, path
 
