@@ -97,12 +97,18 @@ def enqueue(db, actor, target_type, target_id, request_id, feedback='', priority
     target(db,actor,target_type,target_id)
     if not isinstance(request_id,str) or not 1<=len(request_id)<=200 or not isinstance(feedback,str) or len(feedback)>4000 or type(priority) is not int or not -100<=priority<=100:
         abort(400,'任务标识、反馈或优先级无效。')
+    feedback=feedback.strip()
+    if feedback:priority=100
     with db:
         db.execute('BEGIN IMMEDIATE')
         old=db.execute('SELECT * FROM maintenance_jobs WHERE actor_id=? AND request_id=? AND target_type=? AND target_id=?',(actor['id'],request_id,target_type,target_id)).fetchone()
         if old:
             if old['feedback']!=feedback or old['priority']!=priority:abort(409,'请求编号已用于不同任务。')
             return old['id']
+        if feedback:
+            # Invalidate leases as well as queued tools: an old conversation must
+            # never replay a correction away after the new investigation finishes.
+            db.execute("UPDATE maintenance_jobs SET status='cancelled',reason='已有新反馈，改由新任务重新查证。',finished_at=?,lease_token='',lease_until='' WHERE target_type=? AND target_id=? AND status IN ('queued','paused','running','failed')",(store.now(),target_type,target_id))
         jid=uuid.uuid4().hex
         db.execute('''INSERT INTO maintenance_jobs(id,target_type,target_id,actor_id,credential_version,request_id,feedback,priority,status,created_at,next_run)
                       VALUES(?,?,?,?,?,?,?,?,'queued',?,?)''',(jid,target_type,target_id,actor['id'],actor['credential_version'],request_id,feedback,priority,store.now(),store.now()))
@@ -229,6 +235,8 @@ def execute_local(db,job,step,args,data_dir):
     if name=='finish':
         reason=args.get('reason')
         if not isinstance(reason,str) or not 1<=len(reason)<=2000:raise ValueError('请说明实际结果和留缺。')
+        if job['feedback'] and not db.execute("SELECT 1 FROM maintenance_evidence WHERE job_id=? AND text<>''",(job['id'],)).fetchone():
+            raise ValueError('请带着反馈重新查证公开资料，再说明处理结果。')
         if db.execute("SELECT COUNT(*) FROM maintenance_steps WHERE job_id=? AND status='pending'",(job['id'],)).fetchone()[0]>1:raise ValueError('请先执行其余工具，再单独结束检查。')
         previous=[dict(r) for r in db.execute("SELECT * FROM maintenance_steps WHERE job_id=? AND status='completed' ORDER BY position",(job['id'],))]
         for index,old in enumerate(previous):
@@ -309,6 +317,23 @@ def save_web_evidence(db,job,step,args,value):
     return {**value,'evidence_id':eid,'method':method}
 
 
+def feedback_context(db,actor,kind,tid):
+    """Follow actual corrected objects, while respecting current source access."""
+    items=[]
+    rows=db.execute("""SELECT j.* FROM maintenance_jobs j WHERE j.feedback<>'' AND
+        ((j.target_type=? AND j.target_id=?) OR EXISTS(SELECT 1 FROM maintenance_steps s WHERE s.job_id=j.id
+        AND json_extract(s.result_json,'$.changed_target[0]')=? AND json_extract(s.result_json,'$.changed_target[1]')=?))
+        ORDER BY j.created_at DESC,j.rowid DESC LIMIT 100""",(kind,tid,kind,tid)).fetchall()
+    for row in rows:
+        try:
+            target(db,actor,row['target_type'],row['target_id'])
+            check_dependencies(db,actor,row['id'])
+        except HTTPException:continue
+        items.append(row['feedback'])
+        if len(items)==10:break
+    return items
+
+
 def run_job(db,job,data_dir,stopping):
     while not stopping():
         if not authorized(db,job):raise ai_gateway.AIBlocked('permission','当前身份或对象权限已变化。')
@@ -317,7 +342,7 @@ def run_job(db,job,data_dir,stopping):
         current=db.execute('SELECT * FROM maintenance_jobs WHERE id=?',(job['id'],)).fetchone()
         messages=json.loads(current['messages_json'])
         if not messages:
-            feedback=[r[0] for r in db.execute("SELECT feedback FROM maintenance_jobs WHERE target_type=? AND target_id=? AND feedback<>'' ORDER BY priority DESC,created_at DESC LIMIT 10",(job['target_type'],job['target_id']))]
+            feedback=feedback_context(db,machine(db),job['target_type'],job['target_id'])
             messages=[{'role':'system','content':PROMPT},{'role':'user','content':dumps({'goal':read_object(db,machine(db),job['target_type'],job['target_id'],data_dir),'feedback':feedback})}]
             with db:db.execute('UPDATE maintenance_jobs SET messages_json=? WHERE id=?',(dumps(messages),job['id']))
         pending=db.execute("SELECT * FROM maintenance_steps WHERE job_id=? AND status='pending' ORDER BY position LIMIT 1",(job['id'],)).fetchone()
@@ -454,6 +479,14 @@ def validate_backup(db):
 
 
 def register(app,ctx):
+    @app.get('/api/maintenance/targets/<kind>/<tid>')
+    def maintenance_target_history(kind,tid):
+        db=ctx.db();actor=member(db,ctx.user());obj=target(db,actor,kind,tid)
+        items=[]
+        for row in db.execute('SELECT id FROM maintenance_jobs WHERE target_type=? AND target_id=? ORDER BY created_at DESC,rowid DESC LIMIT 20',(kind,obj['id'])):
+            try:items.append(projection(db,actor,row['id']))
+            except HTTPException:continue
+        return jsonify(items=items)
     @app.post('/api/maintenance/jobs')
     def maintenance_submit():
         data=ctx.body();jid=enqueue(ctx.db(),ctx.user(),data.get('target_type'),data.get('target_id'),data.get('request_id'),data.get('feedback',''),data.get('priority',0))
