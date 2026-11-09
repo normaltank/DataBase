@@ -52,6 +52,22 @@ class MaterialDiscoveryTests(unittest.TestCase):
         self.assertEqual(filtered['total'],23)
         self.assertEqual({r['value'] for r in filtered['countries']},{'LV','DE'})
 
+    def test_country_context_retains_other_filters_without_changing_current_statistics(self):
+        source=self.call('/api/sources', {'name':'合成国别上下文','kind':'institution'}, status=201)['id']
+        self.record(title='国别上下文甲', countries='Latvia|Germany', source_id=source)
+        self.record(title='国别上下文乙', countries='Japan', source_id=source)
+        self.record(title='国别上下文未知', source_id=source)
+        self.record(title='国别上下文另源', countries='Japan')
+        self.record(title='国别上下文保密', countries='Japan', source_id=source, visibility='restricted')
+        self.login('colleague')
+        result=self.get({'q':'国别上下文','source':source,'country':'LV'})
+        self.assertEqual(result['total'],1)
+        self.assertEqual({x['value']:x['count'] for x in result['countries']},{'LV':1,'DE':1})
+        self.assertEqual(result['country_context']['scope'],'query_without_country')
+        self.assertEqual(result['country_context']['total'],3)
+        self.assertEqual({x['value']:x['count'] for x in result['country_context']['countries']},
+                         {'LV':1,'DE':1,'JP':1,'__unknown__':1})
+
     def test_date_roles_precision_unknown_and_existing_year_filters(self):
         self.record(published_on='1999')
         self.record(published_on='1999-03')

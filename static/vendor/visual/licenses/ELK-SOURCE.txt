@@ -1,0 +1,4 @@
+elkjs 0.12.1 is distributed under EPL-2.0, with conditional secondary-license provisions in upstream source.
+Exact source release: https://registry.npmjs.org/elkjs/-/elkjs-0.12.1.tgz
+Upstream: https://github.com/kieler/elkjs/tree/v0.12.1
+No ELK source modifications. API and classic worker must remain the same version.

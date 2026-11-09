@@ -25,3 +25,7 @@ tests/fixtures/archive_suggestions/liia-en-20261102.html -text whitespace=-blank
 
 # Official wheel licenses are hash-locked raw bytes, including native CRLF.
 server/licenses/** -text whitespace=-blank-at-eol,cr-at-eol
+
+# Preserve exact generated JS/worker/CSS and upstream license bytes across hosts.
+static/vendor/visual/** -text
+frontend/prototype-LICENSE.txt -text

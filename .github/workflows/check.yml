@@ -8,6 +8,23 @@ permissions:
   contents: read
 
 jobs:
+  visual_assets:
+    name: Reproducible local visual assets
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Install exact visual dependencies
+        working-directory: frontend
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Verify full and single-entry generated assets
+        run: |
+          node frontend/build.mjs
+          git diff --exit-code -- static/vendor/visual
+          node frontend/build.mjs --entry globe
+          git diff --exit-code -- static/vendor/visual
   native_release:
     name: Source ZIP / Python 3.14 / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}

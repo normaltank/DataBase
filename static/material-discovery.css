@@ -37,3 +37,18 @@
 .material-discovery ::selection{background:#eaf1fb;color:#174e9c}
 .material-discovery a{text-underline-offset:3px}
 @media(max-width:700px){.material-discovery>summary,.material-discovery button,.material-discovery select{min-height:44px}.material-heading{gap:8px}.material-year{gap:8px;grid-template-columns:4.5em minmax(0,1fr) 4em}.material-map{min-height:170px}.material-map-footer{display:block}.material-legend{margin-bottom:8px}.material-heading label{flex-wrap:wrap}}
+
+.material-globe{width:100%;height:350px;background:#f0f4f9;overflow:hidden;touch-action:none}
+.material-globe canvas{display:block;width:100%;height:100%}
+.material-globe[hidden],.material-map[hidden]{display:none}
+.material-discovery .material-context{margin:6px 0}
+.material-discovery [data-material-globe-status]{min-height:22px}
+.material-discovery .material-country-list{max-height:100px}
+@media(max-width:700px){.material-globe{height:240px}.material-controls{flex-wrap:wrap}}
+
+.material-geography{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(220px,1fr);gap:20px}
+.material-stage,.material-country-column{min-width:0}
+.material-country-column .material-heading{margin-top:0}
+.material-country-column .material-country-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));max-height:350px;align-content:start}
+.material-country-column .material-country-list button{min-width:0;width:100%;overflow-wrap:anywhere}
+@media(max-width:700px){.material-geography{grid-template-columns:minmax(0,1fr);gap:12px}.material-country-column .material-country-list{max-height:240px}.material-heading label{min-width:0}.material-heading select{min-width:0}}
