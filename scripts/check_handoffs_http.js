@@ -18,7 +18,10 @@ w.api=async(url,options={})=>{
   if(loseNext&&options.method==='POST'){loseNext=false;throw new Error('synthetic unknown result');}
   return result.body;
 };
-for(const file of ['collaboration.js','topic-review.js','topic-finals.js','topic-closure.js','workbench.js','topic-handoffs.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../static',file),'utf8'),dom.getInternalVMContext());
+// Match the real page's shared-adapter dependencies before the handoff consumer.
+// jsdom has no layout/WebGL; this seam still executes the actual adapter and
+// reading events. Normal browser checks exercise ESM, ELK and graphical picking.
+for(const file of ['maintenance-trace.js','visual-loader.js','collaboration.js','topic-review.js','topic-finals.js','topic-closure.js','workbench.js','topic-handoffs.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../static',file),'utf8'),dom.getInternalVMContext());
 const tick=()=>new Promise(r=>setTimeout(r,5));async function until(fn){for(let i=0;i<1500;i++){if(fn())return;await tick();}throw new Error('DOM operation timed out: '+w.document.body.textContent.slice(-500));}
 w.route=async()=>{w.document.querySelector('#content').innerHTML=await w.workbenchTopic(tid);};
 w.go=async(page,params)=>{w.eval('state').params=new w.URLSearchParams(params);await w.route();};
@@ -34,6 +37,17 @@ async function review(value,unknown=false){await login('researcher');await w.rou
  let b=await w.api(`/api/collaboration/topics/${tid}/handoffs`);assert.equal(b.materials.length,1);let ref=b.materials[0].ref;
  await review('returned',true);await login('colleague');await upload('selection',ref);await review('approved');
  b=await w.api(`/api/collaboration/topics/${tid}/handoffs`);assert.equal(b.materials[0].status,'approved');assert.equal(b.materials[0].versions.length,2);
+ // The real shared Flow adapter must coexist with the DOM/HTTP reading path.
+ // History selection resolves the original authenticated version URL, then
+ // returning current does not change the series or imply a new review.
+ await w.route();const card=w.document.querySelector(`[data-material-ref="${ref}"]`),versions=b.materials[0].versions;
+ assert(card.querySelector('[data-flow-slot]'),'real Flow adapter renders its slot');
+ assert(card.querySelector('[data-flow-command="selected"]'),'real Flow controls remain available');
+ card.querySelector(`[data-action="handoff-select"][data-version="${versions[1].ref}"][data-review=""]`).click();
+ assert.equal(card.querySelector('[data-reading-version]').dataset.readingVersion,versions[1].ref);
+ assert.equal(card.querySelector('[data-handoff-reading] a[download]').getAttribute('href'),versions[1].file_url);
+ card.querySelector('[data-action="handoff-current"]').click();
+ assert.equal(card.querySelector('[data-reading-version]').dataset.readingVersion,versions[0].ref);
  w.document.querySelector('[data-action=topic-review-enter]').click();await until(()=>w.document.querySelector('[data-form=topic-stage-enter]'));const stage=w.document.querySelector('[data-form=topic-stage-enter]');submit(stage);await until(()=>!stage.isConnected);assert.equal((await w.api(`/api/collaboration/topics/${tid}/handoffs`)).stage,'compilation');
  await login('colleague');ref=(await upload('compilation')).ref;await review('returned');await login('colleague');await upload('compilation',ref);await review('approved');
  // Owner+lead can submit and review their own independent material.
