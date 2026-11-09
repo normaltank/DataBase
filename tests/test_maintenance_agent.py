@@ -458,6 +458,48 @@ class MaintenanceAgentTests(unittest.TestCase):
         self.assertEqual(self.detail(self.rid)['keywords'],'波罗的海合作')
         self.assertEqual(sum(s['name'] in {'fetch','search'} for s in final['steps']),before)
 
+    def profile_sources_flow(self,request_id,*,array_first=False):
+        urls=['https://uni.example/alex','https://uni.example/alex/cv'];saved=[];normal=self.respond
+        def supplier(request,*args,**kwargs):
+            if request.full_url.endswith('/chat/completions'):
+                body=json.loads(request.data)
+                tool=next(t['function'] for t in body['tools'] if t['function']['name']=='save_profile')
+                field=tool['parameters']['properties']['data']['properties']['sources']
+                self.assertEqual(field['type'],'string');self.assertEqual(field['maxLength'],40000)
+            if request.full_url.endswith('/tools/fetch'):
+                return Reply({'content':'Alex Vale is a lecturer at North University. Public pages: '+', '.join(urls)},request.full_url)
+            return normal(request,*args,**kwargs)
+        def model():
+            last=self.tool_results[-1] if self.tool_results else {}
+            if self.rounds==1:return 'fetch',{'url':urls[0]}
+            evidence=next(x['evidence_id'] for x in self.tool_results if x.get('method')=='deepseek-fetch-markdown')
+            if self.rounds==2 or array_first and self.rounds==3:
+                if self.rounds==3:
+                    self.assertIn('data.sources',last['error']);self.assertIn('换行',last['error']);self.assertIn('全部出处',last['error'])
+                    self.assertEqual(self.clients['researcher'].get('/api/people').json['total'],0)
+                sources=urls if array_first and self.rounds==2 else '\n'.join(urls)
+                return 'save_profile',{'target_type':'person','data':{'name':'Alex Vale','sources':sources},'evidence_id':evidence,'quote':'Alex Vale is a lecturer at North University.'}
+            if last.get('changed_target'):
+                saved.append(last['object']['id'])
+                return 'read',{'target_type':'person','id':saved[-1]}
+            if last.get('object',{}).get('id')!=self.rid:return 'read',{'target_type':'record','id':self.rid}
+            return 'finish',{'reason':'已保存人物与全部出处。'}
+        self.next_action=model;self.provider.side_effect=supplier
+        jid=self.queue(request_id);self.call('/api/admin/maintenance/run',user='admin')
+        state=self.job(jid);self.assertEqual(state['status'],'completed',state['reason'])
+        self.assertEqual(len(saved),1)
+        current=self.clients['researcher'].get('/api/people/'+saved[0]).json
+        self.assertEqual(current['sources'],'\n'.join(urls))
+        attempts=[s for s in state['steps'] if s['name']=='save_profile']
+        self.assertEqual(len(attempts),2 if array_first else 1)
+        self.assertEqual(sum(bool(s['result'].get('changed_target')) for s in attempts),1)
+
+    def test_person_sources_contract_reaches_provider_and_newline_references_save_first_time(self):
+        self.profile_sources_flow('typed-person-sources')
+
+    def test_person_sources_array_error_preserves_all_references_for_explicit_retry(self):
+        self.profile_sources_flow('retry-person-sources',array_first=True)
+
     def test_same_name_is_recalled_but_identity_is_not_merged_and_article_unit_is_not_employment(self):
         created=self.call('/api/people',{'name':'Alex Vale','introduction_html':'<p>Physicist at South Laboratory.</p>','change_note':'Independent synthetic identity'})
         self.assertEqual(created.status_code,201,created.json)
