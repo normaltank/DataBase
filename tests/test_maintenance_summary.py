@@ -95,5 +95,3 @@ class MaintenanceSummaryTests(unittest.TestCase):
         for actor in ['researcher','colleague','admin']:
             self.assertEqual(self.clients[actor].get('/api/maintenance/jobs/'+jid).status_code,404)
             self.assertEqual(self.clients[actor].get('/api/maintenance/jobs?view=summary').json['items'],[])
-
-
