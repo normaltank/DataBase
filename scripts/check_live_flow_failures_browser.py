@@ -21,6 +21,8 @@ def main():
     output=args.evidence.resolve();output.mkdir(parents=True,exist_ok=False)
     logging.getLogger('werkzeug').setLevel(logging.ERROR)
     fixture=MaintenanceAgentTests();fixture.setUp()
+    fixture.queue('permission-summary')
+    fixture.call('/api/admin/maintenance/run',user='admin')
     jid=fixture.queue('failure-contract')
     db=store.connect(fixture.data_dir/'platform.sqlite3')
     with db:
@@ -32,7 +34,7 @@ def main():
     server=make_server('127.0.0.1',0,fixture.app,threaded=True)
     thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
     base=f'http://127.0.0.1:{server.server_port}'
-    checks=[];violations=[]
+    checks=[];violations=[];failure_events=[]
     try:
         with sync_playwright() as p:
             browser=p.chromium.launch(headless=True)
@@ -55,22 +57,29 @@ def main():
                 expect(empty.locator('[data-flow-status]')).to_contain_text('流程图可点选')
                 expect(empty.locator('[data-flow-slot]')).to_be_visible()
                 assert empty.locator('[data-flow-command]').evaluate_all('buttons=>buttons.every(button=>!button.disabled)')
-                verify_workers(empty);empty.close();checks.append('zero-step empty graph; actual first step restores graph, controls and true Worker')
+                verify_workers(empty);empty.close();context.close();checks.append('zero-step empty graph; actual first step restores graph, controls and true Worker')
                 for failure in ['module','worker']:
+                    # A prior successful module/Worker must not satisfy this
+                    # failure probe from another page's browser cache.
+                    context=browser.new_context(viewport={'width':1366,'height':900})
                     page=context.new_page();install(page)
                     errors=[];page.on('pageerror',lambda error:errors.append(str(error)))
-                    blocked='**/static/vendor/visual/'+('flow.js' if failure=='module' else 'elk-worker.min.js')
-                    page.route(blocked,lambda route:route.abort())
+                    blocked='**/static/vendor/visual/'+('flow.js*' if failure=='module' else 'elk-worker.min.js*')
+                    blocked_requests=[]
+                    def block(route):
+                        blocked_requests.append(route.request.url);route.abort()
+                    context.route(blocked,block)
                     page.goto(base+'/#maintenance-agent')
                     if page.get_by_role('button',name='资料管理员',exact=True).count():page.get_by_role('button',name='资料管理员',exact=True).click()
                     page.locator(f'[data-maintenance-select="{jid}"]').click()
                     status=page.locator('[data-flow-status]')
                     expect(status).to_contain_text('未能加载' if failure=='module' else '排列失败',timeout=16000)
+                    assert blocked_requests,'The intended module/Worker request must actually fail'
                     verify_workers(page)
                     expect(page.locator('[data-trace-step]')).to_have_count(2)
                     page.locator('[data-trace-step]').last.click()
                     expect(page.locator('[data-trace-detail]')).to_contain_text('此步记录处理结束')
-                    page.unroute(blocked)
+                    context.unroute(blocked)
                     page.get_by_role('button',name='重试流程图',exact=True).click()
                     expect(page.locator('.react-flow__node')).to_have_count(2)
                     expect(status).to_contain_text('流程图可点选')
@@ -83,11 +92,30 @@ def main():
                     # Worker script loading failures can emit a native worker
                     # error, which is the intentionally exercised failure.
                     if failure=='module':assert not errors,errors
-                    page.close()
+                    if failure=='worker':
+                        expect(page.locator('[data-maintenance-recent]')).to_contain_text('Baltic cooperation')
+                        page.locator('.maintenance-single>summary').click()
+                        own_input=page.get_by_label('查找文章',exact=True);own_input.fill('保留本人的输入')
+                        summary='**/api/maintenance/jobs?view=summary'
+                        context.route(summary,lambda route:route.fulfill(status=403,json={'error':'合成成员资格失效'}))
+                        page.get_by_role('button',name='刷新状态',exact=True).click()
+                        expect(page.locator('[data-maintenance-error]')).to_contain_text('合成成员资格失效',timeout=10000)
+                        expect(page.locator('[data-maintenance-recent]')).to_be_empty()
+                        expect(page.locator('[data-maintenance-jobs]')).to_be_empty()
+                        expect(page.locator('[data-maintenance-detail]')).to_be_empty()
+                        for selector in ['[data-maintenance-running]','[data-maintenance-window]','[data-maintenance-range]','[data-maintenance-heartbeat]','[data-maintenance-selection-note]']:
+                            expect(page.locator(selector)).to_be_empty()
+                        expect(own_input).to_have_value('保留本人的输入')
+                        context.unroute(summary);page.get_by_role('button',name='刷新状态',exact=True).click()
+                        expect(page.locator('.react-flow__node')).to_have_count(2)
+                        expect(page.locator('[data-maintenance-recent]')).to_contain_text('Baltic cooperation')
+                        checks.append('global loss of qualification clears all authorized summaries and graph, retains own input, then reauthenticates recovery')
+                    failure_events.append({'mode':failure,'blocked_requests':blocked_requests,'page_errors':errors,'workers':verify_workers(page)})
+                    page.close();context.close()
             finally:context.close();browser.close()
     finally:
         server.shutdown();server.server_close();thread.join(timeout=5);fixture.doCleanups()
-        (output/'result.json').write_text(json.dumps({'checks':checks,'policy_violations':violations,'server_closed':not thread.is_alive()},ensure_ascii=False,indent=2),encoding='utf-8')
+        (output/'result.json').write_text(json.dumps({'checks':checks,'policy_violations':violations,'failure_events':failure_events,'server_closed':not thread.is_alive()},ensure_ascii=False,indent=2),encoding='utf-8')
     print(json.dumps({'checks':checks,'evidence':str(output)},ensure_ascii=False))
 
 

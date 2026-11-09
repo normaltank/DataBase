@@ -42,6 +42,7 @@ function maintenanceJobsPaint(view){
   if(!maintenanceViewActive(view)||!view.root?.isConnected)return;
   const root=view.root;
   const info=view.overview;
+  if(!info||!view.window)return;
   maintenancePatch(root.querySelector('[data-maintenance-running]'),`<strong>${esc(maintenanceRunStates[info.status]||info.status)}</strong><span>${esc(info.reason)}</span>${state.me.role==='admin'?'<a href="#maintenance-ai">配置、暂停与费用</a>':''}`);
   const jobs=view.jobs.filter(job=>!view.filter||job.status===view.filter);
   maintenancePatch(root.querySelector('[data-maintenance-jobs]'),jobs.map(job=>maintenanceJobRow(job,view)).join('')||'<p class="muted">当前近期窗口中没有符合此状态的任务。</p>');
@@ -99,7 +100,11 @@ async function maintenanceReload(view,{summary=true}={}){
       view.root.querySelector('[data-maintenance-updated]').textContent='最近成功更新：'+dateTime(view.lastSuccess);
     }catch(failure){
       if(!maintenanceViewActive(view)||failure.name==='AbortError')return;
-      if([401,403].includes(failure.status)){view.readCache?.clear();view.detail=null;view.jobs=[];view.root.querySelector('[data-maintenance-detail]').replaceChildren();view.root.querySelector('[data-maintenance-jobs]').replaceChildren();}
+      if([401,403].includes(failure.status)){
+        view.readCache?.clear();view.detail=null;view.jobs=[];view.overview=null;view.window=null;view.heartbeat='';
+        delete view.root.querySelector('[data-maintenance-detail]').dataset.loadedJob;
+        for(const selector of ['[data-maintenance-detail]','[data-maintenance-jobs]','[data-maintenance-recent]','[data-maintenance-running]','[data-maintenance-window]','[data-maintenance-range]','[data-maintenance-heartbeat]','[data-maintenance-selection-note]'])view.root.querySelector(selector).replaceChildren();
+      }
       if(error)error.textContent=failure.message+'；状态未更新，可刷新状态重试。';
       view.root.querySelector('[data-maintenance-updated]').textContent='未更新；最后成功更新：'+dateTime(view.lastSuccess);
     }
