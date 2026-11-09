@@ -74,6 +74,8 @@ class MaterialDiscoveryTests(unittest.TestCase):
         self.record(published_on='2000-03-04')
         self.record()
         result=self.get()
+        self.assertNotIn('timeline_window',result)
+        self.assertNotIn('time_context',result)
         self.assertEqual(result['dates']['published'], {
             'years':[{'year':'2000','count':1},{'year':'1999','count':2}],
             'unknown':1,'precision':{'year':1,'month':1,'day':1}})
@@ -94,7 +96,7 @@ class MaterialDiscoveryTests(unittest.TestCase):
         self.login('colleague')
         saved=self.call('/api/saved-searches', {'name':'合成查询','conditions':{'q':'固定查询'}},status=201)
         batch=self.call('/api/reading-batches')
-        query={'saved_search':saved['id'],'batch':batch['id'],'batch_scope':'all','q':'其他'}
+        query={'saved_search':saved['id'],'batch':batch['id'],'batch_scope':'all','q':'其他','visual_window':'1'}
         shown=self.client.get('/api/records',query_string=query).json
         self.assertEqual([r['id'] for r in shown['items']],[first])
         self.assertEqual(self.get(query)['reading_confirmation'],shown['reading_confirmation'])
@@ -104,11 +106,42 @@ class MaterialDiscoveryTests(unittest.TestCase):
         self.login('colleague')
         self.assertEqual(self.get(query)['total'],1)
         self.assertEqual(self.get(query)['countries'],[{'value':'LV','label':'拉脱维亚','count':1}])
+        self.assertEqual([item['id'] for item in self.get(query)['timeline_window']['items']],[first])
         self.login()
         self.call('/api/records/'+first,{'version':1,'visibility':'restricted'},method='PUT')
         self.login('colleague')
         self.assertEqual(self.get(query)['total'],0)
         self.assertEqual(self.get(query)['countries'],[])
+        self.assertEqual(self.get(query)['timeline_window']['items'],[])
         self.assertEqual(self.client.get('/api/export',query_string=query).data.decode('utf-8-sig').count(first),0)
         self.call('/api/logout')
         self.assertEqual(self.client.get('/api/material-discovery').status_code,401)
+
+    def test_time_window_is_bounded_after_acl_filters_with_real_precision_and_context(self):
+        allowed=[]
+        for i in range(305):
+            allowed.append(self.record(title=f'时间窗口 {i:03}', countries='Latvia',
+                                       published_on=['1874','2001-02','2031-12-29',''][i%4]))
+            if i%60==0:
+                self.record(title='时间窗口 私有', countries='Latvia', published_on='1500', visibility='restricted')
+        self.record(title='无关时间窗口', countries='Japan', published_on='1001')
+        self.login('colleague')
+        result=self.get({'q':'时间窗口','country':'LV','visual_window':'1','page':90,'size':1})
+        window=result['timeline_window']
+        self.assertEqual((window['total'],window['loaded'],window['limit'],window['has_more']), (305,300,300,True))
+        self.assertTrue({item['id'] for item in window['items']} <= set(allowed))
+        self.assertEqual(set(window['items'][0]), {'id','title','kind','date','year','precision'})
+        self.assertEqual({item['precision'] for item in window['items']}, {'year','month','day','unknown'})
+        self.assertEqual(result['time_context']['dates']['published']['years'],
+                         [{'year':'2031','count':76},{'year':'2001','count':76},{'year':'1874','count':77}])
+        filtered=self.get({'q':'时间窗口','country':'LV','from':'2001-01-01','to':'2001-12-31','visual_window':'1'})
+        self.assertEqual(filtered['total'],76)
+        self.assertEqual(filtered['time_context']['total'],305)
+        self.assertTrue(all(item['date']=='2001-02' for item in filtered['timeline_window']['items']))
+        unknown=self.get({'q':'时间窗口','country':'LV','date_unknown':'1','visual_window':'1'})
+        self.assertEqual(unknown['total'],76)
+        self.assertTrue(all(item['date']=='' and item['precision']=='unknown' for item in unknown['timeline_window']['items']))
+        for role in ['collected','updated']:
+            result=self.get({'q':'时间窗口','country':'LV','date_field':role,'visual_window':'1'})
+            self.assertEqual(result['timeline_window']['date_field'],role)
+            self.assertTrue(all(item['precision']=='day' for item in result['timeline_window']['items']))

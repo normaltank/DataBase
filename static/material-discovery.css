@@ -26,7 +26,7 @@
 .material-country-list button{white-space:normal;text-align:left;overflow-wrap:anywhere;max-width:100%}
 .material-country-list strong,.material-year strong{font-variant-numeric:tabular-nums}
 .material-unmapped{color:#58697b}
-.material-time{border-top:1px solid #d6e0eb;margin-top:16px}
+.material-time{margin-top:8px}
 .material-years{display:grid;gap:4px;max-height:240px;overflow:auto;padding:3px;margin-bottom:8px}
 .material-year{display:grid;grid-template-columns:5em minmax(0,1fr) 5em;align-items:center;gap:12px;min-height:36px;border:1px solid transparent;border-radius:4px;padding:5px 8px;background:#fff;color:#243347;text-align:left;font:inherit;cursor:pointer}
 .material-year:hover{background:#f0f4f9}
@@ -52,3 +52,19 @@
 .material-country-column .material-country-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));max-height:350px;align-content:start}
 .material-country-column .material-country-list button{min-width:0;width:100%;overflow-wrap:anywhere}
 @media(max-width:700px){.material-geography{grid-template-columns:minmax(0,1fr);gap:12px}.material-country-column .material-country-list{max-height:240px}.material-heading label{min-width:0}.material-heading select{min-width:0}}
+
+.material-time-range{display:flex;gap:8px;align-items:end;flex-wrap:wrap}
+.material-time-range label{display:flex;gap:6px;align-items:center;min-width:0}
+.material-time-range input{width:6.5em;max-width:100%;min-height:34px;font:inherit;font-variant-numeric:tabular-nums;caret-color:#174e9c}
+.material-time-chart{width:100%;height:270px;min-width:0}
+.material-time-lens{width:100%;height:320px;background:#f0f4f9;touch-action:none;overflow:hidden}
+.material-time-lens canvas{display:block;width:100%;height:100%}
+.material-window>summary{min-height:36px;cursor:pointer;padding:6px 0;color:#174e9c}
+.material-window-list{display:grid;max-height:250px;overflow:auto;gap:4px;padding:3px}
+.material-window-list button{text-align:left;white-space:normal;overflow-wrap:anywhere;min-width:0}
+.material-time-axis,.material-window-scope{font-variant-numeric:tabular-nums}
+.material-native-years>summary{min-height:36px;padding:6px 0;cursor:pointer;color:#174e9c}
+.material-scene-controls{margin:8px 0}
+.material-discovery section[hidden]{display:none}
+@media(max-width:700px){.material-time-range input,.material-window>summary{min-height:44px}.material-time-range label{flex-wrap:wrap;flex:1 1 110px}.material-time-chart{height:250px}.material-time-lens{height:240px}}
+@media(max-width:700px){.material-native-years>summary{min-height:44px}}
