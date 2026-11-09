@@ -1,7 +1,7 @@
 'use strict';
 let maintenanceAgentState=null;
 const maintenanceStatuses={queued:'等待处理',running:'正在整理',paused:'已暂停',completed:'已完成',failed:'未完成',cancelled:'已取消'};
-const maintenanceTools={find:'查找已有档案',read:'读取当前内容',search:'搜索公开资料',fetch:'读取公开网页',save_profile:'保存档案',save_record:'整理文章',set_bylines:'关联作者',set_affiliations:'整理署名单位',set_employments:'整理任职',finish:'检查结果'};
+const maintenanceTools={find:'查找已有档案',read:'读取当前内容',read_field:'读取档案片段',read_evidence:'查阅已存材料',search:'搜索公开资料',fetch:'读取公开网页',save_profile:'保存档案',save_record:'整理文章',set_bylines:'关联作者',set_affiliations:'整理署名单位',set_employments:'整理任职',finish:'检查结果'};
 const maintenanceRunStates={running:'运行中',waiting:'等待后台',paused:'已暂停',needs_configuration:'缺少配置'};
 function maintenanceOverviewHtml(data){
   const info=data.overview,counts=info.counts;
@@ -41,8 +41,9 @@ async function maintenancePoll(view){
   if(view===maintenanceAgentState&&state.me?.id===view.actor&&state.page==='maintenance-agent')setTimeout(()=>maintenancePoll(view),5000);
 }
 async function maintenanceReload(view){
+  const turn=(view.readTurn||0)+1;view.readTurn=turn;
   const result=await api('/api/maintenance/jobs');
-  if(view!==maintenanceAgentState||state.me?.id!==view.actor||state.page!=='maintenance-agent')return;
+  if(view!==maintenanceAgentState||state.me?.id!==view.actor||state.page!=='maintenance-agent'||view.readTurn!==turn)return;
   view.jobs=result.items;view.heartbeat=result.heartbeat;view.overview=result.overview;maintenanceJobsPaint(view);
   const error=document.querySelector('[data-maintenance-error]');if(error)error.textContent='';
 }
@@ -64,6 +65,7 @@ document.addEventListener('submit',async event=>{
       const result=await api('/api/maintenance/jobs',{method:'POST',body:{target_type:'record',target_id:id,request_id:view.requestId}});if(!current())return;
       form.querySelector('[data-maintenance-message]').textContent='已安排，后台将继续整理。';
       const job=await api('/api/maintenance/jobs/'+encodeURIComponent(result.id));if(!current())return;
+      view.readTurn=(view.readTurn||0)+1;
       view.jobs=[job,...view.jobs.filter(x=>x.id!==job.id)];maintenanceJobsPaint(view);
       document.querySelector(`[data-job="${CSS.escape(job.id)}"]`).open=true;
     }

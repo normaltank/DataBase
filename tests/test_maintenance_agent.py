@@ -172,6 +172,61 @@ class MaintenanceAgentTests(unittest.TestCase):
             self.assertIn(result.status_code,[400,404])
         self.assertEqual(self.rounds,0)
 
+    def test_long_persisted_observations_resume_without_refetch_and_tail_evidence_can_be_saved(self):
+        from platform_app.maintenance_agent import run_pending
+        from platform_app.maintenance import create_backup, restore_backup
+        text = 'Unrelated public archive text. ' * 5600 + '\nIndependent finding: Baltic cooperation concerns Latvia.'
+        requests = []; bodies = []; evidence = ''; turn = 0
+        def supplier(request, *args, **kwargs):
+            nonlocal turn, evidence
+            body = json.loads(request.data); requests.append(request.full_url)
+            if request.full_url.endswith('/tools/search'):
+                return Reply({'results': [{'title': 'Public archive', 'url': 'https://uni.example/archive',
+                    'snippet': 'Baltic cooperation public archive', 'content': text}]}, request.full_url)
+            if request.full_url.endswith('/tools/fetch'):
+                return Reply({'title': 'Public archive', 'content': text}, request.full_url)
+            bodies.append(body); turn += 1
+            self.assertLess(len(json.dumps(body, ensure_ascii=True)), 110000)
+            observations = [json.loads(m['content']) for m in body['messages'] if m['role'] == 'tool']
+            if turn == 1: name, args = 'search', {'query': 'Baltic cooperation archive'}
+            elif turn == 2: name, args = 'fetch', {'url': 'https://uni.example/archive'}
+            elif turn == 3:
+                value = observations[-1]; evidence = value['evidence_id']
+                self.assertEqual(value['url'], 'https://uni.example/archive')
+                self.assertEqual(value['text_length'], len(text)); self.assertEqual(len(value['sha256']), 64)
+                name, args = 'read_evidence', {'evidence_id': evidence, 'query': 'Independent finding'}
+            elif turn == 4:
+                self.assertIn('Independent finding: Baltic cooperation concerns Latvia.', observations[-1]['text'])
+                self.assertGreater(observations[-1]['offset'], 160000)
+                name, args = 'save_record', {'id': self.rid, 'version': 1, 'data': {'countries': 'Latvia'},
+                    'evidence_id': evidence, 'quote': 'Independent finding: Baltic cooperation concerns Latvia.'}
+            elif turn == 5: name, args = 'read', {'target_type': 'record', 'id': self.rid}
+            else: name, args = 'finish', {'reason': '已按公开材料整理研究对象国。'}
+            message = {'role': 'assistant', 'content': None, 'tool_calls': [{'id': 'long-'+str(turn),
+                'type': 'function', 'function': {'name': name, 'arguments': json.dumps(args)}}]}
+            return Reply({'model': 'deepseek-flash', 'usage': {'prompt_tokens': 30, 'completion_tokens': 20, 'total_tokens': 50},
+                'choices': [{'finish_reason': 'tool_calls', 'message': message}]}, request.full_url)
+        self.provider.side_effect = supplier
+        jid = self.queue('long-observation')
+        def stopping():
+            return any(s['name'] == 'fetch' and s['status'] == 'completed' for s in self.job(jid)['steps'])
+        self.assertEqual(run_pending(self.data_dir, stopping=stopping), {'tasks': 1, 'completed': 0})
+        # This is the pre-fix persisted shape: full paid observations in the
+        # conversation. Restoring must project it before the next model turn.
+        before = self.job(jid)
+        self.assertEqual(next(e['text'] for e in before['evidence'] if e['method'] == 'deepseek-fetch-markdown'), text)
+        restored = self.data_dir.parent/'long-restored'
+        restore_backup(create_backup(self.data_dir), restored)
+        client = self.login('researcher', create_app(restored, testing=True))
+        resumed=run_pending(restored)
+        self.assertEqual(resumed, {'tasks': 1, 'completed': 1}, {k:v for k,v in self.job(jid, client).items() if k not in {'evidence','steps'}})
+        self.assertEqual(self.job(jid, client)['status'], 'completed')
+        self.assertEqual(client.get('/api/records/'+self.rid).json['countries'], 'Latvia')
+        self.assertEqual(requests.count('https://provider.example/v1/tools/search'), 1)
+        self.assertEqual(requests.count('https://provider.example/v1/tools/fetch'), 1)
+        self.assertEqual(self.job(jid, client)['evidence'], before['evidence'])
+        restore_backup(create_backup(restored), self.data_dir.parent/'long-final-restored')
+
     def test_search_budget_reservation_blocks_before_sending(self):
         self.env.stop()
         cheap={**self.price,'input_cache_hit_per_million':'0.000001','input_cache_miss_per_million':'0.000001','output_per_million':'0.000001'}
@@ -184,6 +239,38 @@ class MaintenanceAgentTests(unittest.TestCase):
         charges=self.clients['admin'].get('/api/admin/ai').json
         self.assertEqual(charges['held_units'],0)
         self.assertFalse(any(a['task'].startswith('maintenance-tool:') for a in charges['attempts']))
+
+    def test_long_current_profile_can_be_read_in_pages_and_saved_without_repeating_full_fields(self):
+        intro='<p>'+('A public biographical detail. '*5600)+' Last archival detail.</p>'
+        created=self.call('/api/people',{'name':'Alex Vale','introduction_html':intro,'change_note':'Synthetic long public profile'})
+        self.assertEqual(created.status_code,201,created.json)
+        pid=created.json['id'];normal=self.respond
+        def supplier(request,*args,**kwargs):
+            if not request.full_url.endswith('/chat/completions'):return normal(request,*args,**kwargs)
+            body=json.loads(request.data)
+            self.assertLess(len(json.dumps(body,ensure_ascii=True)),110000)
+            return normal(request,*args,**kwargs)
+        def model():
+            if self.rounds==1:return 'fetch',{'url':'https://uni.example/alex'}
+            evidence=next(x['evidence_id'] for x in self.tool_results if x.get('method')=='deepseek-fetch-markdown')
+            if self.rounds==2:return 'save_profile',{'target_type':'person','id':pid,'version':1,'data':{'chinese_name':'亚历克斯'},'evidence_id':evidence,'quote':'Alex Vale is a lecturer at North University.'}
+            if self.rounds==3:
+                self.assertEqual(self.tool_results[-1]['object']['version'],2)
+                self.assertNotIn('before',self.tool_results[-1]);self.assertNotIn('changes',self.tool_results[-1])
+                return 'read_field',{'target_type':'person','id':pid,'field':'introduction_html','offset':len(intro)-100,'limit':100}
+            if self.rounds==4:
+                self.assertIn('Last archival detail.',self.tool_results[-1]['text'])
+                self.assertIsNone(self.tool_results[-1]['next_offset'])
+                return 'read',{'target_type':'person','id':pid}
+            return 'finish',{'reason':'已更新姓名，保留完整介绍。'}
+        self.next_action=model;self.provider.side_effect=supplier
+        q=self.call('/api/maintenance/jobs',{'target_type':'person','target_id':pid,'request_id':'long-profile'})
+        self.call('/api/admin/maintenance/run',user='admin')
+        state=self.job(q.json['id'])
+        self.assertEqual(state['status'],'completed',state['reason'])
+        current=self.clients['researcher'].get('/api/people/'+pid).json
+        self.assertEqual(current['introduction_html'],intro)
+        self.assertEqual(current['chinese_name'],'亚历克斯')
 
     def test_same_name_is_recalled_but_identity_is_not_merged_and_article_unit_is_not_employment(self):
         created=self.call('/api/people',{'name':'Alex Vale','introduction_html':'<p>Physicist at South Laboratory.</p>','change_note':'Independent synthetic identity'})

@@ -10,4 +10,8 @@
 .feedback-job dd{margin:4px 0 10px;overflow-wrap:anywhere;white-space:pre-wrap}
 .feedback-job dd span{display:block}
 .feedback-job p,.feedback-job a{overflow-wrap:anywhere}
+.maintenance-action{display:inline-flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0}
+.maintenance-action [role=status]{color:var(--muted);font-size:14px}
+.maintenance-action .form-error:empty{display:none}
+.maintenance-action .form-error{overflow-wrap:anywhere}
 @media(max-width:700px){.maintenance-feedback summary,.maintenance-feedback button{min-height:44px}.maintenance-feedback .row{gap:8px}.maintenance-feedback textarea{min-height:88px}}
