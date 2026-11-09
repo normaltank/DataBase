@@ -60,6 +60,8 @@ function maintenanceTraceDetail(job,step,selectedEvidence){
 // Small, scoped DOM reconciliation. Keyed evidence/details and unchanged nodes
 // retain native open state, scroll and focus. Forms are outside this surface.
 function maintenancePatch(root,html){
+  const focused=root.contains(document.activeElement)?document.activeElement:null;
+  const positions=[root,...root.querySelectorAll('*')].filter(node=>node.scrollTop||node.scrollLeft).map(node=>[node,node.scrollTop,node.scrollLeft]);
   const template=document.createElement('template');template.innerHTML=html;
   function sync(parent,incoming){
     let cursor=parent.firstChild;
@@ -87,6 +89,8 @@ function maintenancePatch(root,html){
     while(cursor){const next=cursor.nextSibling;cursor.remove();cursor=next;}
   }
   sync(root,template.content);
+  if(focused?.isConnected&&document.activeElement!==focused)focused.focus({preventScroll:true});
+  for(const [node,top,left] of positions)if(node.isConnected){node.scrollTop=top;node.scrollLeft=left;}
 }
 function maintenanceTraceHtml(job){
   const token=crypto.randomUUID();maintenanceTracePending.set(token,{job,actor:state.me?.id,pageTurn:state.loadId});

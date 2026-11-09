@@ -25,10 +25,10 @@ async function maintenanceFeedbackHtml(kind,obj){
   if(!state.me||state.schema<29)return '';
   if(kind==='record'&&(isResearchContent(obj.kind)||obj.visibility!=='shared'||obj.evidence_record_id))return '';
   if(kind==='source'&&!isInstitution(obj)&&!isPublication(obj))return '';
-  const actor=state.me.id,key=feedbackKey(kind,obj.id),draft=maintenanceFeedbackDrafts.get(key)||{text:'',request:''};
+  const actor=state.me.id,pageTurn=state.loadId,key=feedbackKey(kind,obj.id),draft=maintenanceFeedbackDrafts.get(key)||{text:'',request:''};
   let jobs=[],failure='';
   try{jobs=(await api('/api/maintenance/targets/'+kind+'/'+encodeURIComponent(obj.id))).items;}catch(error){failure=error.message;}
-  if(state.me?.id!==actor)return '';
+  if(state.me?.id!==actor||state.loadId!==pageTurn)return '';
   return `<details class="maintenance-feedback" data-feedback-kind="${kind}" data-feedback-id="${esc(obj.id)}" data-feedback-actor="${esc(state.me.id)}"><summary>指出问题 <span data-feedback-brief>${esc(jobs[0]?feedbackStates[jobs[0].status]:'')}</span></summary><form data-maintenance-feedback><label class="field">问题说明<textarea name="feedback" rows="2" maxlength="4000" required placeholder="例如：这篇文章关联到了同名的另一位作者">${esc(draft.text)}</textarea></label><div class="row wrap"><button class="button primary" type="submit">提交问题</button><button class="button" type="button" data-feedback-refresh>刷新结果</button></div><p role="status" data-feedback-status>${esc(feedbackStatus(jobs[0]))}</p><p class="form-error" role="alert">${esc(failure)}</p></form><details class="feedback-history"><summary>处理记录与出处</summary><div data-feedback-history>${feedbackHistoryHtml(jobs)}</div></details></details>`;
 }
 async function refreshMaintenanceFeedback(panel){

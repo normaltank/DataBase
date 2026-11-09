@@ -89,6 +89,16 @@ def main():
                 expect(page.locator('[data-trace-step]')).to_have_count(15)
                 assert page.evaluate('traceSelected===document.querySelector("[data-trace-step][aria-pressed=true]")')
                 checks.append('new step does not steal selection')
+                # A focused task row may move as a newly recent task arrives.
+                # Reconciliation must retain keyboard focus and list scroll.
+                focused_row=page.locator('[data-maintenance-select="synthetic-paused"]')
+                focused_row.focus()
+                db=store.connect(fixture.data_dir/'platform.sqlite3')
+                with db:db.execute("UPDATE maintenance_jobs SET created_at='2026-12-01T00:00:00+00:00' WHERE id='synthetic-paused'")
+                db.close()
+                page.wait_for_timeout(5400)
+                expect(focused_row).to_be_focused()
+                checks.append('focused task row survives keyed reorder during automatic refresh')
                 page.locator('.maintenance-single>summary').click()
                 page.locator('#maintenance-agent-heading').scroll_into_view_if_needed()
                 page.locator('[data-trace-detail]').evaluate('(e)=>e.scrollTop=0')
