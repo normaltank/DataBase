@@ -122,6 +122,8 @@ try{Function('return 1')();window.timelineEvalSentinel=false;}catch(e){window.ti
             panel.locator('[data-material-lens]').click();lens=panel.locator('.material-time-lens canvas');expect(lens).to_be_visible();lens.scroll_into_view_if_needed();b=lens.bounding_box()
             panel.locator('.material-time').screenshot(path=str(evidence/'single-lens-desktop.png'))
             lens.scroll_into_view_if_needed();b=lens.bounding_box()
+            page.mouse.move(b['x']+b['width']/2,b['y']+b['height']/2);page.mouse.down();page.mouse.move(b['x']+b['width']/2+60,b['y']+b['height']/2+15,steps=8);page.mouse.up()
+            panel.locator('[data-material-camera-reset]').click();lens.scroll_into_view_if_needed();b=lens.bounding_box()
             fit=max(7.4,7/(math.tan(math.radians(20))*b['width']/b['height']))
             point=[0,1.5,-1.28];distance=fit*math.sqrt(1.0064);up=[0,1/math.sqrt(1.0064),-.08/math.sqrt(1.0064)];forward=[0,.08/math.sqrt(1.0064),1/math.sqrt(1.0064)]
             dot=lambda a,c:sum(x*y for x,y in zip(a,c));scale=b['height']/2/math.tan(math.radians(20))/(distance-dot(point,forward))

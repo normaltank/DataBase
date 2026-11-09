@@ -63,7 +63,7 @@ function materialRender(panel){
     +'<p>'+materialDateNames[materialDiscovery.role]+'：仅年份 '+date.precision.year+' 条，精确到月 '+date.precision.month+' 条，精确到日 '+date.precision.day+' 条；未知 '+date.unknown+' 条。点击年份筛选，保留登记精度。</p>'
     +'<p>年份概览：保留其他查询条件、排除时间条件，共 '+(data.time_context?.total??data.total)+' 条。刷选或缩放后点击“应用时间范围”。</p>'
     +'<div class="material-time-range"><label>起始年 <input type="number" min="1" max="9999" step="1" data-material-from aria-label="起始年" value="'+esc((p.get('from')||'').slice(0,4))+'"></label><label>结束年 <input type="number" min="1" max="9999" step="1" data-material-to aria-label="结束年" value="'+esc((p.get('to')||'').slice(0,4))+'"></label><button type="button" class="button tiny" data-material-apply>应用时间范围</button><button type="button" class="button tiny" data-material-lens aria-pressed="'+materialDiscovery.lens+'">'+(materialDiscovery.lens?'关闭时间透镜':'打开时间透镜')+'</button><button type="button" class="button tiny" data-material-time-retry>重试时间图</button></div><p data-material-range-status role="status"></p>'
-    +'<div data-material-timeline></div><p data-material-time-status role="status">正在加载年份概览…</p>'
+    +'<button type="button" class="button tiny" data-material-camera-reset '+(!materialDiscovery.lens?'hidden':'')+'>重置透镜视角</button><div data-material-timeline></div><p data-material-time-status role="status">正在加载年份概览…</p>'
     +(data.timeline_window?'<p class="material-window-scope">当前查询窗口：已加载 '+data.timeline_window.loaded+' / 完整匹配 '+data.timeline_window.total+' 条；上限 '+data.timeline_window.limit+' 条'+(data.timeline_window.has_more?'，还有更多资料，请缩小查询。':'，已全部加载。')+'</p><details class="material-window"><summary>资料文字窗口（'+data.timeline_window.loaded+' 条，含未知日期）</summary><div class="material-window-list">'+data.timeline_window.items.map(item=>'<button type="button" class="button tiny" data-material-record="'+esc(item.id)+'">'+esc(item.title)+' · '+esc(item.date||'日期未知')+' · '+esc(item.kind)+'</button>').join('')+'</div></details>':'')
     +'<details class="material-native-years" '+(materialDiscovery.yearsOpen?'open':'')+'><summary>按单年选择（文字入口）</summary><div class="material-years" role="group" aria-label="年份筛选">'+date.years.map(item=>{
       const active=(p.get('date_field')||'published')===materialDiscovery.role&&p.get('from')===item.year+'-01-01'&&p.get('to')===item.year+'-12-31';
@@ -91,7 +91,7 @@ document.addEventListener('library:rendered',event=>{
 });
 document.addEventListener('click',event=>{
   const panel=event.target.closest('.material-discovery');if(!panel)return;
-  const button=event.target.closest('[data-material-country],[data-material-year],[data-material-view],[data-material-clear],[data-material-retry],[data-material-globe-retry],[data-material-flat],[data-material-apply],[data-material-lens],[data-material-time-retry],[data-material-record],[data-material-scene]');if(!button)return;
+  const button=event.target.closest('[data-material-country],[data-material-year],[data-material-view],[data-material-clear],[data-material-retry],[data-material-globe-retry],[data-material-flat],[data-material-apply],[data-material-lens],[data-material-time-retry],[data-material-record],[data-material-scene],[data-material-camera-reset]');if(!button)return;
   if(button.hasAttribute('data-material-scene')){
     materialDiscovery.scene=button.dataset.materialScene;
     panel.querySelector('[data-material-country-scene]').hidden=materialDiscovery.scene!=='country';panel.querySelector('.material-time').hidden=materialDiscovery.scene!=='time';
@@ -100,7 +100,8 @@ document.addEventListener('click',event=>{
     else {materialDisposeTimeline(panel);materialMountGlobe(panel,panel._materialData.country_context||panel._materialData,new Set((recordQuery().get('country')||'').split('|').filter(Boolean).map(countryKey)));}
   }
   else if(button.hasAttribute('data-material-record')){libraryOpenReader(button.dataset.materialRecord,button);}
-  else if(button.hasAttribute('data-material-lens')){materialDiscovery.lens=!materialDiscovery.lens;button.setAttribute('aria-pressed',String(materialDiscovery.lens));button.textContent=materialDiscovery.lens?'关闭时间透镜':'打开时间透镜';panel._timeline?.update(materialTimeSnapshot(panel));}
+  else if(button.hasAttribute('data-material-lens')){materialDiscovery.lens=!materialDiscovery.lens;button.setAttribute('aria-pressed',String(materialDiscovery.lens));button.textContent=materialDiscovery.lens?'关闭时间透镜':'打开时间透镜';panel.querySelector('[data-material-camera-reset]').hidden=!materialDiscovery.lens;panel._timeline?.update(materialTimeSnapshot(panel));}
+  else if(button.hasAttribute('data-material-camera-reset'))panel._timeline?.reset();
   else if(button.hasAttribute('data-material-time-retry'))materialMountTimeline(panel);
   else if(button.hasAttribute('data-material-apply'))materialApplyRange(panel);
   else if(button.hasAttribute('data-material-globe-retry')){materialDisposeGlobe(panel);materialMountGlobe(panel,panel._materialData.country_context||panel._materialData,new Set((recordQuery().get('country')||'').split('|').filter(Boolean).map(countryKey)));}

@@ -39,7 +39,7 @@ export function mount(container, {snapshot, onRange=()=>{}, onSelect=()=>{}, onS
   function visibility(){if(!document.hidden)resize();}
   document.addEventListener('visibilitychange',visibility);
   update(current);
-  return {update,resize,dispose(){if(disposed)return;disposed=true;observer.disconnect();document.removeEventListener('visibilitychange',visibility);chart.dispose();lens?.dispose();container.replaceChildren();}};
+  return {update,resize,reset(){lens?.reset();},dispose(){if(disposed)return;disposed=true;observer.disconnect();document.removeEventListener('visibilitychange',visibility);chart.dispose();lens?.dispose();container.replaceChildren();}};
 }
 
 function yearStart(year){const date=new Date(0);date.setUTCFullYear(year,0,1);date.setUTCHours(0,0,0,0);return date.getTime();}
@@ -79,6 +79,10 @@ function createLens(container,snapshot,onSelect,onStatus){
         label.position.set(x(yearStart(year)),-2.35,0);label.scale.set(1.4,.44,1);scene.add(label);ticks.push(label);tickResources.push(texture,labelMaterial);
         const geometry=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(x(yearStart(year)),-1.88,0),new THREE.Vector3(x(yearStart(year)),-2.08,0)]),material=new THREE.LineBasicMaterial({color:0x58697b}),tick=new THREE.Line(geometry,material);scene.add(tick);ticks.push(tick);tickResources.push(geometry,material);
       }
+      kinds.forEach((kind,index)=>{
+        const canvas=document.createElement('canvas');canvas.width=256;canvas.height=40;const context=canvas.getContext('2d');context.fillStyle='#243347';context.font='24px sans-serif';context.textAlign='center';context.fillText(data.kindLabels?.[kind]||kind,128,30);
+        const texture=new THREE.CanvasTexture(canvas),material=new THREE.SpriteMaterial({map:texture,transparent:true,depthTest:false}),label=new THREE.Sprite(material);label.position.set(-7.5,1.5-index*(kinds.length>1?3/(kinds.length-1):0),0);label.scale.set(2.6,.41,1);label.userData.typeLabel=true;label.visible=camera.aspect>2;scene.add(label);ticks.push(label);tickResources.push(texture,material);
+      });
     }
     axis.textContent=years.length?`${low} 年 — ${high} 年；横轴与年份概览共用范围。方块宽度表示登记日期的可能区间（过窄时保留可点击宽度）；类型自上至下：${kinds.map(kind=>data.kindLabels?.[kind]||kind).join('、')}。纵深仅用于避让。`:'没有已知日期，未知资料请从文字窗口打开。';requestDraw();
   }
@@ -89,10 +93,11 @@ function createLens(container,snapshot,onSelect,onStatus){
     const rect=renderer.domElement.getBoundingClientRect();pointer.set((event.clientX-rect.left)/rect.width*2-1,-(event.clientY-rect.top)/rect.height*2+1);raycaster.setFromCamera(pointer,camera);
     const hit=raycaster.intersectObject(mesh)[0];if(hit&&items[hit.instanceId]){const item=items[hit.instanceId];highlight(item.id);onStatus('已选中：'+item.title+' · '+item.date+'。');onSelect(item.id);}
   }
-  function resize(){if(disposed||!host.clientWidth||!host.clientHeight)return;renderer.setSize(host.clientWidth,host.clientHeight,false);camera.aspect=host.clientWidth/host.clientHeight;const nextFit=Math.max(7.4,7/(Math.tan(THREE.MathUtils.degToRad(20))*camera.aspect));camera.position.multiplyScalar(nextFit/fitDistance);fitDistance=nextFit;camera.updateProjectionMatrix();controls.update();requestDraw();}
+  function resize(){if(disposed||!host.clientWidth||!host.clientHeight)return;renderer.setSize(host.clientWidth,host.clientHeight,false);camera.aspect=host.clientWidth/host.clientHeight;const nextFit=Math.max(7.4,7/(Math.tan(THREE.MathUtils.degToRad(20))*camera.aspect));camera.position.sub(controls.target).multiplyScalar(nextFit/fitDistance).add(controls.target);fitDistance=nextFit;camera.updateProjectionMatrix();ticks.filter(tick=>tick.userData.typeLabel).forEach(label=>label.visible=camera.aspect>2);controls.update();requestDraw();}
+  function reset(){controls.target.set(0,0,0);camera.position.set(0,.08*fitDistance,fitDistance);controls.update();requestDraw();}
   function visibility(){if(document.hidden){cancelAnimationFrame(frame);frame=0;}else requestDraw();}
   function lost(event){event.preventDefault();onStatus('时间透镜图形已中断，可使用文字窗口，或切换视图后重试。');}
   controls.addEventListener('change',requestDraw);renderer.domElement.addEventListener('pointerdown',pointerDown);renderer.domElement.addEventListener('pointerup',pointerUp);renderer.domElement.addEventListener('webglcontextlost',lost);document.addEventListener('visibilitychange',visibility);
   const observer=new ResizeObserver(resize);observer.observe(host);resize();update(snapshot);onStatus('拖动观察、滚轮缩放；点击真实资料方块打开阅读器。未知日期不放入时间轴。');
-  return {update,resize,dispose(){if(disposed)return;disposed=true;cancelAnimationFrame(frame);observer.disconnect();controls.dispose();document.removeEventListener('visibilitychange',visibility);renderer.domElement.removeEventListener('pointerdown',pointerDown);renderer.domElement.removeEventListener('pointerup',pointerUp);renderer.domElement.removeEventListener('webglcontextlost',lost);geometry.dispose();material.dispose();axisGeometry.dispose();axisMaterial.dispose();tickResources.forEach(resource=>resource.dispose());renderer.dispose();renderer.forceContextLoss();host.remove();axis.remove();}};
+  return {update,resize,reset,dispose(){if(disposed)return;disposed=true;cancelAnimationFrame(frame);observer.disconnect();controls.dispose();document.removeEventListener('visibilitychange',visibility);renderer.domElement.removeEventListener('pointerdown',pointerDown);renderer.domElement.removeEventListener('pointerup',pointerUp);renderer.domElement.removeEventListener('webglcontextlost',lost);geometry.dispose();material.dispose();axisGeometry.dispose();axisMaterial.dispose();tickResources.forEach(resource=>resource.dispose());renderer.dispose();renderer.forceContextLoss();host.remove();axis.remove();}};
 }
