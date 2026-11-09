@@ -837,6 +837,17 @@ def overview(db,actor,items,heartbeat,portable=None,window_counts=None):
 
 
 def register(app,ctx):
+    def conditional(actor, value):
+        # Called only after target and dependency checks. A representation is
+        # scoped to the current principal, credential/role and exact projection.
+        response=jsonify(value)
+        tag=digest({'actor':dict(actor),'representation':value})
+        response.set_etag(tag)
+        if request.if_none_match.contains_weak(tag):
+            response.status_code=304
+            response.set_data(b'')
+        response.headers['Cache-Control']='no-store'
+        return response
     @app.get('/api/maintenance/targets/<kind>/<tid>')
     def maintenance_target_history(kind,tid):
         db=ctx.db();actor=member(db,ctx.user());obj=readable_target(db,actor,kind,tid)
@@ -844,18 +855,20 @@ def register(app,ctx):
         for row in db.execute('SELECT id FROM maintenance_jobs WHERE target_type=? AND target_id=? ORDER BY created_at DESC,rowid DESC LIMIT 20',(kind,obj['id'])):
             try:items.append(projection(db,actor,row['id']))
             except HTTPException:continue
-        return jsonify(items=items)
+        return conditional(actor,{'items':items})
     @app.post('/api/maintenance/jobs')
     def maintenance_submit():
         data=ctx.body();jid=enqueue(ctx.db(),ctx.user(),data.get('target_type'),data.get('target_id'),data.get('request_id'),data.get('feedback',''),data.get('priority',0))
         return jsonify(id=jid),201
     @app.get('/api/maintenance/jobs/<jid>')
-    def maintenance_detail(jid):return jsonify(projection(ctx.db(),ctx.user(),jid))
+    def maintenance_detail(jid):
+        db=ctx.db();actor=member(db,ctx.user())
+        return conditional(actor,projection(db,actor,jid))
     @app.get('/api/maintenance/jobs')
     def maintenance_listing():
         db=ctx.db();actor=ctx.user();items=[]
         if request.args.get('view')=='summary':
-            member(db,actor)
+            actor=member(db,actor)
             items,has_more=summaries(db)
             heartbeat=db.execute("SELECT value FROM settings WHERE key='maintenance_worker_heartbeat'").fetchone()
             heartbeat=heartbeat[0] if heartbeat else ''
@@ -864,11 +877,11 @@ def register(app,ctx):
             counts={status:sum(item['status']==status for item in items) for status in STATES}
             info=overview(db,actor,[],heartbeat,portable,window_counts=counts)
             info['recent_changes']=summary_changes(db,items)
-            return jsonify(items=items,heartbeat=heartbeat,
+            return conditional(actor,dict(items=items,heartbeat=heartbeat,
                 window={'limit':100,'loaded':len(items),'has_more':has_more,'order':'created_at_desc',
                         'newest_at':items[0]['created_at'] if items else None,
                         'oldest_at':items[-1]['created_at'] if items else None},
-                overview=info)
+                overview=info))
         for row in db.execute('SELECT * FROM maintenance_jobs ORDER BY created_at DESC,rowid DESC LIMIT 100'):
             try:items.append(projection(db,actor,row['id']))
             except HTTPException:continue

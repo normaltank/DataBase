@@ -3,6 +3,25 @@ let maintenanceAgentState=null;
 const maintenanceStatuses={queued:'等待处理',running:'正在整理',paused:'已暂停',completed:'已完成',failed:'未完成',cancelled:'已取消'};
 const maintenanceTools={find:'查找已有档案',read:'读取当前内容',read_field:'读取档案片段',read_evidence:'查阅已存材料',read_feedback:'查看问题说明',search:'搜索公开资料',fetch:'读取公开网页',save_profile:'保存档案',save_record:'整理文章',set_bylines:'关联作者',set_affiliations:'整理署名单位',set_employments:'整理任职',finish:'检查结果'};
 const maintenanceRunStates={running:'运行中',waiting:'等待后台',paused:'已暂停',needs_configuration:'缺少配置'};
+async function maintenanceConditionalRead(scope,url,{signal,hasBase=()=>true,isCurrent=()=>true}={}){
+  const actor=state.me?.id,page=state.loadId;
+  const current=()=>state.me?.id===actor&&state.loadId===page&&isCurrent();
+  if(scope.readActor!==actor||scope.readPage!==page){scope.readCache=new Map();scope.readActor=actor;scope.readPage=page;}
+  const cache=scope.readCache,entry=hasBase()?cache.get(url):null;
+  try{
+    let response=await fetch(url,{cache:'no-store',signal,headers:entry?.etag?{'If-None-Match':entry.etag}:{}});
+    if(response.status===304){
+      if(current()&&entry&&hasBase())return entry.value;
+      // A 304 without an on-screen base is not data. Read unconditionally.
+      response=await fetch(url,{cache:'no-store',signal});
+    }
+    if(response.status===304)throw new Error('没有可复用的读取内容，请刷新重试。');
+    const value=await response.json();
+    if(!response.ok){const failure=new Error(value.error||'读取失败');failure.status=response.status;throw failure;}
+    if(current())cache.set(url,{etag:response.headers.get('ETag'),value});
+    return value;
+  }catch(failure){if([401,403,404].includes(failure.status))cache.delete(url);throw failure;}
+}
 function maintenanceSearchLinks(results){
   return Array.isArray(results)&&results.length?`<ul>${results.filter(item=>item&&item.url).map(item=>`<li>${externalLink(item.url,item.title||item.url)}</li>`).join('')}</ul>`:'';
 }
@@ -13,7 +32,7 @@ function maintenanceObjectLink(kind,id,label){
 }
 function maintenanceViewActive(view){return !!view&&view===maintenanceAgentState&&state.me?.id===view.actor&&state.page==='maintenance-agent'&&state.loadId===view.pageTurn;}
 function maintenanceStop(view){
-  if(!view)return;clearTimeout(view.timer);view.controller?.abort();view.detailController?.abort();view.detail=null;view.jobs=[];
+  if(!view)return;clearTimeout(view.timer);view.controller?.abort();view.detailController?.abort();view.readCache?.clear();view.detail=null;view.jobs=[];
   if(maintenanceAgentState===view)maintenanceAgentState=null;
 }
 function maintenanceJobRow(job,view){
@@ -44,19 +63,19 @@ function maintenanceDetailPaint(view,job){
 async function maintenanceAgentView(){
   maintenanceStop(maintenanceAgentState);
   const view={actor:state.me.id,pageTurn:state.loadId,jobs:[],selected:'',selectionTurn:0,filter:'',requestId:crypto.randomUUID(),recordId:'',busy:false,lastSuccess:''};maintenanceAgentState=view;
-  const data=await api('/api/maintenance/jobs?view=summary');if(!maintenanceViewActive(view))return '';
+  const data=await maintenanceConditionalRead(view,'/api/maintenance/jobs?view=summary',{hasBase:()=>false,isCurrent:()=>maintenanceViewActive(view)});if(!maintenanceViewActive(view))return '';
   Object.assign(view,data);view.selected=data.items[0]?.id||'';view.jobs=data.items;view.lastSuccess=new Date().toISOString();
   return `<section class="system-card maintenance-agent" data-maintenance-view="${view.pageTurn}" aria-labelledby="maintenance-agent-heading"><div class="between wrap"><h2 id="maintenance-agent-heading">维护状态</h2><button class="button" data-maintenance-refresh>刷新状态</button></div><div class="maintenance-running" data-maintenance-running></div><p class="maintenance-read-status" data-maintenance-updated role="status">正在读取任务详情…</p><p class="form-error" data-maintenance-error role="alert"></p><section class="maintenance-workspace"><div class="maintenance-job-list"><h3>近期任务</h3><label for="maintenance-state-filter">当前窗口状态</label><select id="maintenance-state-filter" data-maintenance-filter><option value="">全部状态</option>${Object.entries(maintenanceStatuses).map(([key,label])=>`<option value="${key}">${label}</option>`).join('')}</select><p class="muted" data-maintenance-window></p><p class="muted" data-maintenance-range></p><div data-maintenance-jobs></div></div><div class="maintenance-selected"><p class="muted" data-maintenance-selection-note></p><div data-maintenance-detail><p class="muted">${view.selected?'正在读取所选任务…':'选择任务后查看真实步骤、材料和修改前后。'}</p></div></div></section><details class="maintenance-secondary"><summary>近期修改与后台时间</summary><p class="muted">以下修改来自当前有权近期任务窗口。</p><p class="muted" data-maintenance-heartbeat></p><div data-maintenance-recent></div></details><details class="maintenance-single"><summary>指定一篇文章</summary><form data-form="maintenance-find"><label for="maintenance-query">查找文章</label><div class="row wrap"><input id="maintenance-query" name="q" type="search" maxlength="200" placeholder="题名、作者或 DOI"><button class="button" type="submit">查找</button></div></form><form data-form="maintenance-submit"><label for="maintenance-record">选择文章</label><select id="maintenance-record" name="record_id" required><option value="">先查找文章</option></select><button class="button primary" type="submit">开始整理</button><p data-maintenance-message role="status"></p><div class="form-error" role="alert"></div></form></details></section>`;
 }
 async function maintenanceReload(view,{summary=true}={}){
-  if(!maintenanceViewActive(view))return;
+  if(!maintenanceViewActive(view)||document.hidden)return;
   if(view.inFlight)return view.inFlight;
   view.inFlight=(async()=>{
     const error=view.root?.querySelector('[data-maintenance-error]');
     try{
       if(summary){
         view.controller=new AbortController();
-        const result=await api('/api/maintenance/jobs?view=summary',{signal:view.controller.signal});
+        const result=await maintenanceConditionalRead(view,'/api/maintenance/jobs?view=summary',{signal:view.controller.signal,hasBase:()=>!!view.root?.isConnected,isCurrent:()=>maintenanceViewActive(view)});
         if(!maintenanceViewActive(view))return;
         Object.assign(view,{jobs:result.items,window:result.window,heartbeat:result.heartbeat,overview:result.overview});maintenanceJobsPaint(view);
       }
@@ -64,7 +83,7 @@ async function maintenanceReload(view,{summary=true}={}){
         const selected=view.selected,turn=view.selectionTurn;
         try{
           view.detailController=new AbortController();
-          const job=await api('/api/maintenance/jobs/'+encodeURIComponent(selected),{signal:view.detailController.signal});
+          const job=await maintenanceConditionalRead(view,'/api/maintenance/jobs/'+encodeURIComponent(selected),{signal:view.detailController.signal,hasBase:()=>view.detail?.id===selected&&view.root?.querySelector('[data-maintenance-detail]')?.dataset.loadedJob===selected,isCurrent:()=>maintenanceViewActive(view)&&selected===view.selected&&turn===view.selectionTurn});
           if(!maintenanceViewActive(view))return;
           if(selected!==view.selected||turn!==view.selectionTurn)continue;
           maintenanceDetailPaint(view,job);break;
@@ -80,14 +99,15 @@ async function maintenanceReload(view,{summary=true}={}){
       view.root.querySelector('[data-maintenance-updated]').textContent='最近成功更新：'+dateTime(view.lastSuccess);
     }catch(failure){
       if(!maintenanceViewActive(view)||failure.name==='AbortError')return;
-      if([401,403].includes(failure.status)){view.detail=null;view.jobs=[];view.root.querySelector('[data-maintenance-detail]').replaceChildren();view.root.querySelector('[data-maintenance-jobs]').replaceChildren();}
+      if([401,403].includes(failure.status)){view.readCache?.clear();view.detail=null;view.jobs=[];view.root.querySelector('[data-maintenance-detail]').replaceChildren();view.root.querySelector('[data-maintenance-jobs]').replaceChildren();}
       if(error)error.textContent=failure.message+'；状态未更新，可刷新状态重试。';
       view.root.querySelector('[data-maintenance-updated]').textContent='未更新；最后成功更新：'+dateTime(view.lastSuccess);
     }
   })();
   try{return await view.inFlight;}finally{view.inFlight=null;}
 }
-function maintenancePollSchedule(view){clearTimeout(view.timer);if(maintenanceViewActive(view))view.timer=setTimeout(async()=>{await maintenanceReload(view);maintenancePollSchedule(view);},5000);}
+function maintenancePollSchedule(view){clearTimeout(view.timer);if(maintenanceViewActive(view)&&!document.hidden)view.timer=setTimeout(async()=>{await maintenanceReload(view);maintenancePollSchedule(view);},5000);}
+document.addEventListener('visibilitychange',()=>{const view=maintenanceAgentState;if(!maintenanceViewActive(view))return;if(document.hidden){clearTimeout(view.timer);view.controller?.abort();view.detailController?.abort();}else maintenanceReload(view).finally(()=>maintenancePollSchedule(view));});
 const maintenanceViewObserver=new MutationObserver(()=>{
   const view=maintenanceAgentState;if(!view)return;
   if(!maintenanceViewActive(view)||(view.root&&!view.root.isConnected)){maintenanceStop(view);return;}
@@ -123,6 +143,7 @@ document.addEventListener('click',async event=>{
   if(button.dataset.maintenanceSelect){
     if(view.selected===button.dataset.maintenanceSelect)return;
     view.selected=button.dataset.maintenanceSelect;view.selectionTurn++;view.detail=null;view.detailController?.abort();
+    for(const url of view.readCache?.keys()||[])if(!url.includes('?view=summary'))view.readCache.delete(url);
     const detail=view.root.querySelector('[data-maintenance-detail]');delete detail.dataset.loadedJob;detail.textContent='正在读取所选任务…';maintenanceJobsPaint(view);
     await maintenanceReload(view,{summary:false});return;
   }

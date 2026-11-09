@@ -39,10 +39,10 @@ async function refreshMaintenanceFeedback(panel){
 async function readMaintenanceFeedback(panel){
   const actor=panel.dataset.feedbackActor,turn=(panel._feedbackTurn||0)+1;panel._feedbackTurn=turn;
   let result;
-  try{result=await api('/api/maintenance/targets/'+panel.dataset.feedbackKind+'/'+encodeURIComponent(panel.dataset.feedbackId));}
+  try{result=await maintenanceConditionalRead(panel,'/api/maintenance/targets/'+panel.dataset.feedbackKind+'/'+encodeURIComponent(panel.dataset.feedbackId),{hasBase:()=>!!panel._feedbackSuccess,isCurrent:()=>panel.isConnected&&state.me?.id===actor&&panel._feedbackTurn===turn});}
   catch(failure){
     if(panel.isConnected&&state.me?.id===actor&&panel._feedbackTurn===turn){
-      if([401,403,404].includes(failure.status)){panel.querySelector('[data-feedback-history]').replaceChildren();panel.querySelector('[data-feedback-brief]').textContent='';panel.querySelector('[data-feedback-status]').textContent='对象或所据材料已不可访问，已清除处理详情。';}
+      if([401,403,404].includes(failure.status)){panel.readCache?.clear();panel._feedbackSuccess='';panel.querySelector('[data-feedback-history]').replaceChildren();panel.querySelector('[data-feedback-brief]').textContent='';panel.querySelector('[data-feedback-status]').textContent='对象或所据材料已不可访问，已清除处理详情。';}
       panel.querySelector('.form-error').textContent=failure.message+'；处理记录未更新，可刷新结果。'+(panel._feedbackSuccess?' 最后成功更新：'+dateTime(panel._feedbackSuccess):'');
     }
     throw failure;
@@ -57,7 +57,7 @@ let maintenanceFeedbackActor='';
 const maintenanceFeedbackPanels=new Set();
 function maintenanceFeedbackSchedule(panel){
   clearTimeout(panel._feedbackTimer);
-  if(!panel.isConnected||state.me?.id!==panel.dataset.feedbackActor)return;
+  if(!panel.isConnected||state.me?.id!==panel.dataset.feedbackActor||document.hidden)return;
   panel._feedbackTimer=setTimeout(async()=>{
     if(panel.isConnected&&panel.open&&state.me?.id===panel.dataset.feedbackActor)try{await refreshMaintenanceFeedback(panel);}catch(failure){/* The panel retains its own readable failure state. */}
     maintenanceFeedbackSchedule(panel);
@@ -70,6 +70,7 @@ const maintenanceFeedbackObserver=new MutationObserver(()=>{
   document.querySelectorAll('.maintenance-feedback').forEach(panel=>{if(!maintenanceFeedbackPanels.has(panel)){maintenanceFeedbackPanels.add(panel);maintenanceFeedbackSchedule(panel);}});
 });
 maintenanceFeedbackObserver.observe(document.documentElement,{childList:true,subtree:true});
+document.addEventListener('visibilitychange',()=>{for(const panel of maintenanceFeedbackPanels){clearTimeout(panel._feedbackTimer);if(!document.hidden){if(panel.open)refreshMaintenanceFeedback(panel).catch(()=>{}).finally(()=>maintenanceFeedbackSchedule(panel));else maintenanceFeedbackSchedule(panel);}}});
 document.addEventListener('input',event=>{
   if(!event.target.matches('[data-maintenance-feedback] textarea'))return;
   const panel=event.target.closest('.maintenance-feedback');

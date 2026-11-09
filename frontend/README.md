@@ -44,3 +44,24 @@ Worker('/static/vendor/visual/elk-worker.min.js')` (classic worker, not module o
 Blob). Always terminate it. ELK API and worker are version 0.12.1. Shared license
 files and the ELK upstream source-distribution pointer are shipped in `licenses/`.
 No CSP relaxation is permitted. React owns only a local flow root and must unmount.
+
+Flow options: `{snapshot:{nodes:[{id,label}],edges:[{id,source,target,label,description?}],
+selected:[id],layout?:'lineage',legend?:string},viewport?,onSelect(id),onStatus(message)}`. IDs and labelled edges
+must come from the authorized version/review or step/evidence projection. The
+module performs only ELK layout and reading selection. `update` preserves the
+viewport; `zoomIn()`, `zoomOut()`, `fit()`, `focusSelected()` and `getViewport()`
+support the caller's explicit controls and visibility lifecycle. Initial maintenance view
+centres the first node at zoom 1; short material graphs use the compact lineage
+layout and initially fit desktop at approximately 1:1. Only selected-adjacent edges
+show short labels; their full description remains accessible and in the text legend. `fit` is the user's optional whole-graph overview.
+Topology replacement, timeout and dispose terminate the true classic Worker;
+late layouts are ignored. React Flow's transient zero-size measurement while a
+disclosure is hidden is left to its ResizeObserver, not reported as data loss.
+Application forms, file inputs, tokens and write targets stay outside this root.
+
+Diff options: `{snapshot:{before:string,after:string}}`. The module uses jsdiff
+and diff2html's default precompiled templates for actual long recorded text. It
+escapes HTML-like text and never enables raw templates, eval, editing or a claimed
+Word/PDF body comparison. Callers retain full old/new values and semantic short
+field/relation comparisons. Both entries use the common update/resize/dispose
+contract; failed modules leave those ordinary reading controls available.
