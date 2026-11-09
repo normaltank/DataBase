@@ -7,6 +7,8 @@ import sys
 import threading
 import shutil
 import base64
+import argparse
+from live_flow_browser_policy import install as strict_policy, verify as verify_policy,verify_workers
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from playwright.sync_api import sync_playwright, expect
@@ -16,14 +18,22 @@ from platform_app import store
 
 
 def main():
+    parser=argparse.ArgumentParser()
+    parser.add_argument('--evidence',type=Path,default=Path('tests/artifacts/live-flow-maintenance'))
+    parser.add_argument('--baseline-flow',action='store_true')
+    args=parser.parse_args()
     logging.getLogger('werkzeug').setLevel(logging.ERROR)
-    evidence=Path('D:/Agent Workspace/DataBase-audits/visual-research-134/maintenance')
+    evidence=args.evidence.resolve()
     evidence.mkdir(parents=True,exist_ok=True)
     fixture=MaintenanceAgentTests();fixture.setUp()
     jid=fixture.queue('trace-browser')
     fixture.call('/api/admin/maintenance/run',user='admin')
     db=store.connect(fixture.data_dir/'platform.sqlite3')
     with db:
+        row=db.execute("SELECT id,result_json FROM maintenance_steps WHERE job_id=? AND name='save_record'",(jid,)).fetchone()
+        change=json.loads(row['result_json'])
+        change['changes']['abstract']={'before':'SYNTHETIC ORIGINAL LINE\n'*80+'<img src=x onerror=window.flowXss=1>', 'after':'SYNTHETIC UPDATED LINE\n'*80+'<img src=x onerror=window.flowXss=2>'}
+        db.execute('UPDATE maintenance_steps SET result_json=? WHERE id=?',(json.dumps(change),row['id']))
         template=dict(db.execute('SELECT * FROM maintenance_jobs WHERE id=?',(jid,)).fetchone())
         for key,status,reason in [('queued','queued',''),('pending','running','正在等待下一项工具执行。'),('empty','completed','已查证，现有内容保持。'),('paused','paused','费用未知，等待核实；本任务尚未完成。')]:
             row={**template,'id':'synthetic-'+key,'request_id':key,'status':status,'reason':reason,'created_at':'2026-10-01T00:00:00+00:00','messages_json':'[]','turns':0}
@@ -45,6 +55,9 @@ def main():
                 ignore_default_args=['--disable-extensions'],args=['--headless=new',f'--disable-extensions-except={extension}',f'--load-extension={extension}'],viewport={'width':1366,'height':900},record_video_dir=str(evidence/'video'),record_video_size={'width':1366,'height':900})
             try:
                 page=browser.pages[0]
+                strict_policy(page,args.baseline_flow)
+                workers=[]
+                page.on('worker',lambda worker:workers.append(worker.url))
                 cdp=browser.new_cdp_session(page)
                 def capture(name):
                     # Raw browser pixels, no crop, rescale or CSS zoom.
@@ -53,8 +66,9 @@ def main():
                     captures.append({'file':name,'method':'CDP Page.captureScreenshot fromSurface=true captureBeyondViewport=false','metrics':page.evaluate('({innerWidth,innerHeight,dpr:devicePixelRatio,scrollY})'),'zoom':zoom.evaluate('async url=>{const t=(await chrome.tabs.query({})).find(x=>x.url.startsWith(url));return chrome.tabs.getZoom(t.id);}',base)})
                 zoom=browser.service_workers[0] if browser.service_workers else browser.wait_for_event('serviceworker')
                 page.on('pageerror',lambda e:errors.append(str(e)))
-                reads=[]
+                reads=[];conditional_status=[]
                 page.on('request',lambda req:reads.append(req.url) if '/api/maintenance/jobs' in req.url and req.method=='GET' else None)
+                page.on('response',lambda response:conditional_status.append(response.status) if '/api/maintenance/jobs' in response.url and response.request.method=='GET' else None)
                 page.goto(base+'/#system')
                 page.get_by_role('button',name='资料管理员',exact=True).click()
                 page.goto(base+'/#maintenance-agent')
@@ -62,6 +76,17 @@ def main():
                 page.locator(f'[data-maintenance-select="{jid}"]').click()
                 expect(page.locator('[data-trace-step]')).to_have_count(14)
                 page.locator('[data-trace-step]').filter(has_text='整理文章').click()
+                expect(page.locator('.react-flow__node')).to_have_count(16)
+                page.get_by_role('button',name='显示全图',exact=True).click()
+                page.locator('.react-flow__node').filter(has_text='整理文章').click()
+                expect(page.locator('[data-trace-step][aria-pressed=true]')).to_contain_text('整理文章')
+                page.get_by_text('逐行阅读文本差异',exact=True).click()
+                expect(page.locator('[data-trace-diff] .d2h-wrapper')).to_have_count(1)
+                expect(page.locator('[data-trace-diff]')).to_contain_text('<img src=x onerror=window.flowXss=2>')
+                assert page.locator('[data-trace-diff] img').count()==0
+                assert page.evaluate('window.flowXss===undefined')
+                assert any('/static/vendor/visual/elk-worker.min.js' in url for url in workers),workers
+                checks.append('actual React Flow + same-origin ELK Worker + escaped diff2html long text')
                 expect(page.locator('[data-trace-detail]')).to_contain_text('原值')
                 expect(page.locator('[data-trace-detail]')).to_contain_text('old label')
                 expect(page.locator('[data-trace-detail]')).to_contain_text('Baltic cooperation')
@@ -75,8 +100,12 @@ def main():
                 evidence_text.evaluate('(e)=>{e.scrollTop=180;window.traceEvidence=e;window.traceDetail=document.querySelector("[data-trace-detail]");window.traceSelected=document.querySelector("[data-trace-step][aria-pressed=true]");}')
                 page.locator('.maintenance-single>summary').click()
                 query=page.get_by_label('查找文章',exact=True);query.fill('未提交的查找输入');query.focus()
+                viewport_before=page.locator('.react-flow__viewport').get_attribute('style')
                 before_reads=len(reads);page.wait_for_timeout(10800)
                 assert len(reads)>=before_reads+4,reads
+                assert 304 in conditional_status,conditional_status
+                assert page.locator('.react-flow__viewport').get_attribute('style')==viewport_before
+                expect(page.locator('[data-flow-status]')).to_contain_text('流程图可点选')
                 assert page.evaluate('traceEvidence===document.querySelector(".trace-evidence-text")&&traceDetail===document.querySelector("[data-trace-detail]")&&traceSelected===document.querySelector("[data-trace-step][aria-pressed=true]")')
                 assert evidence_text.evaluate('(e)=>e.scrollTop')==180
                 assert disclosure.get_attribute('open') is not None
@@ -87,6 +116,7 @@ def main():
                 db.close()
                 page.get_by_role('button',name='刷新状态',exact=True).click()
                 expect(page.locator('[data-trace-step]')).to_have_count(15)
+                expect(page.locator('[data-flow-status]')).to_contain_text('流程图可点选',timeout=12000)
                 assert page.evaluate('traceSelected===document.querySelector("[data-trace-step][aria-pressed=true]")')
                 checks.append('new step does not steal selection')
                 # A focused task row may move as a newly recent task arrives.
@@ -142,7 +172,8 @@ def main():
                 expect(page.locator('[data-trace-step]')).to_have_count(15)
                 checks.append('offline retains content / recovery / explicit 404 clears cache')
                 def outside_window(route):
-                    data=route.fetch().json();data['items']=[item for item in data['items'] if item['id']!=jid];data['window']['loaded']=len(data['items']);data['window']['has_more']=True
+                    headers={key:value for key,value in route.request.headers.items() if key.lower()!='if-none-match'}
+                    data=route.fetch(headers=headers).json();data['items']=[item for item in data['items'] if item['id']!=jid];data['window']['loaded']=len(data['items']);data['window']['has_more']=True
                     route.fulfill(json=data)
                 page.route('**/api/maintenance/jobs?view=summary',outside_window)
                 page.get_by_role('button',name='刷新状态',exact=True).click()
@@ -188,6 +219,11 @@ def main():
                     assert actual==factor
                     page.locator('[data-trace-step]').filter(has_text='整理文章').focus();page.keyboard.press('Enter')
                     expect(page.locator('[data-trace-detail]')).to_contain_text('原值')
+                    expect(page.locator('[data-flow-status]')).to_contain_text('流程图可点选',timeout=12000)
+                    verify_workers(page)
+                    page.get_by_role('button',name='定位所选节点',exact=True).click()
+                    page.locator('.actual-flow').scroll_into_view_if_needed();page.wait_for_timeout(100)
+                    capture(f'maintenance-flow-{width}-{factor}-raw.png')
                     page.locator('[data-trace-detail]').scroll_into_view_if_needed();page.wait_for_timeout(220)
                     assert not page.evaluate('document.documentElement.scrollWidth>innerWidth+2'),(width,factor)
                     assert not page.locator('.trace-connector').evaluate_all('(els)=>els.some(e=>e.outerHTML.includes("NaN")||e.outerHTML.includes("Infinity"))')
@@ -281,9 +317,10 @@ def main():
                 page.get_by_role('button',name='协作同事',exact=True).click()
                 expect(page.locator('[data-maintenance-trace]')).to_have_count(0)
                 checks.append('late history after leaving/account switch cannot restore old identity cache')
+                policy_violations=verify_policy(page)
                 if errors:raise AssertionError(errors)
             finally:browser.close()
-        (evidence/'result.json').write_text(json.dumps({'checks':checks,'captures':captures,'page_errors':errors,'synthetic':True},ensure_ascii=False,indent=2),encoding='utf-8')
+        (evidence/'result.json').write_text(json.dumps({'checks':checks,'captures':captures,'page_errors':errors,'synthetic':True,'conditional_status':conditional_status,'policy_violations':policy_violations},ensure_ascii=False,indent=2),encoding='utf-8')
         print(json.dumps({'evidence':str(evidence),'checks':checks},ensure_ascii=False))
     finally:
         server.shutdown();server.server_close();thread.join(timeout=5)

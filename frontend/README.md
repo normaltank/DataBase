@@ -44,3 +44,56 @@ Worker('/static/vendor/visual/elk-worker.min.js')` (classic worker, not module o
 Blob). Always terminate it. ELK API and worker are version 0.12.1. Shared license
 files and the ELK upstream source-distribution pointer are shipped in `licenses/`.
 No CSP relaxation is permitted. React owns only a local flow root and must unmount.
+
+Timeline options: `{snapshot:{years:[{year,count}],items:[{id,title,kind,date,
+year,precision}],lens:boolean,kindLabels},onRange(start,end),onSelect(recordID),
+onStatus(message)}`. ECharts brush and dataZoom report an unapplied range; the page
+adapter applies it through the existing query. Optional Three lens picking uses
+the same authorized record window and precision, and opens the ordinary reader.
+`reset()` resets its lens camera. There is no invented date for unknown items.
+`GET /api/material-discovery?visual_window=1&...` adds `time_context` with
+`scope=query_without_time`, `total` and all three date distributions; it also adds
+`timeline_window` with `date_field`, `items`, `total`, `loaded`, `limit=300` and
+`has_more`. Without the flag the existing distribution representation is retained.
+
+Network options: `{snapshot:{center:'record:'+id,nodes:[{key:'type:'+id,type,id,
+name}],edges:[{key:stableRelationID,from:nodeKey,to:nodeKey}],selected:nodeKey},
+onSelect(nodeKey),onStatus(message),mode:'plane'|'space'}`. Cytoscape plane and
+Three space share the identical authorized one-hop snapshot and selected object.
+`setMode(mode)` changes the view; `reset()` resets its camera. The caller retains
+the semantic relationship direction, basis, AI/human provenance and real profile
+destinations in ordinary text. The local Cytoscape stylesheet compatibility rule
+above is part of this exact locked version, including the external stylesheet ID.
+
+Flow options: `{snapshot:{nodes:[{id,label}],edges:[{id,source,target,label,description?}],
+selected:[id],layout?:'lineage',legend?:string},viewport?,onSelect(id),onStatus(message)}`. IDs and labelled edges
+must come from the authorized version/review or step/evidence projection. The
+module performs only ELK layout and reading selection. `update` preserves the
+viewport; `zoomIn()`, `zoomOut()`, `fit()`, `focusSelected()` and `getViewport()`
+support the caller's explicit controls and visibility lifecycle. Initial maintenance view
+centres the first node at zoom 1; short material graphs use the compact lineage
+layout and initially fit desktop at approximately 1:1. Only selected-adjacent edges
+show short labels; their full description remains accessible and in the text legend. `fit` is the user's optional whole-graph overview.
+Topology replacement, timeout and dispose terminate the true classic Worker;
+late layouts are ignored. React Flow's transient zero-size measurement while a
+disclosure is hidden is left to its ResizeObserver, not reported as data loss.
+Application forms, file inputs, tokens and write targets stay outside this root.
+
+Diff options: `{snapshot:{before:string,after:string}}`. The module uses jsdiff
+and diff2html's default precompiled templates for actual long recorded text. It
+escapes HTML-like text and never enables raw templates, eval, editing or a claimed
+Word/PDF body comparison. Callers retain full old/new values and semantic short
+field/relation comparisons. Both entries use the common update/resize/dispose
+contract; failed modules leave those ordinary reading controls available.
+
+Whole-application acceptance is `python scripts/check_visual_workspace_journey_browser.py
+--evidence tests/artifacts/<new-directory>` from the repository root. It serves one
+isolated app and one synthetic library, uses both researcher and admin roles, and
+loads all five normal modules through the actual application routes. Other focused
+browser checks are `check_live_globe_browser.py`, `check_live_timeline_browser.py`,
+`check_network_browser.py`, `check_collaboration_lineage_browser.py`,
+`check_maintenance_trace_browser.py` and `check_live_flow_failures_browser.py`.
+Their screenshots and JSON outputs stay in ignored local artifacts. Runtime strict
+CSP sentinels deliberately exercise denied inline styles/eval; those expected
+denials are recorded separately from library violations. Test suppliers are
+synthetic and test servers use isolated data and ports.

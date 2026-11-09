@@ -9,6 +9,7 @@ from pathlib import Path
 import sys
 import threading
 import uuid
+from live_flow_browser_policy import install as strict_policy, verify as verify_policy
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from playwright.sync_api import sync_playwright, expect
@@ -20,8 +21,9 @@ from tests.test_topic_handoffs import HandoffTests
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--evidence', required=True)
+    parser.add_argument('--baseline-flow', action='store_true')
     args = parser.parse_args()
-    root = Path(args.evidence)
+    root = Path(args.evidence).resolve()
     root.mkdir(parents=True, exist_ok=False)
     extension = root/'zoom-extension'
     extension.mkdir()
@@ -72,6 +74,9 @@ def main():
             try:
                 zoom = browser.service_workers[0] if browser.service_workers else browser.wait_for_event('serviceworker')
                 page = browser.pages[0]
+                strict_policy(page,args.baseline_flow)
+                workers=[]
+                page.on('worker',lambda worker:workers.append(worker.url))
                 page.on('pageerror', lambda e: errors.append(str(e)))
                 page.goto(base+f'/#collaboration?id={tid}&tab=selection')
                 page.get_by_role('button', name='研究员', exact=True).click()
@@ -81,6 +86,18 @@ def main():
                 page.screenshot(path=str(root/'initial-desktop.png'), full_page=True)
                 expect(material.get_by_role('button', name='查看版本 1', exact=True)).to_be_visible()
                 reading = material.locator('[data-handoff-reading]')
+                expect(material.locator('.react-flow__node')).to_have_count(5)
+                expect(material.locator('[data-flow-status]')).to_contain_text('流程图可点选')
+                page.wait_for_timeout(200)
+                assert material.locator('[data-flow-slot]').evaluate('(slot)=>{const b=slot.getBoundingClientRect();return [...slot.querySelectorAll(".react-flow__node")].every(node=>{const r=node.getBoundingClientRect();return r.left>=b.left-2&&r.right<=b.right+2&&r.top>=b.top-2&&r.bottom<=b.bottom+2;});}'),'The short material lineage must fit by default on desktop'
+                material.locator('.actual-flow').scroll_into_view_if_needed()
+                page.screenshot(path=str(root/'lineage-default-desktop.png'))
+                material.get_by_role('button',name='显示全图',exact=True).click()
+                graph=material.locator('.react-flow__node').filter(has_text='版本 1').filter(has_text='退回').first
+                graph.click()
+                expect(reading).to_contain_text('历史版 1 · 退回')
+                assert any('/static/vendor/visual/elk-worker.min.js' in url for url in workers),workers
+                material.get_by_role('button',name='回当前版',exact=True).click()
                 expect(reading).to_contain_text('当前版 3 · 待审')
                 for number, decision, note in [(1, '退回', '请补充政策依据'), (2, '通过', '依据已核对，可接续')]:
                     material.get_by_role('button', name=f'查看版本 {number}', exact=True).click()
@@ -191,6 +208,12 @@ def main():
                     else:
                         page.screenshot(path=str(shot))
                     captures.append(str(shot))
+                    material.get_by_role('button',name='定位所选节点',exact=True).click()
+                    material.locator('.actual-flow').scroll_into_view_if_needed();page.wait_for_timeout(150)
+                    graph_shot=root/f'lineage-flow-{width}-zoom{factor}.png'
+                    compositor=browser.new_cdp_session(page)
+                    graph_shot.write_bytes(base64.b64decode(compositor.send('Page.captureScreenshot',{'format':'png','fromSurface':True,'captureBeyondViewport':False})['data']))
+                    compositor.detach();captures.append(str(graph_shot))
                     if width<700:
                         page.evaluate('scrollTo(0,0)')
                         full=root/f'lineage-{width}-fullpage.png';page.screenshot(path=str(full),full_page=True)
@@ -283,12 +306,14 @@ def main():
                 expect(material.locator('[data-lineage-status]')).to_contain_text('合成材料失权')
                 expect(page.locator('[data-reading-version]')).to_have_count(0)
                 expect(page.locator('[data-action=handoff-select]')).to_have_count(0)
+                expect(page.locator('.react-flow__node')).to_have_count(0)
                 expect(upload.locator('[name=note]')).to_have_value('保留上传草稿')
                 assert upload.locator('[name=file]').evaluate('e=>e.files[0].name') == 'draft.txt'
                 page.unroute('**/handoffs')
                 material.get_by_role('button', name='刷新材料状态',exact=True).click()
                 expect(material.locator('[data-lineage-status]')).to_contain_text('已更新')
                 expect(reading).to_contain_text('当前版 4 · 待审')
+                expect(material.locator('.react-flow__node')).to_have_count(6)
                 # Late reads may not resurrect a departed page.
                 held = []
                 page.route('**/handoffs', lambda route: held.append(route))
@@ -299,8 +324,10 @@ def main():
                     route.fulfill(status=200,json=fixture.board(tid))
                 page.unroute('**/handoffs')
                 expect(page.locator('[data-handoff-reading]')).to_have_count(0)
+                policy_violations=verify_policy(page)
                 assert not errors, errors
                 result={'head':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'ok': True, 'url': base, 'evidence': str(root), 'errors': errors, 'screenshots': captures, 'native_zoom':2,'original_and_review_bytes':True,'draft_files_and_nodes_retained':True,'concurrent_review_target_retained':True,'narrow_keyboard_location_preserves_selection_focus_and_drafts':True}
+                result.update(real_flow_worker=True,policy_violations=policy_violations)
                 (root/'result.json').write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
                 print(json.dumps(result, ensure_ascii=False))
             finally:

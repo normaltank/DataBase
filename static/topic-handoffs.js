@@ -1,6 +1,27 @@
 'use strict';
 
 let handoffReadGeneration=0;
+const handoffFlowRoots=new Set();
+function handoffFlowUpdate(root,material,version=material.versions[0].ref,review=''){
+  if(root.dataset.lineageAccount!==state.me?.id)return;
+  let host=root.querySelector('.actual-flow');
+  if(!host){root.querySelector('.handoff-track-head').insertAdjacentHTML('beforebegin',visualFlowHtml());host=root.querySelector('.actual-flow');}
+  const versions=[...material.versions].reverse(),nodes=[],edges=[];
+  for(const [index,v] of versions.entries()){
+    nodes.push({id:'version:'+v.ref,label:`${v.ref===material.versions[0].ref?'当前版':'版本'} ${v.version} · ${handoffStatus(v.status)}\n成员提交`});
+    if(index)edges.push({id:'registered:'+v.ref,source:'version:'+versions[index-1].ref,target:'version:'+v.ref,label:'顺序'});
+    for(const r of v.reviews){nodes.push({id:'review:'+r.id,label:`版本 ${v.version} · ${handoffStatus(r.decision)}\n负责人审阅`});edges.push({id:'reviewed:'+r.id,source:'version:'+v.ref,target:'review:'+r.id,label:'审阅'});}
+  }
+  visualFlowUpdate(host,{nodes,edges,layout:'lineage',legend:'顺序：同份材料的版本登记；审阅：对应版本的实际审阅。责任人与日期在下方完整记录中。',selected:['version:'+version,...(review?['review:'+review]:[])]},id=>{
+    if(id.startsWith('version:'))handoffSelect(root,id.slice(8));
+    else{const rid=id.slice(7),v=material.versions.find(v=>v.reviews.some(r=>r.id===rid));if(v)handoffSelect(root,v.ref,rid);}
+  });
+}
+const handoffFlowObserver=new MutationObserver(()=>{
+  for(const root of handoffFlowRoots)if(!root.isConnected)handoffFlowRoots.delete(root);
+  document.querySelectorAll('.handoff-lineage').forEach(root=>{if(handoffFlowRoots.has(root))return;const material=workbenchState.board?.materials?.find(m=>m.ref===root.closest('[data-material-ref]')?.dataset.materialRef);if(material){handoffFlowRoots.add(root);handoffFlowUpdate(root,material);}});
+});
+handoffFlowObserver.observe(document.documentElement,{childList:true,subtree:true});
 
 function handoffStatus(status){return {pending:'待审',returned:'退回',approved:'通过',legacy_final:'旧定稿'}[status]||status;}
 function handoffUpload(t,stage,material=null){
@@ -18,7 +39,7 @@ function handoffLineageReading(m,v,review=''){
 function handoffLineage(m){
   const current=m.versions[0],versions=[...m.versions].reverse();
   const node=(v,r)=>'<button type="button" class="handoff-lineage-node" data-action="handoff-select" data-version="'+esc(v.ref)+'" data-review="'+esc(r?.id||'')+'" aria-pressed="'+(!r&&v.ref===current.ref)+'" aria-label="'+(r?'查看版本 '+v.version+' 的'+handoffStatus(r.decision)+'审阅':'查看版本 '+v.version)+'"><strong>'+(r?handoffStatus(r.decision):'版本 '+v.version+(v.ref===current.ref?' · 当前版':''))+'</strong><span>'+esc((r?r.actor_name||r.author_name:v.author_name)||'责任人未记录')+'</span><time>'+handoffTime((r||v).created_at)+'</time>'+(!r?'<span>'+handoffStatus(v.status)+'</span>':'')+'</button>';
-  return '<section class="handoff-lineage" data-lineage-account="'+esc(state.me.id)+'" aria-label="材料版本与审阅沿革"><div class="between wrap handoff-lineage-toolbar"><h3>材料沿革</h3><div class="row wrap"><button type="button" class="button" data-action="handoff-read-refresh">刷新材料状态</button><button type="button" class="button" data-action="handoff-current">回当前版</button></div></div><p data-lineage-status role="status"></p><label class="handoff-version-picker">选择版本<select data-handoff-version aria-label="选择材料版本">'+m.versions.map(v=>'<option value="'+esc(v.ref)+'">版本 '+esc(v.version)+(v.ref===current.ref?' · 当前版':'')+' · '+handoffStatus(v.status)+'</option>').join('')+'</select></label><button type="button" class="button handoff-lineage-jump" data-action="handoff-locate-reading">查看所选版本 '+esc(current.version)+' 的原件与意见</button><div class="handoff-track-head"><strong>成员提交</strong><strong>负责人审阅</strong></div><div class="handoff-lineage-tracks">'+versions.map(v=>'<div class="handoff-lineage-row" data-lineage-version="'+esc(v.ref)+'">'+node(v)+'<svg class="handoff-lineage-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">'+v.reviews.map((r,i)=>'<path data-lineage-review="'+esc(r.id)+'" d="M 0 50 H 45 V '+(100*(i+.5)/v.reviews.length)+' H 100"/>').join('')+'</svg><div class="handoff-review-events">'+(v.reviews.length?v.reviews.map(r=>node(v,r)).join(''):'<p class="muted handoff-no-review">待审<br>尚无审阅记录</p>')+'</div></div>').join('')+'</div><div class="handoff-lineage-reading" data-handoff-reading aria-live="polite">'+handoffLineageReading(m,current)+'</div></section>';
+  return '<section class="handoff-lineage" data-lineage-account="'+esc(state.me.id)+'" aria-label="材料版本与审阅沿革"><div class="between wrap handoff-lineage-toolbar"><h3>材料沿革</h3><div class="row wrap"><button type="button" class="button" data-action="handoff-read-refresh">刷新材料状态</button><button type="button" class="button" data-action="handoff-current">回当前版</button></div></div><p data-lineage-status role="status"></p><label class="handoff-version-picker">选择版本<select data-handoff-version aria-label="选择材料版本">'+m.versions.map(v=>'<option value="'+esc(v.ref)+'">版本 '+esc(v.version)+(v.ref===current.ref?' · 当前版':'')+' · '+handoffStatus(v.status)+'</option>').join('')+'</select></label><button type="button" class="button handoff-lineage-jump" data-action="handoff-locate-reading">查看所选版本 '+esc(current.version)+' 的原件与意见</button>'+visualFlowHtml()+'<div class="handoff-track-head"><strong>成员提交</strong><strong>负责人审阅</strong></div><div class="handoff-lineage-tracks">'+versions.map(v=>'<div class="handoff-lineage-row" data-lineage-version="'+esc(v.ref)+'">'+node(v)+'<svg class="handoff-lineage-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">'+v.reviews.map((r,i)=>'<path data-lineage-review="'+esc(r.id)+'" d="M 0 50 H 45 V '+(100*(i+.5)/v.reviews.length)+' H 100"/>').join('')+'</svg><div class="handoff-review-events">'+(v.reviews.length?v.reviews.map(r=>node(v,r)).join(''):'<p class="muted handoff-no-review">待审<br>尚无审阅记录</p>')+'</div></div>').join('')+'</div><div class="handoff-lineage-reading" data-handoff-reading aria-live="polite">'+handoffLineageReading(m,current)+'</div></section>';
 }
 function handoffSelect(root,versionRef,review='',animate=true){
   if(root.dataset.lineageAccount!==state.me?.id)return;
@@ -32,6 +53,7 @@ function handoffSelect(root,versionRef,review='',animate=true){
   const signature=JSON.stringify([v,review]);
   if(reading._signature!==signature){const html=handoffLineageReading(m,v,review);if(reading.innerHTML!==html)reading.innerHTML=html;reading._signature=signature;}
   reading.querySelectorAll('[data-reading-review]').forEach(item=>item.classList.toggle('is-selected',item.dataset.readingReview===review));
+  handoffFlowUpdate(root,m,v.ref,review);
   if(animate&&typeof reading.animate==='function'&&!matchMedia('(prefers-reduced-motion: reduce)').matches)reading.animate([{backgroundColor:'var(--accent-soft)'},{backgroundColor:'var(--surface-muted)'}],{duration:180,easing:'ease-out'});
 }
 async function handoffReadRefresh(root){
@@ -72,6 +94,7 @@ async function handoffReadRefresh(root){
     if([401,403,404].includes(error.status)){
       material.closest('.handoff-materials').querySelectorAll('form [type=submit]').forEach(b=>b.disabled=true);
       material.closest('.handoff-materials').querySelectorAll('.handoff-material').forEach(item=>{
+        item.querySelector('.actual-flow')?.remove();
         item.querySelectorAll('.handoff-lineage-tracks,[data-handoff-reading],[data-handoff-version]').forEach(el=>{el.replaceChildren();delete el._signature;});
         item.querySelectorAll('[data-handoff-version],[data-action="handoff-current"],[data-action="handoff-locate-reading"],form [type=submit]').forEach(b=>b.disabled=true);
         item.querySelector(':scope>.between>h2').textContent='材料暂不可读';item.querySelector(':scope>.between>.badge').textContent='权限待重新核对';item.querySelector('.handoff-owner').textContent='';

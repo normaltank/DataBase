@@ -13,6 +13,7 @@ function page(){
     maintenanceTraceHtml:()=>'<div>Trace is verified in real Chrome</div>',
     document:{addEventListener:(name,fn)=>{(listeners[name]??=[]).push(fn);},querySelector:s=>s==='[data-maintenance-jobs]'?jobs:null,querySelectorAll:()=>[]},
     api:(url,options)=>new Promise((resolve,reject)=>pending.push({url,options,resolve,reject})),
+    fetch:(url,options)=>new Promise((resolve,reject)=>pending.push({url,options,resolve:value=>resolve({status:200,ok:true,headers:{get:()=>''},json:async()=>value}),reject})),
     esc:String,dateTime:String,linkButton:()=>'<a>Article</a>',CSS:{escape:String},crypto:{randomUUID:(()=>{let n=0;return()=>`request-${++n}`;})()}});
   for(const file of ['maintenance-agent.js','maintenance-feedback.js'])vm.runInContext(fs.readFileSync('static/'+file,'utf8'),context);
   return {context,pending,listeners,jobs,run:code=>vm.runInContext(code,context)};
