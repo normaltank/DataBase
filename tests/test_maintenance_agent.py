@@ -40,7 +40,7 @@ class MaintenanceAgentTests(unittest.TestCase):
         if url.endswith('/tools/search'):
             return Reply({'results':[{'title':'Alex Vale','url':'https://uni.example/alex','snippet':'Alex Vale studies Baltic cooperation.'}]},url)
         if url.endswith('/tools/fetch'):
-            return Reply({'title':'Alex Vale','content':'Alex Vale is a lecturer at North University. North University is in Latvia. Baltic Review is hosted by North University. Baltic cooperation is authored by Alex Vale. DOI: 10.1234/baltic. ISSN: 1234-5679. ORCID: 0000-0002-1825-0097.'},url)
+            return Reply({'title':'Alex Vale','content':'Alex Vale is a lecturer at North University. North University is in Latvia. Baltic Review is hosted by North University. Baltic cooperation is authored by Alex Vale. DOI: 10.1234/baltic. ISSN: 1234-5679. ORCID: 0000-0002-1825-0097. The article affiliation of Alex Vale is South Research Institute.'},url)
         self.assertEqual(body['thinking'],{'type':'disabled'})
         self.assertIn('tools',body)
         self.tool_results=[json.loads(m['content']) for m in body['messages'] if m['role']=='tool']
@@ -183,7 +183,7 @@ class MaintenanceAgentTests(unittest.TestCase):
         created=self.call('/api/people',{'name':'Alex Vale','introduction_html':'<p>Physicist at South Laboratory.</p>','change_note':'Independent synthetic identity'})
         self.assertEqual(created.status_code,201,created.json)
         unrelated=created.json['id']
-        publisher=self.source('Synthetic Publisher','institution')
+        article_unit=self.source('South Research Institute','institution')
         normal=self.next_action
         def model():
             n=self.rounds
@@ -196,7 +196,7 @@ class MaintenanceAgentTests(unittest.TestCase):
                 if n==11:
                     bid=next(x['object']['bylines']['items'][0]['id'] for x in reversed(self.tool_results) if x.get('object',{}).get('bylines',{}).get('items'))
                     evidence=next(x['evidence_id'] for x in self.tool_results if x.get('method')=='deepseek-fetch-markdown')
-                    return 'set_affiliations',{'id':self.rid,'version':0,'record_version':2,'byline_version':1,'items':[{'byline_id':bid,'institution_id':publisher}],'evidence_id':evidence,'quote':'Baltic cooperation is authored by Alex Vale.'}
+                    return 'set_affiliations',{'id':self.rid,'version':0,'record_version':2,'byline_version':1,'items':[{'byline_id':bid,'institution_id':article_unit}],'evidence_id':evidence,'quote':'The article affiliation of Alex Vale is South Research Institute.'}
                 if n>=12:self.rounds-=1
                 return normal()
             finally:self.rounds=n
@@ -209,9 +209,9 @@ class MaintenanceAgentTests(unittest.TestCase):
         self.assertEqual(self.clients['researcher'].get('/api/people/'+unrelated+'/works').json['total'],0)
         employments=self.clients['researcher'].get('/api/people/'+current[0]['target_id']+'/employments').json['items']
         self.assertEqual(len(employments),1)
-        self.assertNotEqual(employments[0]['institution_id'],publisher)
+        self.assertNotEqual(employments[0]['institution_id'],article_unit)
         units=self.clients['researcher'].get('/api/records/'+self.rid+'/affiliations').json['items']
-        self.assertEqual(units[0]['institution_id'],publisher)
+        self.assertEqual(units[0]['institution_id'],article_unit)
 
     def test_empty_search_and_known_fetch_error_cost_zero(self):
         import urllib.error
@@ -221,12 +221,13 @@ class MaintenanceAgentTests(unittest.TestCase):
             if request.full_url.endswith('/tools/fetch'):raise urllib.error.HTTPError(request.full_url,404,'synthetic missing',{},None)
             return normal(request,*args,**kwargs)
         self.provider.side_effect=empty
-        self.queue();self.call('/api/admin/maintenance/run',user='admin')
+        jid=self.queue();self.call('/api/admin/maintenance/run',user='admin')
         charges=self.clients['admin'].get('/api/admin/ai').json
         tools=[a for a in charges['attempts'] if a['task'].startswith('maintenance-tool:')]
         self.assertEqual(len(tools),2)
         self.assertEqual([a['charged_units'] for a in tools],[0,0])
         self.assertTrue(all(a['status']=='settled' for a in tools))
+        self.assertEqual(self.job(jid)['status'],'failed')
 
     def test_nonempty_concurrent_update_is_read_again_before_correction(self):
         def model():
@@ -254,5 +255,22 @@ class MaintenanceAgentTests(unittest.TestCase):
         history=self.clients['researcher'].get('/api/history/record/'+self.rid).json['items']
         self.assertEqual(len(history),3)
         self.assertEqual(history[0]['actor_name'],'AI 自主维护')
+
+    def test_related_record_access_change_blocks_observation_replay_and_history(self):
+        from platform_app.maintenance_agent import run_pending
+        source=self.source('Synthetic Public Journal')
+        self.next_action=lambda:('find',{'target_type':'record','query':'Baltic cooperation'})
+        response=self.call('/api/maintenance/jobs',{'target_type':'source','target_id':source,'request_id':'source-read'})
+        jid=response.json['id']
+        def stopping():
+            return any(s['name']=='find' and s['status']=='completed' for s in self.job(jid)['steps'])
+        self.assertEqual(run_pending(self.data_dir,stopping=stopping),{'tasks':1,'completed':0})
+        before=self.clients['admin'].get('/api/admin/ai').json['attempts']
+        changed=self.call('/api/records/'+self.rid,{'version':1,'visibility':'restricted'},method='PUT')
+        self.assertEqual(changed.status_code,200,changed.json)
+        self.assertEqual(self.clients['colleague'].get('/api/maintenance/jobs/'+jid).status_code,404)
+        self.assertEqual(run_pending(self.data_dir),{'tasks':1,'completed':0})
+        self.assertEqual(self.clients['admin'].get('/api/admin/ai').json['attempts'],before)
+        self.assertEqual(self.clients['colleague'].get('/api/maintenance/jobs').json['items'],[])
 
 if __name__=='__main__':unittest.main()
