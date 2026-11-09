@@ -157,3 +157,5 @@ components:
 - 新页面沿用同一导航、控件、最小字号和响应式规则。参考原则来自 [Zotero](https://www.zotero.org/support/quick_start_guide)、[Carbon](https://carbondesignsystem.com/components/data-table/usage/)、[GOV.UK](https://design-system.service.gov.uk/components/task-list/)、[Fluent 2](https://fluent2.microsoft.design/layout)、[PatternFly](https://www.patternfly.org/components/table/design-guidelines/)。
 
 平台名称统一为“北外中东欧研究中心内部使用”。手机顶栏显示完整名称，在“研究中心”后允许换行，保留至少44px的导航与退出操作目标。页面删除重复副标题和口号；权限、版本、核对、机器处理及操作后果继续在相关位置显示。
+
+材料沿革在每份主题材料内直接显示“成员提交／负责人审阅”双责任列，真实审阅线连接对应版本；选中节点和线沿用蓝色选择，阅读区使用既有浅灰底面，金色仍只用于键盘焦点。具体版本、责任人、日期和状态始终有文字。窄屏与200%布局改为有文字的顺序节点和原生版本选择，目标至少44px；原件、意见和附件共用一个阅读区，当前写入表单位于独立动作区，阅读切换不重建表单。
