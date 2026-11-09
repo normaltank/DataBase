@@ -110,6 +110,21 @@ try{Function('return 1')();window.globeEvalSentinel=false;}catch(e){window.globe
             assert query['country']==['LV'] and query['source']==[source] and query['q']==['合成地球'] and 'page' not in query, query
             expect(page.locator('.material-context')).to_contain_text('共 26 条')
             checks.append('Real Three globe country click -> same query HTTP/list: LV 23; context 26; source/query retained; page cleared')
+            # Exploration presentation changes must preserve the applied query.
+            before=page.url
+            page.locator('[data-material-scene=time]').click()
+            expect(page.locator('[data-material-timeline] canvas')).to_be_visible()
+            expect(page.locator('[data-material-globe] canvas')).to_have_count(0)
+            expect(page.locator('.material-time')).to_contain_text('排除时间条件，共 23 条')
+            page.locator('[data-material-role]').select_option('collected')
+            expect(page.locator('.material-scope')).to_contain_text('23 条')
+            page.locator('[data-material-role]').select_option('published')
+            page.locator('[data-material-scene=country]').click()
+            expect(page.locator('[data-material-timeline] canvas')).to_have_count(0)
+            expect(page.locator('[data-material-globe] canvas')).to_be_visible()
+            assert parse_qs(urlsplit(page.url).fragment.split('?',1)[1])['country']==['LV']
+            expect(page.locator('.material-country-list [data-material-country=LV]')).to_have_attribute('aria-pressed','true')
+            checks.append('Country -> time/role -> country preserves LV/source/query and disposes hidden scene')
             page.get_by_role('button', name='清除研究对象国条件', exact=True).click()
             expect(page.locator('.material-scope')).to_contain_text('26 条')
             page.locator('.material-country-list [data-material-country="__unknown__"]').click()
@@ -182,7 +197,8 @@ try{Function('return 1')();window.globeEvalSentinel=false;}catch(e){window.globe
             page.locator('.material-discovery>summary').click()
             expect(page.locator('[data-material-globe] canvas')).to_have_count(0)
             page.locator('.material-discovery>summary').click()
-            expect(page.locator('[data-material-distribution]')).to_contain_text('正在读取')
+            expect(page.locator('.material-scope')).to_contain_text('27 条')
+            expect(page.locator('[data-material-globe] canvas')).to_have_count(0)
             page.goto(base+'#sources')
             expect(page.locator('.material-discovery')).to_have_count(0)
             assert held
