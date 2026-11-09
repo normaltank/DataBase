@@ -92,8 +92,12 @@ class SourceAdapterTests(unittest.TestCase):
         self.assertEqual(snap['metadata']['raw']['meta']['dc.date.issued'], ['2026-08-26'])
         self.assertEqual(snap['pdf_links'], [CJIR + '/article/download/1/2'])
         jobs = self.clients['admin'].get('/api/records/' + rid + '/suggestions').json['jobs']
-        self.assertEqual(len(jobs), 1)
-        self.assertEqual(jobs[0]['status'], 'queued')
+        self.assertEqual(jobs, [])
+        from platform_app.maintenance_agent import run_pending as maintain_pending
+        maintain_pending(self.app.config['DATA_DIR'], limit=0)
+        automatic = [job for job in self.clients['admin'].get('/api/maintenance/jobs').json['items'] if job['target_id'] == rid]
+        self.assertEqual(len(automatic), 1)
+        self.assertEqual(automatic[0]['status'], 'queued')
         self.call(path + '/run', {}, user='admin')
         self.worker(CJIR, page=cjir_page)
         jobs2 = self.clients['admin'].get('/api/records/' + rid + '/suggestions').json['jobs']
@@ -242,13 +246,14 @@ class SourceAdapterTests(unittest.TestCase):
         rid = self.clients['researcher'].get('/api/records').json['items'][0]['id']
         self.assertEqual(self.clients['researcher'].get('/api/records/'+rid+'/suggestions').json['jobs'],[])
 
-    def test_automatic_author_job_uses_official_per_author_evidence_and_needs_human_adoption(self):
+    def test_explicit_legacy_author_job_uses_official_evidence_and_human_adoption(self):
         from platform_app.archive_suggestions import run_pending
         from tests.synthetic_ai import ENV
         sid = self.source()
         self.call('/api/sources/' + sid + '/ingestion', {'enabled': True}, user='admin', method='PUT')
         self.worker(CJIR)
         rid = self.clients['researcher'].get('/api/records').json['items'][0]['id']
+        self.assertEqual(self.call('/api/archive-jobs', {'record_ids': [rid], 'request_id': 'explicit-official-evidence'}).status_code, 201)
         acquired = []
         def fetch(url, *args, **kwargs):
             acquired.append(url)
@@ -286,32 +291,31 @@ class SourceAdapterTests(unittest.TestCase):
         self.assertEqual(len(self.clients['researcher'].get('/api/records/' + rid + '/bylines').json['items']), 2)
         self.assertEqual(self.clients['researcher'].get('/api/records/' + rid).json['status'], 'pending')
 
-    def test_stopped_source_and_revoked_operator_cannot_dispatch_author_work(self):
-        from platform_app.archive_suggestions import run_pending
+    def test_public_maintenance_does_not_depend_on_collection_switch_or_operator_session(self):
+        from platform_app.maintenance_agent import run_pending
         sid = self.source()
         path = '/api/sources/' + sid + '/ingestion'
         self.call(path, {'enabled': True}, user='admin', method='PUT')
         self.worker(CJIR)
         rid = self.clients['researcher'].get('/api/records').json['items'][0]['id']
         self.call(path, {'enabled': False}, user='admin', method='PUT')
-        with patch('platform_app.intake.fetch_document', side_effect=AssertionError('revoked source must not fetch')), \
-             patch('urllib.request.OpenerDirector.open', side_effect=AssertionError('revoked source must not spend')):
-            self.assertEqual(run_pending(self.app.config['DATA_DIR'])['completed'], 0)
-        state = self.clients['researcher'].get('/api/records/' + rid + '/suggestions').json
-        self.assertEqual(state['jobs'][0]['status'], 'invalidated')
-        self.assertEqual(state['candidates'], [])
+        with patch('urllib.request.OpenerDirector.open', side_effect=AssertionError('scan must not spend')):
+            run_pending(self.app.config['DATA_DIR'], limit=0)
+        first = [job for job in self.clients['researcher'].get('/api/maintenance/jobs').json['items'] if job['target_id'] == rid]
+        self.assertEqual(len(first), 1)
+        self.assertEqual(first[0]['status'], 'queued')
         self.call(path, {'enabled': True}, user='admin', method='PUT')
         self.call(path + '/run', {}, user='admin')
         self.worker(CJIR, xml=feed(CJIR).replace('/view/1','/view/2'), page=OJS.format(root=CJIR).replace('synthetic.1','synthetic.2'))
         second = next(r for r in self.clients['researcher'].get('/api/records').json['items'] if r['id'] != rid)
         changed = self.call('/api/members/admin', {'password':'ChangedSynthetic2026!'}, user='admin', method='PUT')
         self.assertEqual(changed.status_code, 200, changed.json)
-        with patch('platform_app.intake.fetch_document', side_effect=AssertionError('old credential must not fetch')), \
-             patch('urllib.request.OpenerDirector.open', side_effect=AssertionError('old credential must not spend')):
-            self.assertEqual(run_pending(self.app.config['DATA_DIR'])['completed'], 0)
-        self.assertEqual(self.clients['researcher'].get('/api/records/'+second['id']+'/suggestions').json['jobs'][0]['status'], 'invalidated')
+        run_pending(self.app.config['DATA_DIR'], limit=0)
+        jobs = self.clients['researcher'].get('/api/maintenance/jobs').json['items']
+        self.assertEqual([job['id'] for job in jobs if job['target_id'] == rid], [first[0]['id']])
+        self.assertTrue(any(job['target_id'] == second['id'] and job['status'] == 'queued' for job in jobs))
 
-    def test_existing_duplicate_is_not_swept_and_failed_new_page_retries_queue_only_once(self):
+    def test_collection_keeps_human_metadata_without_legacy_author_jobs_after_retry(self):
         sid = self.source()
         path = '/api/sources/' + sid + '/ingestion'
         old = self.call('/api/records', dict(kind='journal_article', title='Human existing title', abstract='Human existing abstract', doi='10.1234/synthetic.1', visibility='shared')).json['id']
@@ -333,10 +337,10 @@ class SourceAdapterTests(unittest.TestCase):
         self.assertEqual(self.worker(CJIR, page=OJS.format(root=CJIR).replace('synthetic.1','synthetic.2'))[0]['saved'], 1)
         detail = self.clients['researcher'].get('/api/records/'+rid).json
         self.assertEqual(detail['title'], 'Human corrected after failure')
-        self.assertEqual(len(self.clients['researcher'].get('/api/records/'+rid+'/suggestions').json['jobs']), 1)
+        self.assertEqual(self.clients['researcher'].get('/api/records/'+rid+'/suggestions').json['jobs'], [])
         self.call(path+'/run', {}, user='admin')
         self.worker(CJIR, xml=badfeed, page=OJS.format(root=CJIR).replace('synthetic.1','synthetic.2'))
-        self.assertEqual(len(self.clients['researcher'].get('/api/records/'+rid+'/suggestions').json['jobs']), 1)
+        self.assertEqual(self.clients['researcher'].get('/api/records/'+rid+'/suggestions').json['jobs'], [])
 
     def test_paused_budget_does_not_stop_public_acquisition_and_chinese_uses_acquired_not_human_fields(self):
         from platform_app.automatic_processing import run_pending

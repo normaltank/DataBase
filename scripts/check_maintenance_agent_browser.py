@@ -15,8 +15,9 @@ from tests.test_maintenance_agent import MaintenanceAgentTests
 
 def main():
     logging.getLogger('werkzeug').setLevel(logging.ERROR)
-    evidence=Path(tempfile.mkdtemp(prefix='browser-',dir='D:/Agent Workspace/DataBase-tests/maintenance129'))
+    evidence=Path(tempfile.mkdtemp(prefix='browser-',dir='D:/Agent Workspace/DataBase-tests/maintenance130'))
     fixture=MaintenanceAgentTests();fixture.setUp()
+    fixture.call('/api/admin/maintenance/run',user='admin')
     server=make_server('127.0.0.1',0,fixture.app,threaded=True)
     thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
     base=f'http://127.0.0.1:{server.server_port}'
@@ -35,18 +36,21 @@ def main():
                 page.goto(base+'/#system')
                 page.get_by_role('button',name='资料管理员',exact=True).click()
                 page.goto(base+'/#maintenance-agent')
-                expect(page.get_by_role('heading',name='整理一篇文章')).to_be_visible()
+                expect(page.get_by_role('heading',name='维护状态')).to_be_visible()
+                expect(page.locator('[data-maintenance-overview]')).to_contain_text('近期修改')
+                expect(page.locator('.maintenance-job>summary').first).to_contain_text('已完成')
+                page.get_by_text('指定一篇文章',exact=True).click()
                 page.get_by_label('查找文章',exact=True).fill('Baltic cooperation')
                 page.get_by_role('button',name='查找',exact=True).click()
                 page.get_by_label('选择文章',exact=True).select_option(fixture.rid)
-                page.get_by_role('button',name='开始整理',exact=True).click()
-                expect(page.locator('[data-maintenance-message]')).to_contain_text('已安排')
-                fixture.call('/api/admin/maintenance/run',user='admin')
+                expect(page.get_by_role('button',name='开始整理',exact=True)).to_be_enabled()
                 page.get_by_role('button',name='刷新状态',exact=True).click()
                 expect(page.locator('.maintenance-job>summary')).to_contain_text('已完成')
                 if page.locator('.maintenance-job').get_attribute('open') is None:page.locator('.maintenance-job>summary').click()
                 # Structured results and real final network appear in the live UI.
                 expect(page.locator('.maintenance-steps')).to_contain_text('关联作者')
+                assert page.locator('.maintenance-steps a[href="https://uni.example/alex"]').count()>0
+                assert page.locator('a[href="https://api.deepseek.com/v1/tools/search"]').count()==0
                 for width,height,factor in [(1366,900,1),(390,844,1),(320,780,1),(1366,900,2)]:
                     page.set_viewport_size({'width':width,'height':height})
                     zoom.evaluate('async ({url,factor})=>{const t=(await chrome.tabs.query({})).find(x=>x.url.startsWith(url));await chrome.tabs.setZoom(t.id,factor);}',{'url':base,'factor':factor})

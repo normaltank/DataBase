@@ -475,6 +475,11 @@ def run_pending(data_dir, limit=2, stopping=lambda: False):
     try:
         with db:
             db.execute("INSERT OR REPLACE INTO settings VALUES ('archive_worker_heartbeat',?)", (store.now(),))
+            db.execute("""UPDATE archive_jobs SET status='cancelled',reason='已转由自主维护接续，历史材料与费用保留。',
+                          lease_token='',lease_until='',finished_at=?
+                          WHERE request_id LIKE 'ingestion-new:%' AND
+                          (status IN ('queued','paused','failed') OR (status='running' AND lease_until<=?))""",
+                       (store.now(),store.now()))
         for _ in range(limit):
             if stopping():
                 break
@@ -498,7 +503,7 @@ _worker_lock = threading.Lock()
 
 
 def start_worker(data_dir):
-    """Only explicitly queued archive targets; multiple processes use database leases."""
+    """Reuse one embedded loop for explicit legacy work and autonomous batches."""
     key = str(Path(data_dir).resolve())
     with _worker_lock:
         if key in _workers:
@@ -508,6 +513,8 @@ def start_worker(data_dir):
         while True:
             try:
                 run_pending(data_dir)
+                from .maintenance_agent import run_pending as maintain_pending
+                maintain_pending(data_dir,limit=1)
             except Exception:
                 # Lease recovery keeps interrupted jobs durable; never trigger a direct provider retry.
                 import logging

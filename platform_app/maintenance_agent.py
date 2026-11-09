@@ -21,7 +21,7 @@ LEASE_SECONDS = 900
 STATES = {'queued','running','paused','completed','failed','cancelled'}
 RECORD_FIELDS = {'title','original_title','abstract','keywords','countries','doi','url','publication_title','serial_id','source_id','issn','volume','issue','pages','published_on','language'}
 SOURCE_FIELDS = set(source_profiles.SOURCE_FIELDS) | set(source_profiles.source_catalog.DEFAULTS)
-SOURCE_FIELDS -= {'scope_status'}
+SOURCE_FIELDS -= {'scope_status','notes'}
 PERSON_FIELDS = {'name','original_name','chinese_name','aliases','introduction_html','sources','orcid'}
 
 
@@ -88,12 +88,15 @@ def target(db, actor, target_type, target_id):
     return row
 
 
-def enqueue(db, actor, target_type, target_id, request_id, feedback='', priority=0):
+def enqueue(db, actor, target_type, target_id, request_id, feedback='', priority=0, *, automatic=False):
     """Shared submit boundary; callers do not hold a write transaction.
 
     Feedback remains context for future work. Priority never bypasses budget.
     """
-    actor=member(db,actor)
+    if automatic and actor['id']==MACHINE and isinstance(request_id,str) and request_id.startswith('automatic:'):
+        actor=machine(db)
+    else:
+        actor=member(db,actor)
     target(db,actor,target_type,target_id)
     if not isinstance(request_id,str) or not 1<=len(request_id)<=200 or not isinstance(feedback,str) or len(feedback)>4000 or type(priority) is not int or not -100<=priority<=100:
         abort(400,'任务标识、反馈或优先级无效。')
@@ -111,7 +114,8 @@ def enqueue(db, actor, target_type, target_id, request_id, feedback='', priority
 
 def authorized(db,job):
     current=db.execute('SELECT * FROM maintenance_jobs WHERE id=?',(job['id'],)).fetchone()
-    actor=db.execute('SELECT * FROM users WHERE id=? AND active=1',(job['actor_id'],)).fetchone()
+    automatic=job['actor_id']==MACHINE and job['request_id'].startswith('automatic:')
+    actor=db.execute('SELECT * FROM users WHERE id=? AND (active=1 OR ?)',(job['actor_id'],automatic)).fetchone()
     if not current or current['status']!='running' or current['lease_token']!=job['lease_token'] or not actor or actor['credential_version']!=job['credential_version']:return False
     try:
         target(db,dict(actor),job['target_type'],job['target_id'])
@@ -391,6 +395,8 @@ def run_pending(data_dir,limit=1,stopping=lambda:False):
     data_dir=Path(data_dir);db=store.connect(data_dir/'platform.sqlite3');result={'tasks':0,'completed':0}
     try:
         with db:db.execute("INSERT OR REPLACE INTO settings VALUES('maintenance_worker_heartbeat',?)",(store.now(),))
+        from . import maintenance_scan
+        if not stopping():result['queued']=maintenance_scan.scan(db,data_dir)
         for _ in range(limit):
             if stopping():break
             with db:
@@ -402,6 +408,8 @@ def run_pending(data_dir,limit=1,stopping=lambda:False):
             result['tasks']+=1
             try:
                 done=run_job(db,job,data_dir,stopping);result['completed']+=bool(done)
+                if done:
+                    with db:maintenance_scan.completed(db,job,data_dir)
                 if not done:
                     with db:db.execute("UPDATE maintenance_jobs SET status='queued',lease_token='',lease_until='' WHERE id=? AND lease_token=?",(job['id'],job['lease_token']))
             except (ValueError,HTTPException) as failure:
@@ -453,6 +461,49 @@ def validate_backup(db):
     except (ValueError,KeyError,TypeError,StopIteration):raise ValueError('AI维护任务、步骤或实际材料无效。') from None
 
 
+def overview(db,actor,items,heartbeat,portable=None):
+    policy=ai_gateway.summary(db)
+    reasons=policy['blocked_reasons']
+    if portable and not portable['enabled']:
+        status='paused' if portable['configured'] else 'needs_configuration'
+        reason='本机 AI 尚未启用。' if portable['configured'] else '请完成本机 AI 配置并启用。'
+    elif policy['paused']:
+        status,reason='paused','；'.join(reasons)
+    elif any('配置' in reason or '尚未设置' in reason for reason in reasons):
+        status,reason='needs_configuration','；'.join(reasons)
+    elif reasons:
+        status,reason='paused','；'.join(reasons)
+    elif not heartbeat or datetime.fromisoformat(heartbeat)+timedelta(seconds=90)<datetime.fromisoformat(store.now()):
+        status,reason='waiting','等待后台运行，已保存的任务会继续。'
+    else:
+        status,reason='running','后台逐批维护公开资料与档案。'
+    counts={};paused_reason=''
+    for row in db.execute("SELECT id,target_type,target_id,status,reason FROM maintenance_jobs WHERE status IN ('queued','running','paused','failed')"):
+        try:
+            target(db,actor,row['target_type'],row['target_id'])
+            check_dependencies(db,actor,row['id'])
+        except HTTPException:continue
+        counts[row['status']]=counts.get(row['status'],0)+1
+        if row['status']=='paused' and not paused_reason:paused_reason=row['reason']
+    if status in {'running','waiting'} and counts.get('paused') and not counts.get('queued') and not counts.get('running'):
+        status,reason='paused',paused_reason or '任务已暂停，检查费用与配置后可接续。'
+    changes={}
+    for job in items:
+        for step in reversed(job['steps']):
+            result=step['result']
+            if result.get('changed_target'):
+                obj=result['object']
+                key=tuple(result['changed_target'])
+                change=changes.setdefault(key,{'target_type':key[0],'target_id':key[1],
+                                'title':obj.get('title') or obj.get('name'),'actions':[],
+                                'at':step['finished_at'],'job_id':job['id']})
+                if step['name'] not in change['actions']:change['actions'].append(step['name'])
+                change['at']=max(change['at'],step['finished_at'])
+    changes=sorted(changes.values(),key=lambda item:item['at'],reverse=True)
+    return {'status':status,'reason':reason,'counts':counts,'recent_changes':changes[:8],
+            'recheck_days':30}
+
+
 def register(app,ctx):
     @app.post('/api/maintenance/jobs')
     def maintenance_submit():
@@ -463,11 +514,14 @@ def register(app,ctx):
     @app.get('/api/maintenance/jobs')
     def maintenance_listing():
         db=ctx.db();actor=ctx.user();items=[]
-        for row in db.execute('SELECT * FROM maintenance_jobs ORDER BY priority DESC,created_at DESC LIMIT 100'):
+        for row in db.execute('SELECT * FROM maintenance_jobs ORDER BY created_at DESC,rowid DESC LIMIT 100'):
             try:items.append(projection(db,actor,row['id']))
             except HTTPException:continue
         heartbeat=db.execute("SELECT value FROM settings WHERE key='maintenance_worker_heartbeat'").fetchone()
-        return jsonify(items=items,heartbeat=heartbeat[0] if heartbeat else '')
+        heartbeat=heartbeat[0] if heartbeat else ''
+        portable_status=app.config.get('PORTABLE_AI_STATUS')
+        portable=portable_status() if callable(portable_status) else None
+        return jsonify(items=items,heartbeat=heartbeat,overview=overview(db,actor,items,heartbeat,portable))
     @app.post('/api/admin/maintenance/run')
     def maintenance_run():
         ctx.admin()
