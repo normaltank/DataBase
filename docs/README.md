@@ -43,7 +43,7 @@
 
 ## 档案筛选与 AI 辅助维护
 
-[规格 1.0](specs/档案筛选与AI辅助维护.md)及 [R025](需求讨论记录.md#r025档案筛选与ai辅助维护)记录2026-11-02确认的国名／档案筛选、官网取证与来源建议、作者候选及人工采用。作者建议[#64](https://github.com/normaltank/DataBase/issues/64)、国家筛选[#92](https://github.com/normaltank/DataBase/issues/92)与来源建议[#93](https://github.com/normaltank/DataBase/issues/93)已由[PR #94](https://github.com/normaltank/DataBase/pull/94)交付；父任务[#46](https://github.com/normaltank/DataBase/issues/46)保留其他未完成范围。本轮收紧旧版明确依据自动正式关联许可，当前规则见 [PRODUCT](../PRODUCT.md#有据档案建议与人工采用2026-11-02-已确认)；旧规格及讨论保留历史身份；源码部署包已由[PR #99](https://github.com/normaltank/DataBase/pull/99)交付，实际服务器安装与运行结果按对应部署证据判断。
+[规格 1.0](specs/档案筛选与AI辅助维护.md)及 [R025](需求讨论记录.md#r025档案筛选与ai辅助维护)记录2026-11-02确认的国名／档案筛选、官网取证与来源建议、作者候选及人工采用。作者建议[#64](https://github.com/normaltank/DataBase/issues/64)、国家筛选[#92](https://github.com/normaltank/DataBase/issues/92)与来源建议[#93](https://github.com/normaltank/DataBase/issues/93)已由[PR #94](https://github.com/normaltank/DataBase/pull/94)交付；父任务[#46](https://github.com/normaltank/DataBase/issues/46)保留其他未完成范围。本轮收紧旧版明确依据自动正式关联许可，当前规则见 [PRODUCT](../PRODUCT.md#ai-自主维护与反馈纠错2026-11-09-已确认)；旧规格及讨论保留历史身份；源码部署包已由[PR #99](https://github.com/normaltank/DataBase/pull/99)交付，实际服务器安装与运行结果按对应部署证据判断。
 
 ## 研究资料质量与辅助整理
 

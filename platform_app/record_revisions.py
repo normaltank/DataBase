@@ -479,17 +479,23 @@ class RecordRevisions:
 
     def edit(self, rid, data, file=None):
         with self._transaction():
-            row = self.get(rid, edit=True)
-            rid = row["id"]
-            check_version(data, row)
-            values, linked, associated, cited = self._values(data, row)
-            self._unique_doi(values["doi"], rid)
-            self._initial_history(rid)
-            attachments = self._upload(rid, data, json.loads(row["attachment_ids"]), file)
-            self._relations(rid, linked, associated, cited, data.get("refresh_citations") is True)
-            if "research_subjects" in data:
-                note_subjects.save(self.db, rid, values["kind"], data["research_subjects"], self.actor["id"])
-            self._finish(row, {**values, "attachment_ids": json.dumps(attachments), "status": "pending"}, "修订资料")
+            return self.edit_in_transaction(rid, data, file)
+
+    def edit_in_transaction(self, rid, data, file=None):
+        if not self.db.in_transaction:
+            raise RuntimeError('Record edit requires an owning transaction.')
+        row = self.get(rid, edit=True)
+        rid = row["id"]
+        check_version(data, row)
+        values, linked, associated, cited = self._values(data, row)
+        self._unique_doi(values["doi"], rid)
+        self._initial_history(rid)
+        attachments = self._upload(rid, data, json.loads(row["attachment_ids"]), file)
+        self._relations(rid, linked, associated, cited, data.get("refresh_citations") is True)
+        if "research_subjects" in data:
+            note_subjects.save(self.db, rid, values["kind"], data["research_subjects"], self.actor["id"])
+        self._finish(row, {**values, "attachment_ids": json.dumps(attachments), "status": "pending"}, "修订资料")
+
         return rid
 
     def confirm_author(self, rid, data):

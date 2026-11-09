@@ -216,7 +216,8 @@ class HandoffTests(unittest.TestCase):
             gaps = topic_closure.incomplete(db,saved)
             request_data=json.loads(end['request_json']);request_data['basis_token']=topic_review.fingerprint(saved)
             db.execute('UPDATE topic_closure_events SET basis_json=?,incomplete_json=?,request_json=?,request_hash=? WHERE id=?',(json.dumps(saved,ensure_ascii=False),json.dumps(gaps,ensure_ascii=False),json.dumps(request_data,ensure_ascii=False),topic_review.fingerprint({'action':'end','data':request_data}),end['id']))
-            later_tables = ('journal_result_requests', 'journal_result_events', 'journal_result_versions',
+            db.execute('ALTER TABLE people DROP COLUMN orcid')
+            later_tables = ('maintenance_evidence','maintenance_steps','maintenance_jobs','journal_result_requests', 'journal_result_events', 'journal_result_versions',
                             'journal_result_series', 'journal_results', *reversed(topic_handoffs.TABLES))
             for table in later_tables:
                 db.execute(f'DROP TABLE {table}')
@@ -240,7 +241,7 @@ class HandoffTests(unittest.TestCase):
         with closing(connect(destination/'platform.sqlite3')) as db:
             self.assertEqual(before,{t:[tuple(r) for r in db.execute(f'SELECT * FROM {t} ORDER BY 1')] for t in tables})
         lead=self.login('researcher',upgraded)
-        self.assertEqual(lead.get('/health').json['schema'], 28)
+        self.assertEqual(lead.get('/health').json['schema'], 29)
         b=lead.get(f'/api/collaboration/topics/{tid}/handoffs').json
         self.assertEqual(b['lifecycle_events'][0]['basis'],saved)
         self.assertEqual(b['stage_events'][0]['meeting_id'],meeting['id'])

@@ -7,7 +7,7 @@ function bylineIdentity(item) {
 }
 
 function bylineList(items) {
-  return items.length?`<ol class="byline-list">${items.map(item=>`<li><div class="row wrap"><strong>${esc(item.raw_name)}</strong><span class="badge ${item.status==='confirmed'?'verified':'pending'}">${item.status==='confirmed'?'已确认署名':'署名待确认'}</span></div><div class="row wrap">${bylineIdentity(item)}</div>${item.evidence?`<p class="small prose">依据：${esc(item.evidence)}</p>`:''}</li>`).join('')}</ol>`:'<p class="muted">尚未整理署名</p>';
+  return items.length?`<ol class="byline-list">${items.map(item=>`<li><div class="row wrap"><strong>${esc(item.raw_name)}</strong><span class="badge ${item.status==='confirmed'?'verified':'pending'}">${item.status==='confirmed'?(item.machine?'AI 关联':'已确认署名'):'署名待确认'}</span></div><div class="row wrap">${bylineIdentity(item)}</div>${item.evidence?`<p class="small prose">依据：${esc(item.evidence)}</p>`:''}</li>`).join('')}</ol>`:'<p class="muted">尚未整理署名</p>';
 }
 
 async function bylineSection(record) {

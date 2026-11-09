@@ -783,6 +783,9 @@ def run_worker(data_dir, poll_seconds=30, once=False, stopping=lambda: False, he
         from .archive_suggestions import run_pending as archive_pending
         if paid_enabled():
             result['archive_suggestions'] = archive_pending(data_dir,limit=2,stopping=lambda: stopping() or not paid_enabled())
+        from .maintenance_agent import run_pending as maintain_pending
+        if paid_enabled():
+            result['maintenance'] = maintain_pending(data_dir,limit=1,stopping=lambda: stopping() or not paid_enabled())
         if result['runs']:
             logging.info('public_ingestion %s',json.dumps(result))
         if once:
