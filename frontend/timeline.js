@@ -55,7 +55,7 @@ function createLens(container,snapshot,onSelect,onStatus){
   renderer.setPixelRatio(Math.min(devicePixelRatio,1.7));renderer.setClearColor(0xf0f4f9);host.append(renderer.domElement);
   renderer.domElement.setAttribute('aria-label','时间透镜，拖动观察；资料也可从文字窗口打开');
   const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(40,1,.1,100),controls=new OrbitControls(camera,renderer.domElement);
-  camera.position.set(0,.08,1);controls.enableDamping=false;controls.minDistance=5;controls.maxDistance=45;controls.update();
+  camera.position.set(0,.08,1);controls.enableDamping=false;controls.minDistance=5;controls.maxDistance=45;
   const geometry=new THREE.BoxGeometry(1,.18,.18),material=new THREE.MeshBasicMaterial({color:0xffffff});
   const mesh=new THREE.InstancedMesh(geometry,material,300);scene.add(mesh);
   let disposed=false,frame=0,items=[],down=null,selected=null,fitDistance=1;
@@ -74,7 +74,7 @@ function createLens(container,snapshot,onSelect,onStatus){
     if(years.length){
       const values=[...new Set([low,...Array.from({length:3},(_,i)=>Math.round(low+(high+1-low)*(i+1)/4)),high+1])];
       for(const year of values){
-        const canvas=document.createElement('canvas');canvas.width=128;canvas.height=40;const context=canvas.getContext('2d');context.fillStyle='#243347';context.font='26px sans-serif';context.textAlign='center';context.fillText(String(year),64,30);
+        const canvas=document.createElement('canvas');canvas.width=128;canvas.height=40;const context=canvas.getContext('2d');context.fillStyle='#243347';context.font='26px sans-serif';context.textAlign='center';context.fillText(year===high+1?high+'年末':String(year),64,30);
         const texture=new THREE.CanvasTexture(canvas),labelMaterial=new THREE.SpriteMaterial({map:texture,transparent:true,depthTest:false}),label=new THREE.Sprite(labelMaterial);
         label.position.set(x(yearStart(year)),-2.35,0);label.scale.set(1.4,.44,1);scene.add(label);ticks.push(label);tickResources.push(texture,labelMaterial);
         const geometry=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(x(yearStart(year)),-1.88,0),new THREE.Vector3(x(yearStart(year)),-2.08,0)]),material=new THREE.LineBasicMaterial({color:0x58697b}),tick=new THREE.Line(geometry,material);scene.add(tick);ticks.push(tick);tickResources.push(geometry,material);

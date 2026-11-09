@@ -144,11 +144,13 @@ try{Function('return 1')();window.timelineEvalSentinel=false;}catch(e){window.ti
                 assert all(c['left']>=0 and c['right']<=c['width']+1 for c in controls),controls
                 if width<=390 or zoom==2: assert all(c['height']>=44 for c in controls),controls
                 panel.locator('.material-time').screenshot(path=str(evidence/f'time-{width}-zoom-{zoom}.png'))
+                page.keyboard.press('Control+Home');page.screenshot(path=str(evidence/f'viewport-time-{width}-zoom-{zoom}.png'))
                 checks.append({'width':width,'native_zoom':zoom,'keyboard_and_layout':'pass'})
             worker.evaluate("async base=>{const tab=(await chrome.tabs.query({})).find(t=>t.url.startsWith(base));await chrome.tabs.setZoom(tab.id,1)}",base)
             page.set_viewport_size({'width':1366,'height':900});page.emulate_media(reduced_motion='reduce')
             page.goto(url);expect(panel.locator('.material-time-lens canvas')).to_be_visible()
             panel.screenshot(path=str(evidence/'multi-lens-desktop.png'))
+            lens_view=panel.locator('.material-time-lens canvas');lens_view.scroll_into_view_if_needed();page.screenshot(path=str(evidence/'viewport-multi-lens.png'))
             lens=panel.locator('.material-time-lens canvas');lens.scroll_into_view_if_needed();b=lens.bounding_box()
             known=[item for item in projection['timeline_window']['items'] if item['precision']!='unknown']
             target=known[26];groups=sorted({item['kind'] for item in projection['timeline_window']['items']})
