@@ -94,7 +94,7 @@ def main():
                 focused_row=page.locator('[data-maintenance-select="synthetic-paused"]')
                 focused_row.focus()
                 db=store.connect(fixture.data_dir/'platform.sqlite3')
-                with db:db.execute("UPDATE maintenance_jobs SET created_at='2026-12-01T00:00:00+00:00' WHERE id='synthetic-paused'")
+                with db:db.execute("UPDATE maintenance_jobs SET created_at=? WHERE id='synthetic-paused'",(store.now(),))
                 db.close()
                 page.wait_for_timeout(5400)
                 expect(focused_row).to_be_focused()
