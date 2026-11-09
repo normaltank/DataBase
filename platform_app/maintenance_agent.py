@@ -423,7 +423,7 @@ def run_pending(data_dir,limit=1,stopping=lambda:False):
     try:
         with db:db.execute("INSERT OR REPLACE INTO settings VALUES('maintenance_worker_heartbeat',?)",(store.now(),))
         from . import maintenance_scan
-        if not stopping():result['queued']=maintenance_scan.scan(db,data_dir)
+        if not stopping():maintenance_scan.scan(db,data_dir)
         for _ in range(limit):
             if stopping():break
             with db:
