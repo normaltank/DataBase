@@ -171,6 +171,7 @@ class AIDeadlineTests(unittest.TestCase):
 
     def test_tls_handshake_wait_is_inside_deadline(self):
         import socketserver
+        import ssl
         release, accepted = threading.Event(), threading.Event()
 
         class WaitingTLS(socketserver.BaseRequestHandler):
@@ -188,11 +189,23 @@ class AIDeadlineTests(unittest.TestCase):
         self.call('/api/admin/ai/config', {'cap': '1', 'currency': 'USD'}, user='admin')
         rid = self.record(title='Waiting TLS synthetic')
         env = {'DEEPSEEK_API_KEY': 'synthetic-only', 'DEEPSEEK_BASE_URL': f'https://127.0.0.1:{server.server_address[1]}', 'DEEPSEEK_MODEL': 'deepseek-flash', 'DEEPSEEK_PRICING_JSON': json.dumps(budget.PRICE)}
-        started = time.monotonic()
-        with patch.dict('os.environ', env), patch('platform_app.ai_gateway.MAX_SECONDS', .25):
+        # Measure the real blocked handshake, not HTTP job creation, ledger
+        # persistence or response processing on a loaded test host.
+        handshake_times = []
+        real_handshake = ssl.SSLSocket.do_handshake
+
+        def timed_handshake(sock, *args, **kwargs):
+            started = time.monotonic()
+            try:
+                return real_handshake(sock, *args, **kwargs)
+            finally:
+                handshake_times.append(time.monotonic() - started)
+
+        with patch.dict('os.environ', env), patch('platform_app.ai_gateway.MAX_SECONDS', .25), patch.object(ssl.SSLSocket, 'do_handshake', timed_handshake):
             result = self.run_job(rid)
         self.assertTrue(accepted.is_set())
-        self.assertLess(time.monotonic() - started, 1)
+        self.assertEqual(len(handshake_times), 1)
+        self.assertLess(handshake_times[0], 1)
         self.assertEqual(result.json['status'], 'failed')
         state = self.get('/api/admin/ai', 'admin').json
         self.assertEqual(state['attempts'][0]['status'], 'unknown')
