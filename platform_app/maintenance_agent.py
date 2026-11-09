@@ -498,6 +498,9 @@ def overview(db,actor,items,heartbeat,portable=None):
         status,reason='needs_configuration','；'.join(reasons)
     elif reasons:
         status,reason='paused','；'.join(reasons)
+    elif portable and portable.get('worker_state')!='running':
+        status='paused' if portable.get('worker_state') in {'failed','stopping'} else 'waiting'
+        reason=portable.get('worker_reason') or '等待本机后台启动，已保存的任务会继续。'
     elif not heartbeat or datetime.fromisoformat(heartbeat)+timedelta(seconds=90)<datetime.fromisoformat(store.now()):
         status,reason='waiting','等待后台运行，已保存的任务会继续。'
     else:

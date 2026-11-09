@@ -39,6 +39,15 @@ class MaintenanceScanTests(unittest.TestCase):
         self.assertEqual(overview['status'], 'paused')
         self.assertIn('管理员已暂停', overview['reason'])
 
+    def test_overview_reports_portable_worker_failure_even_with_recent_heartbeat(self):
+        from platform_app.maintenance_agent import run_pending
+        run_pending(self.data_dir, limit=0)
+        self.app.config['PORTABLE_AI_STATUS'] = lambda: {'configured': True, 'enabled': True,
+            'worker_state': 'failed', 'worker_reason': '后台已停止，请重新启动。'}
+        overview = self.clients['researcher'].get('/api/maintenance/jobs').json['overview']
+        self.assertEqual(overview['status'], 'paused')
+        self.assertEqual(overview['reason'], '后台已停止，请重新启动。')
+
     def test_ordinary_submission_is_maintained_without_opening_a_reader(self):
         response = self.call('/api/admin/maintenance/run', user='admin')
         self.assertEqual(response.json['completed'], 1)
