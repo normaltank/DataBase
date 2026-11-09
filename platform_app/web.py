@@ -410,6 +410,9 @@ def create_app(data_dir=None, testing=False, *, initialization_mode='demo', embe
             g.reading_confirmation = reading_queries.confirmation(frozen, results)
         return results, favorites
 
+    from . import material_discovery
+    material_discovery.register(app, SimpleNamespace(db=db, filtered_records=filtered_records))
+
     @app.get("/api/records")
     def records_list():
         rows, favorites = filtered_records(request.args)

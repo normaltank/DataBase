@@ -4,7 +4,7 @@
 const libraryWorkspace={view:'list',items:[],page:1,total:0,size:20,readerId:null,readerRecord:null,readerEpoch:0,returnFocus:null,returnY:0,account:null,context:null,selected:new Set(),organizing:false,batch:null};
 const librarySelectionLimit=100;
 const libraryReaderMedia=matchMedia('(max-width:1199px)');
-window.librarySelection=Object.freeze({ids:()=>[...libraryWorkspace.selected],count:()=>libraryWorkspace.selected.size,clear:message=>libraryClearSelection(message),limit:librarySelectionLimit});
+window.librarySelection=Object.freeze({ids:()=>[...libraryWorkspace.selected],count:()=>libraryWorkspace.selected.size,clear:message=>libraryClearSelection(message),remove:id=>{libraryWorkspace.selected.delete(id);librarySelectionChanged();},limit:librarySelectionLimit});
 document.addEventListener('records:favorite-change',event=>{
   const ids=new Set(event.detail.ids),saved=event.detail.saved;
   for(const record of libraryWorkspace.items)if(ids.has(record.id))record.favorite=saved;
