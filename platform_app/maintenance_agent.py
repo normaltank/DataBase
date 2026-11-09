@@ -144,16 +144,20 @@ def authorized(db,job):
     return True
 
 
-def projection(db,actor,jid):
-    row=db.execute('SELECT * FROM maintenance_jobs WHERE id=?',(jid,)).fetchone()
-    if not row:abort(404,'维护任务不存在。')
-    try:obj=target(db,actor,row['target_type'],row['target_id'])
+def readable_target(db,actor,kind,tid):
+    try:return target(db,actor,kind,tid)
     except HTTPException as error:
         # A formerly eligible public target may now be restricted or internal.
         # Reads report it as unavailable, even when this actor owns the record;
         # the enqueue boundary retains its descriptive validation errors.
         if error.code==400:abort(404,'维护对象已不可访问。')
         raise
+
+
+def projection(db,actor,jid):
+    row=db.execute('SELECT * FROM maintenance_jobs WHERE id=?',(jid,)).fetchone()
+    if not row:abort(404,'维护任务不存在。')
+    obj=readable_target(db,actor,row['target_type'],row['target_id'])
     check_dependencies(db,actor,jid)
     item={k:row[k] for k in ['id','target_type','target_id','status','reason','feedback','priority','created_at','finished_at','turns']}
     item['title']=obj['title'] if row['target_type']=='record' else obj['name']
@@ -835,7 +839,7 @@ def overview(db,actor,items,heartbeat,portable=None,window_counts=None):
 def register(app,ctx):
     @app.get('/api/maintenance/targets/<kind>/<tid>')
     def maintenance_target_history(kind,tid):
-        db=ctx.db();actor=member(db,ctx.user());obj=target(db,actor,kind,tid)
+        db=ctx.db();actor=member(db,ctx.user());obj=readable_target(db,actor,kind,tid)
         items=[]
         for row in db.execute('SELECT id FROM maintenance_jobs WHERE target_type=? AND target_id=? ORDER BY created_at DESC,rowid DESC LIMIT 20',(kind,obj['id'])):
             try:items.append(projection(db,actor,row['id']))

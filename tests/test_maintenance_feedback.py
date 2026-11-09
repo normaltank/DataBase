@@ -24,6 +24,25 @@ class MaintenanceFeedbackTests(unittest.TestCase):
         self.assertEqual(response.status_code,201,response.json)
         return response.json['id']
 
+    def test_history_and_detail_lose_public_target_eligibility_together(self):
+        jid=self.feedback()
+        path='/api/maintenance/targets/record/'+self.rid
+        self.assertEqual(self.clients['researcher'].get(path).status_code,200)
+        record=self.detail(self.rid)
+        response=self.call('/api/records/'+self.rid,{**record,'visibility':'restricted','change_note':'合成资格变更'},method='PUT')
+        self.assertEqual(response.status_code,200,response.json)
+        # The author still reads the article, but its maintenance history is no
+        # longer eligible. Submitting a new job keeps validation semantics.
+        self.assertEqual(self.clients['researcher'].get('/api/records/'+self.rid).status_code,200)
+        self.assertEqual(self.clients['researcher'].get(path).status_code,404)
+        self.assertEqual(self.clients['researcher'].get('/api/maintenance/jobs/'+jid).status_code,404)
+        refused=self.call('/api/maintenance/jobs',{'target_type':'record','target_id':self.rid,'request_id':'restricted'})
+        self.assertEqual(refused.status_code,400)
+        current=self.detail(self.rid)
+        response=self.call('/api/records/'+self.rid,{**current,'visibility':'shared','change_note':'合成资格恢复'},method='PUT')
+        self.assertEqual(response.status_code,200,response.json)
+        self.assertEqual(self.clients['researcher'].get(path).json['items'][0]['id'],jid)
+
     def test_feedback_preempts_saved_old_context_and_keeps_history_after_restart(self):
         stop=threading.Event();normal=self.respond
         def interrupt(request,*args,**kwargs):
