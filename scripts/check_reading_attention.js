@@ -145,8 +145,7 @@ async function checkOptionalLegacySummary(){
       assert.equal(d.querySelectorAll('[data-person-profile-form="decide"] input[name="candidate"]').length,candidates.filter(c=>c.status==='pending').length);
       if(!candidates.some(c=>c.status==='pending'))assert.equal(workspace.querySelector('[data-person-profile-form="decide"] button'),null,'zero pending has no disabled decisions');
       if(candidates.some(c=>c.status!=='pending'))assert.equal(workspace.querySelector('[data-profile-open="decided"]').open,false,'completed suggestions stay in closed history');
-      d.querySelector('[data-person-profile-open]').click();assert.equal(workspace.open,true,'explicit action opens completion');
-      assert.equal(d.activeElement,workspace.querySelector('[name="name"]'),'explicit action focuses the name field');
+      workspace.querySelector(':scope > summary').click();assert.equal(workspace.open,true,'secondary history disclosure opens old suggestions');
       const refresh=workspace.querySelector('[data-person-profile-action="refresh"]');p.failProfile(true);refresh.click();
       await waitFor(()=>workspace.querySelector('[data-profile-action-status]').textContent);
       assert.equal(refresh.disabled,false,'failed refresh can be retried');p.failProfile(false);refresh.click();

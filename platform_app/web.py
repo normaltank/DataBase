@@ -410,6 +410,9 @@ def create_app(data_dir=None, testing=False, *, initialization_mode='demo', embe
             g.reading_confirmation = reading_queries.confirmation(frozen, results)
         return results, favorites
 
+    from . import material_discovery
+    material_discovery.register(app, SimpleNamespace(db=db, filtered_records=filtered_records))
+
     @app.get("/api/records")
     def records_list():
         rows, favorites = filtered_records(request.args)
@@ -656,48 +659,8 @@ def create_app(data_dir=None, testing=False, *, initialization_mode='demo', embe
         return jsonify(obj)
 
     def source_values(data, base=None):
-        data = dict(data)
-        values = validate_text(data, SOURCE_FIELDS, base)
-        if base:
-            values["aliases"] = identity.retained_aliases(db(), "sources", base["id"], values["aliases"])
-        try:
-            values["introduction_html"], values["introduction_text"] = workflow.clean_rich(values["introduction_html"])
-        except ValueError as error:
-            abort(400, str(error))
-        if not values["name"] or values["kind"] not in SOURCE_KINDS:
-            abort(400, "请填写来源名称并选择正确类型。")
-        for field in ["host_id", "publisher_id"]:
-            ids = relationship_ids(values[field])
-            canonical = []
-            for parent_id in ids:
-                parent = get_source(parent_id)
-                if parent["kind"] not in ["institution", "think_tank"] or (base and parent["id"] == base["id"]):
-                    abort(400, "主办方或出版方应为机构。")
-                canonical.append(parent["id"])
-            values[field] = " | ".join(dict.fromkeys(canonical))
-        if "relationships" in data:
-            relations = data["relationships"]
-            if isinstance(relations, str):
-                try:
-                    relations = json.loads(relations)
-                except ValueError:
-                    abort(400, "机构关系格式不正确。")
-            if isinstance(relations, list):
-                canonical_relations = []
-                for relation in relations:
-                    if isinstance(relation, dict) and isinstance(relation.get("target_id"), str):
-                        target = identity.resolve(db(), "sources", relation["target_id"])
-                        relation = {**relation, "target_id": target["id"] if target else relation["target_id"]}
-                    canonical_relations.append(relation)
-                data["relationships"] = canonical_relations
-        values["scope_status"] = values["scope_status"] or "candidate"
-        if base:
-            note_subjects.validate_source_type(db(), base["id"], values["kind"])
-        try:
-            source_catalog.validate_metadata(db(), data, values, base)
-        except (ValueError, TypeError) as error:
-            abort(400, str(error))
-        return values
+        from .source_profiles import values
+        return values(db(), data, base)
 
     @app.post("/api/sources")
     def new_source():
@@ -721,19 +684,8 @@ def create_app(data_dir=None, testing=False, *, initialization_mode='demo', embe
             return jsonify(id=save_source(sid, body()))
 
     def save_source(sid, data, action="修订来源"):
-        """Caller owns transaction, including any candidate decision audit."""
-        row = get_source(sid)
-        sid = row["id"]
-        check_version(data, row)
-        values = source_values(data, row)
-        values.update(status="pending", version=row["version"]+1, updated_at=now())
-        if not db().execute("SELECT 1 FROM revisions WHERE target_type='source' AND target_id=?", (sid,)).fetchone():
-            save_revision(db(), "source", sid, "导入初始版本", "admin")
-        changed = db().execute(f"UPDATE sources SET {','.join(k+'=?' for k in values)} WHERE id=? AND version=?", [*values.values(), sid, row["version"]]).rowcount
-        if not changed:
-            abort(409, "内容已变化，请刷新。")
-        save_revision(db(), "source", sid, action, user()["id"])
-        return sid
+        from .source_profiles import save_in_transaction
+        return save_in_transaction(db(), user(), sid, data, action)
 
     @app.get("/api/users")
     def users_list():
@@ -925,6 +877,8 @@ def create_app(data_dir=None, testing=False, *, initialization_mode='demo', embe
     ris.register(app, SimpleNamespace(db=db, user=user, body=body, records=records))
     from . import ai_gateway
     ai_gateway.register(app, SimpleNamespace(db=db, user=user, body=body, admin=admin))
+    from . import maintenance_agent
+    maintenance_agent.register(app, SimpleNamespace(db=db,user=user,body=body,admin=admin))
     from . import archive_suggestions
     archive_suggestions.register(app, SimpleNamespace(db=db, user=user, body=body, admin=admin,
                                                      get_source=get_source, save_source=save_source))

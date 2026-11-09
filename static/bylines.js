@@ -7,14 +7,14 @@ function bylineIdentity(item) {
 }
 
 function bylineList(items) {
-  return items.length?`<ol class="byline-list">${items.map(item=>`<li><div class="row wrap"><strong>${esc(item.raw_name)}</strong><span class="badge ${item.status==='confirmed'?'verified':'pending'}">${item.status==='confirmed'?'已确认署名':'署名待确认'}</span></div><div class="row wrap">${bylineIdentity(item)}</div>${item.evidence?`<p class="small prose">依据：${esc(item.evidence)}</p>`:''}</li>`).join('')}</ol>`:'<p class="muted">尚未整理署名</p>';
+  return items.length?`<ol class="byline-list">${items.map(item=>`<li><div class="row wrap"><strong>${esc(item.raw_name)}</strong><span class="badge ${item.status==='confirmed'?'verified':'pending'}">${item.status==='confirmed'?(item.machine?'AI 关联':'已确认署名'):'署名待确认'}</span></div><div class="row wrap">${bylineIdentity(item)}</div>${item.evidence?`<p class="small prose">依据：${esc(item.evidence)}</p>`:''}</li>`).join('')}</ol>`:'<p class="muted">尚未整理署名</p>';
 }
 
 async function bylineSection(record) {
   if(isResearchContent(record.kind))return '';
   const data=await api(`/api/records/${encodeURIComponent(record.id)}/bylines`);
   const originals=[...new Set(data.items.map(item=>item.original_authors).filter(text=>text&&text!==data.raw_authors))];
-  return `<section class="detail-section byline-section"><div class="between wrap"><h3>作品署名</h3><div class="row wrap"><button type="button" class="button tiny" data-archive-record="${esc(record.id)}">作者关联建议</button>${linkButton('整理署名','edit-bylines',record.id)}${linkButton('署名历史','byline-history',record.id)}</div></div><details><summary>原始整段署名</summary><p class="prose">${esc(data.raw_authors||'原始资料未登记署名')}</p>${originals.map(text=>`<p class="prose small">首次整理保留的原始署名：${esc(text)}</p>`).join('')}</details>${bylineList(data.items)}</section>`;
+  return `<section class="detail-section byline-section"><div class="between wrap"><h3>作品署名</h3><div class="row wrap">${maintenanceActionHtml('record',record)}<details><summary>旧建议记录</summary><button type="button" class="button tiny" data-archive-record="${esc(record.id)}">查看旧建议</button></details>${linkButton('整理署名','edit-bylines',record.id)}${linkButton('署名历史','byline-history',record.id)}</div></div><details><summary>原始整段署名</summary><p class="prose">${esc(data.raw_authors||'原始资料未登记署名')}</p>${originals.map(text=>`<p class="prose small">首次整理保留的原始署名：${esc(text)}</p>`).join('')}</details>${bylineList(data.items)}</section>`;
 }
 
 function bylineWorksMarkup(data,type,id,query='') {

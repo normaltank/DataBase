@@ -47,6 +47,97 @@ class PersonProfileSuggestionsTests(unittest.TestCase):
         finally:
             db.close()
 
+    def upgrade_schema28_person_jobs(self):
+        """Create a pre-ORCID fixture, validate it, then use normal app migration."""
+        from platform_app.store import connect
+        from platform_app.maintenance import create_backup,restore_backup
+        from platform_app.web import create_app
+        self.prepare()
+        archive_fixture.Provider.transform=lambda output,value:{'suggestions':[]}
+        old=self.queue('legacy-v1');self.assertEqual(old.status_code,201,old.json);self.process()
+        changed=self.call('/api/people/'+self.pid,{'version':1,'chinese_name':'合成人物译名','change_note':'Synthetic version two'},method='PUT')
+        self.assertEqual(changed.status_code,200,changed.json)
+        current=self.queue('legacy-v2');self.assertEqual(current.status_code,201,current.json);self.process()
+        data=Path(self.app.config['DATA_DIR']);db=connect(data/'platform.sqlite3')
+        with db:
+            # These are exactly schema29's additions. The remaining fixture is
+            # a schema28 person, jobs with real mock input hashes, and revisions.
+            for table in ['maintenance_evidence','maintenance_steps','maintenance_jobs']:
+                self.assertEqual(db.execute('SELECT COUNT(*) FROM '+table).fetchone()[0],0)
+                db.execute('DROP TABLE '+table)
+            db.execute("DELETE FROM users WHERE id='system-maintenance-agent'")
+            db.execute('ALTER TABLE people DROP COLUMN orcid')
+            for row in db.execute("SELECT id,base_json FROM archive_jobs WHERE target_type='person'").fetchall():
+                value=json.loads(row['base_json']);value.pop('orcid')
+                db.execute('UPDATE archive_jobs SET base_json=? WHERE id=?',(json.dumps(value,ensure_ascii=False),row['id']))
+            for row in db.execute("SELECT id,snapshot_json FROM revisions WHERE target_type='person'").fetchall():
+                value=json.loads(row['snapshot_json']);value.pop('orcid')
+                db.execute('UPDATE revisions SET snapshot_json=? WHERE id=?',(json.dumps(value,ensure_ascii=False),row['id']))
+            db.execute("UPDATE settings SET value='28' WHERE key='schema_version'")
+            db.execute("DELETE FROM settings WHERE key='maintenance_agent_migration_backup'")
+        db.close()
+        legacy=self.person_job_audit(data)
+        self.assertEqual({r['base_version'] for r in legacy['archive_jobs']},{1,2})
+        self.assertTrue(all(r['input_hash'] and json.loads(r['ai_json']) for r in legacy['archive_jobs']))
+        upgraded=Path(self.temp.name)/'upgraded-schema28'
+        restore_backup(create_backup(data),upgraded)  # schema28 itself is valid.
+        self.app=create_app(upgraded,testing=True)
+        self.clients={name:archive_fixture.workflow_fixture.WorkflowTests.login(self,name) for name in ['researcher','colleague','admin']}
+        self.assertEqual(self.clients['researcher'].get('/health').json['schema'],29)
+        self.assertEqual(self.get('/api/people/'+self.pid)['orcid'],'')
+        return upgraded,legacy,old.json['id'],current.json['id']
+
+    def person_job_audit(self,data):
+        from platform_app.store import connect
+        db=connect(Path(data)/'platform.sqlite3')
+        try:
+            return {table:[dict(row) for row in db.execute('SELECT * FROM '+table+' ORDER BY rowid')]
+                for table in ['archive_jobs','archive_evidence','archive_job_evidence','archive_events','ai_attempts','revisions']}
+        finally:db.close()
+
+    def test_schema28_person_job_bases_restore_after_schema29_without_rewriting_history(self):
+        from platform_app.maintenance import create_backup,restore_backup
+        data,before,old,current=self.upgrade_schema28_person_jobs()
+        self.assertEqual(self.person_job_audit(data),before)
+        response=self.call('/api/backup',user='admin')
+        self.assertEqual(response.status_code,200)
+        backup=Path(self.temp.name)/'upgraded-http.zip';backup.write_bytes(response.data);response.close()
+        restored=Path(self.temp.name)/'upgraded-restored';restore_backup(backup,restored)
+        self.assertEqual(self.person_job_audit(restored),before)
+        self.assertEqual({j['id'] for j in self.get(self.prefix)['jobs']},{old,current})
+
+    def test_orcid_compatibility_keeps_nonempty_values_distinct_and_rejects_tampering(self):
+        import hashlib,sqlite3
+        from platform_app.maintenance import create_backup,restore_backup
+        data,before,old,current=self.upgrade_schema28_person_jobs()
+        result=self.call('/api/people/'+self.pid,{'version':2,'orcid':'0000-0002-1825-0097','change_note':'Synthetic verified ORCID'},method='PUT')
+        self.assertEqual(result.status_code,200,result.json)
+        new=self.queue('schema29-orcid');self.assertEqual(new.status_code,201,new.json);self.process()
+        backup=create_backup(data);restored=Path(self.temp.name)/'nonempty-orcid-restored'
+        restore_backup(backup,restored)
+        # Old missing ORCID still binds to its old empty history, while the new
+        # explicit identifier remains part of its own schema29 baseline.
+        self.assertEqual(self.get('/api/people/'+self.pid)['orcid'],'0000-0002-1825-0097')
+        with zipfile.ZipFile(backup) as archive:originals={n:archive.read(n) for n in archive.namelist()}
+        changes=[(old,'orcid','0000-0002-1825-0097'),(old,'orcid',None),(new.json['id'],'orcid','missing'),(old,'chinese_name','Unrelated tampering'),(old,'input_hash','0'*64)]
+        for index,(jid,key,value) in enumerate(changes):
+            with self.subTest(case=index):
+                files=dict(originals);database=Path(self.temp.name)/('tampered-'+str(index)+'.sqlite3');database.write_bytes(files['platform.sqlite3']);db=sqlite3.connect(database)
+                with db:
+                    if key=='input_hash':db.execute('UPDATE archive_jobs SET input_hash=? WHERE id=?',(value,jid))
+                    else:
+                        base=json.loads(db.execute('SELECT base_json FROM archive_jobs WHERE id=?',(jid,)).fetchone()[0])
+                        if value=='missing':base.pop(key)
+                        else:base[key]=value
+                        db.execute('UPDATE archive_jobs SET base_json=? WHERE id=?',(json.dumps(base),jid))
+                db.close();files['platform.sqlite3']=database.read_bytes();manifest=json.loads(files['manifest.json']);manifest['files']['platform.sqlite3']={'bytes':len(files['platform.sqlite3']),'sha256':hashlib.sha256(files['platform.sqlite3']).hexdigest()};files['manifest.json']=json.dumps(manifest).encode()
+                bad=Path(self.temp.name)/('tampered-'+str(index)+'.zip')
+                with zipfile.ZipFile(bad,'w') as archive:
+                    for name,content in files.items():archive.writestr(name,content)
+                target=Path(self.temp.name)/('must-not-restore-'+str(index))
+                with self.assertRaisesRegex(ValueError,'人物任务'):restore_backup(bad,target)
+                self.assertFalse(target.exists())
+
     def decide(self, state, action='adopt'):
         return self.call(self.prefix + '/decide', {'version': state['version'], action: [c['id'] for c in state['candidates'] if c['status'] == 'pending']}, user='colleague')
 

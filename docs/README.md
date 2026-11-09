@@ -21,6 +21,10 @@
 | 用户决定及历史答复 | [需求讨论记录](需求讨论记录.md) |
 | 长期研究方向与分期建议 | [长期愿景](长期研究愿景与演进路线.md) |
 
+## 资料发现与关联阅读
+
+2026-11-08 本轮按[固定规格1.0](https://github.com/normaltank/DataBase/blob/13895ecdc755eaef937dc90c94e8a59a7eea3aee/docs/specs/资料发现与关联阅读.md)实现资料列表的地图与时间、阅读处的一跳关联、已选2–3篇比较；实际入口见[使用说明](../README.md#地图关联探索与资料比较)，实现边界见[施工说明](施工说明.md#资料发现与关联阅读2026-11-08本轮实现)。统一审查与交付状态以[父任务 #122](https://github.com/normaltank/DataBase/issues/122)／[PR #126](https://github.com/normaltank/DataBase/pull/126)为准；本轮尚未更新现用便携副本或真实资料库。
+
 ## 期刊成果归档与三刊公开采集
 
 2026-11-04 用户确认直接按期保存中心期刊成果、并列文件与显式版本更新、中心成员共管，并授权当前便携副本导入三份历史PDF及加入三刊真实公开采集。长期规则见[PRODUCT](../PRODUCT.md#期刊成果归档与公开题录2026-11-04-已确认)，决定见[R030](需求讨论记录.md#r030期刊成果归档与三刊公开采集)，范围与验证见[规格1.0](specs/期刊成果归档与三刊公开采集.md)，入口事实见[三刊核查](../work/三刊公开题录采集核查.md)。本范围已由[PR #119](https://github.com/normaltank/DataBase/pull/119)交付，包含归档、三刊真实采集及当次现用副本导入验证；[#116](https://github.com/normaltank/DataBase/issues/116)已关闭。旧#54/#66的其余范围继续独立跟踪。
@@ -43,7 +47,7 @@
 
 ## 档案筛选与 AI 辅助维护
 
-[规格 1.0](specs/档案筛选与AI辅助维护.md)及 [R025](需求讨论记录.md#r025档案筛选与ai辅助维护)记录2026-11-02确认的国名／档案筛选、官网取证与来源建议、作者候选及人工采用。作者建议[#64](https://github.com/normaltank/DataBase/issues/64)、国家筛选[#92](https://github.com/normaltank/DataBase/issues/92)与来源建议[#93](https://github.com/normaltank/DataBase/issues/93)已由[PR #94](https://github.com/normaltank/DataBase/pull/94)交付；父任务[#46](https://github.com/normaltank/DataBase/issues/46)保留其他未完成范围。本轮收紧旧版明确依据自动正式关联许可，当前规则见 [PRODUCT](../PRODUCT.md#有据档案建议与人工采用2026-11-02-已确认)；旧规格及讨论保留历史身份；源码部署包已由[PR #99](https://github.com/normaltank/DataBase/pull/99)交付，实际服务器安装与运行结果按对应部署证据判断。
+[规格 1.0](specs/档案筛选与AI辅助维护.md)及 [R025](需求讨论记录.md#r025档案筛选与ai辅助维护)记录2026-11-02确认的国名／档案筛选、官网取证与来源建议、作者候选及人工采用。作者建议[#64](https://github.com/normaltank/DataBase/issues/64)、国家筛选[#92](https://github.com/normaltank/DataBase/issues/92)与来源建议[#93](https://github.com/normaltank/DataBase/issues/93)已由[PR #94](https://github.com/normaltank/DataBase/pull/94)交付；父任务[#46](https://github.com/normaltank/DataBase/issues/46)保留其他未完成范围。2026-11-02曾收紧旧版明确依据自动正式关联许可；该人工采用前置已于2026-11-09由 [PRODUCT 的自主维护规则](../PRODUCT.md#ai-自主维护与反馈纠错2026-11-09-已确认)替代。旧规格及讨论保留历史身份；源码部署包已由[PR #99](https://github.com/normaltank/DataBase/pull/99)交付，实际服务器安装与运行结果按对应部署证据判断。
 
 ## 研究资料质量与辅助整理
 

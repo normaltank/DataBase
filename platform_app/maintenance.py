@@ -115,6 +115,9 @@ def restore_backup(archive_path, target_dir):
             from .store import CURRENT_SCHEMA_VERSION
             if version not in {str(v) for v in range(1, CURRENT_SCHEMA_VERSION + 1)}:
                 raise ValueError("数据库版本不匹配。")
+            if int(version) >= 29:
+                from .maintenance_agent import validate_backup as validate_agent
+                validate_agent(db)
             if int(version) >= 24:
                 from .archive_suggestions import validate_backup as validate_archive_suggestions
                 validate_archive_suggestions(db)

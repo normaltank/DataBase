@@ -1,0 +1,24 @@
+.record-explore { margin: 12px 0 20px; border-block: 1px solid #d6e0eb; font: 14px/1.6 "Noto Sans CJK SC", "Microsoft YaHei", "Segoe UI", sans-serif; }
+.record-explore > summary { min-height: 40px; padding: 8px 0; color: #174e9c; font-weight: 600; cursor: pointer; }
+.record-explore-content { padding: 4px 0 16px; }
+.record-explore-center { display: flex; flex-direction: column; gap: 4px; padding: 12px 16px; background: #eaf1fb; overflow-wrap: anywhere; }
+.record-explore-center > span, .record-explore-note { color: #58697b; font-size: 14px; }
+.record-explore-edges { margin: 0 0 16px !important; padding: 0 !important; list-style: none; }
+.record-explore-edge { display: grid; grid-template-columns: minmax(130px, 1fr) minmax(0, 2fr); gap: 12px; padding: 12px 0; border-bottom: 1px solid #d6e0eb; }
+.record-explore-relation { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; color: #58697b; }
+.record-explore-arrow { color: #174e9c; width: 20px; height: 20px; flex: 0 0 20px; fill: none; stroke: currentColor; stroke-width: 1.5; }
+.record-explore-out .record-explore-arrow { transform: rotate(180deg); }
+.record-explore-target { display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.record-explore-target a { color: #174e9c; text-decoration: underline; text-underline-offset: 3px; }
+.record-explore-target a:hover { color: #103d7d; }
+.record-explore-pending { margin: 16px 0; padding: 8px 12px; background: #fff4d3; color: #795200; overflow-wrap: anywhere; }
+.record-explore-pending p { margin: 4px 0 0; }
+.record-explore-empty { margin: 12px 0; color: #58697b; }
+.record-explore-back { margin-bottom: 16px; max-width: 100%; white-space: normal; text-align: start; overflow-wrap: anywhere; }
+.record-explore :focus-visible, .record-explore-back:focus-visible { outline: 3px solid #b47d00; outline-offset: 3px; }
+@media (max-width: 700px) {
+  .record-explore > summary { min-height: 44px; }
+  .record-explore-edge { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .record-explore-relation { justify-content: flex-start; }
+  .record-explore-target a { display: block; min-height: 44px; padding-block: 10px; }
+}

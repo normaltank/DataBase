@@ -24,7 +24,13 @@ def work(index=0, **extra):
 
 
 class JournalCollectionTests(unittest.TestCase):
-    setUp = base.AssistedIntakeTests.setUp
+    def setUp(self):
+        base.AssistedIntakeTests.setUp(self)
+        # Source enable/requeue times must precede the worker's fixed timestamps.
+        clock = patch('platform_app.store.now', return_value='2026-11-04T00:00:00+00:00')
+        clock.start()
+        self.addCleanup(clock.stop)
+
     call = base.AssistedIntakeTests.call
 
     def source(self, index=0):

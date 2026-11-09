@@ -266,7 +266,7 @@ class Relations:
             self.db.execute("BEGIN IMMEDIATE")
             return self.update_in_transaction(owner, data)
 
-    def update_in_transaction(self, owner, data):
+    def update_in_transaction(self, owner, data, *, machine=False):
         """Use the same validation/history while a caller owns the atomic transaction."""
         if not self.db.in_transaction:
             raise ValueError("关系保存需要活动事务。")
@@ -287,12 +287,12 @@ class Relations:
                 abort(400, "关系重新确认标记格式不正确。")
             values = self.values(item, owner, before)
             if not before or item.get("reconfirm") or any(before[key] != value for key, value in values.items()):
-                self.change(before, values, owner=owner, note=note)
+                self.change(before, values, owner=owner, note=note, kind="ai_maintenance" if machine else "manual")
             if rid:
                 seen.add(rid)
         for rid, row in existing.items():
             if rid not in seen and not row["removed_at"]:
-                self.change(row, {"removed_at": now()}, note=note)
+                self.change(row, {"removed_at": now()}, note=note, kind="ai_maintenance" if machine else "manual")
         self.bump(owner)
         return self.detail(owner)
 
