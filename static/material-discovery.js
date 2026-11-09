@@ -149,7 +149,7 @@ function materialApplyRange(panel){
     status.textContent='请输入1至9999之间的年份，起始年不能晚于结束年。';from.focus();return;
   }
   materialDiscovery.focus='[data-material-from]';
-  materialApply(query=>{query.delete('date_unknown');query.delete('from');query.delete('to');query.set('date_field',materialDiscovery.role);if(from.value)query.set('from',from.value.padStart(4,'0')+'-01-01');if(to.value)query.set('to',to.value.padStart(4,'0')+'-12-31');});
+  materialApply(query=>{query.delete('date_unknown');query.delete('from');query.delete('to');query.set('date_field',materialDiscovery.role);if(from.value)query.set('from',String(Number(from.value)).padStart(4,'0')+'-01-01');if(to.value)query.set('to',String(Number(to.value)).padStart(4,'0')+'-12-31');});
 }
 async function materialMountTimeline(panel){
   panel._timeGeneration=(panel._timeGeneration||0)+1;panel._timeline?.dispose();panel._timeline=null;

@@ -96,7 +96,7 @@ try{Function('return 1')();window.timelineEvalSentinel=false;}catch(e){window.ti
             page.mouse.move(b['x']+b['width']-25,b['y']+b['height']-20);page.mouse.down();page.mouse.move(b['x']+b['width']*.7,b['y']+b['height']-20,steps=10);page.mouse.up()
             expect(panel.locator('[data-material-range-status]')).to_contain_text('待应用范围')
             checks.append({'real_dataZoom_fields':[panel.locator('[data-material-from]').input_value(),panel.locator('[data-material-to]').input_value()]})
-            panel.locator('[data-material-from]').fill('2001');panel.locator('[data-material-to]').fill('2001');panel.locator('[data-material-to]').press('Enter')
+            panel.locator('[data-material-from]').fill('2.001e3');panel.locator('[data-material-to]').fill('2001');panel.locator('[data-material-to]').press('Enter')
             expect(panel.locator('.material-scope')).to_contain_text('76 条')
             expect(panel.locator('[data-material-from]')).to_be_focused()
             panel.locator('[data-material-role]').select_option('collected')
