@@ -125,7 +125,19 @@ def main():
                     'capture_type':'viewport','png_dimensions':Image.open(path).size,'physical_viewport':page.viewport_size,
                     'native_zoom':factor,'layout':layout,'labels':labels,'route':page.url,'role':'researcher',
                     'record_id':rid,'source_sha':sha,'source_tree':tree,'captured_utc':datetime.now(timezone.utc).isoformat()})
-                if factor==2:panel.locator('.material-time-lens').screenshot(path=str(out/'02-time-native200-lens.png'))
+                if factor==2:
+                    # Chromium's element capture can be blank at native tab zoom.
+                    # Capture the actual viewport via CDP after centring the lens.
+                    panel.locator('.material-time-lens').evaluate("e=>e.scrollIntoView({block:'center',behavior:'instant'})")
+                    page.wait_for_timeout(350)
+                    cdp=context.new_cdp_session(page)
+                    shot=cdp.send('Page.captureScreenshot',{'format':'png','captureBeyondViewport':False,'fromSurface':True})
+                    lens_path=out/'02-time-native200-lens-viewport.png'
+                    lens_path.write_bytes(base64.b64decode(shot['data']));cdp.detach()
+                    metadata['captures'].append({'path':str(lens_path),'scene':'02-time-lens','variant':variant,
+                        'capture_type':'viewport','png_dimensions':Image.open(lens_path).size,
+                        'native_zoom':factor,'source_sha':sha,'source_tree':tree,'role':'researcher','record_id':rid,
+                        'captured_utc':datetime.now(timezone.utc).isoformat()})
                 print(path,flush=True)
             assert not metadata['errors'],metadata['errors']
             context.close()
