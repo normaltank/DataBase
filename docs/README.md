@@ -1,6 +1,6 @@
 # 项目文档目录
 
-整理日期：2026-11-08。本页按用途导航，不另建任务台账；待办与依赖以 [GitHub Issues](https://github.com/normaltank/DataBase/issues) 为准。文档职责与归档方法见 [写作约定](agents/documentation.md)。
+整理日期：2026-11-09。本页按用途导航，不另建任务台账；待办与依赖以 [GitHub Issues](https://github.com/normaltank/DataBase/issues) 为准。文档职责与归档方法见 [写作约定](agents/documentation.md)。
 
 ## 当前入口
 
@@ -20,6 +20,10 @@
 | 便携试用、校园网与服务器操作 | [便携说明](portable-preview.md) · [服务器说明](server-deployment.md) |
 | 用户决定及历史答复 | [需求讨论记录](需求讨论记录.md) |
 | 长期研究方向与分期建议 | [长期愿景](长期研究愿景与演进路线.md) |
+
+## 直观协作与维护工作台
+
+2026-11-09 [规格1.0](specs/直观协作与维护工作台.md)已按用户授权冻结，待施工与独立验收：首批为两阶段主题材料的版本／审阅责任联动，以及轻量摘要、真实处理轨迹和对象反馈结果联读。任务唯一台账为[#134](https://github.com/normaltank/DataBase/issues/134)。[研究员交互调研](../work/研究员交互技术实例调研-2026-11-09.md)与[维护交互调研](../work/维护交互与支撑技术实例调研-2026-11-09.md)保留各自研究基线、操作及失败证据，不表示方案已经实现或部署。
 
 ## 资料发现与关联阅读
 
