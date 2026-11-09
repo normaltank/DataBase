@@ -1,0 +1,47 @@
+.maintenance-trace{min-width:0;font-size:14px;overflow-wrap:anywhere;container-type:inline-size}
+.trace-summary{padding:12px 16px;background:var(--surface-muted,#f0f4f9);border-bottom:1px solid var(--border,#d6e0eb)}
+.trace-summary p{margin:5px 0}
+.trace-layout{display:grid;grid-template-columns:210px minmax(0,1fr);gap:24px;position:relative;min-width:0}
+.trace-rail{min-width:0;padding:14px 0}
+.trace-rail h4{margin:0 12px 10px;font-size:15px}
+.trace-steps{max-height:480px;overflow:auto;scrollbar-gutter:stable}
+.trace-step{display:flex;align-items:center;width:100%;text-align:left;gap:6px;background:#fff;color:#243347;border:0;padding:8px 10px;min-height:64px;font:inherit;cursor:pointer}
+.trace-step>svg{width:24px;height:48px;flex-shrink:0;fill:#fff;stroke:#aebdce;stroke-width:1.5;overflow:visible}
+.trace-step circle{stroke:#58697b}
+.trace-step>span{display:grid;gap:3px}
+.trace-step>span>span{color:#58697b}
+.trace-step[aria-pressed=true]{background:#eaf1fb;color:#174e9c}
+.trace-step[aria-pressed=true] circle{stroke:#174e9c;fill:#174e9c}
+.trace-step:hover,.trace-material:hover{background:#f0f4f9}
+.trace-step:focus-visible,.trace-material:focus-visible,.maintenance-trace summary:focus-visible,.trace-evidence-text:focus-visible{outline:3px solid #b47d00;outline-offset:-3px}
+.trace-detail{min-width:0;max-height:660px;overflow:auto;scrollbar-gutter:stable;padding:14px 16px 20px;border-inline-start:1px solid #d6e0eb;background:#fff}
+.trace-detail header h4{font-size:18px;margin:4px 0}
+.trace-step-meta{margin:0;color:#174e9c;font-weight:600}
+.trace-detail header .muted{margin:6px 0}
+.trace-section{margin-top:20px;padding-top:14px;border-top:1px solid #d6e0eb}
+.trace-section h5{font-size:15px;margin:0 0 10px}
+.trace-section h6{font-size:14px;margin:10px 0 8px}
+.trace-section p{margin:8px 0}
+.trace-diff{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.trace-diff>div{min-width:0;padding:8px;background:#f0f4f9}
+.trace-diff>div:last-child{background:#eaf4ee}
+.trace-diff>div>strong{display:block;margin-bottom:6px}
+.trace-value{white-space:pre-wrap;overflow-wrap:anywhere}
+.trace-values{margin:0}
+.trace-values>div{margin-top:8px}
+.trace-values dt{color:#58697b}
+.trace-values dd{margin:2px 0 0}
+.trace-evidence{border-top:1px solid #d6e0eb;margin-top:10px}
+.trace-evidence>summary,.trace-material-index>summary,.trace-section>summary{cursor:pointer;min-height:36px;padding:8px 0}
+.trace-evidence-text{white-space:pre-wrap;max-height:240px;overflow:auto;padding:12px;background:#f0f4f9;line-height:1.75}
+.trace-section blockquote{margin:10px 0;padding:10px 12px;background:#fff4d3}
+.trace-material-index{margin:16px 10px 0}
+.trace-material{display:block;width:100%;font:inherit;text-align:left;min-height:36px;padding:8px;border:0;background:#fff;color:#174e9c;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+.trace-connector{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;fill:none;stroke:#174e9c;stroke-width:1.5}
+.trace-empty{padding:20px 0}
+.trace-long>summary{min-height:36px;padding:8px 0;cursor:pointer}
+@container(max-width:600px){.trace-layout{display:block}.trace-steps{max-height:280px;border-bottom:1px solid #d6e0eb}.trace-detail{border-inline-start:0;border-top:1px solid #d6e0eb;max-height:none;padding:16px 0}.trace-connector{display:none}.trace-rail{padding-bottom:16px}.trace-diff{grid-template-columns:1fr}}
+@supports not (container-type:inline-size){.maintenance-feedback .trace-layout{display:block}.maintenance-feedback .trace-connector{display:none}}
+@media(max-width:1100px){.trace-layout{grid-template-columns:190px minmax(0,1fr);gap:12px}.trace-diff{grid-template-columns:1fr}}
+@media(max-width:700px){.trace-layout{display:block}.trace-steps{max-height:280px;border-bottom:1px solid #d6e0eb}.trace-step,.trace-material,.trace-evidence>summary,.trace-material-index>summary,.trace-section>summary,.trace-long>summary{min-height:44px}.trace-detail{border-inline-start:0;border-top:1px solid #d6e0eb;max-height:none;padding:16px 0}.trace-connector{display:none}.trace-diff{grid-template-columns:1fr}.trace-rail{padding-bottom:16px}}
+@media(prefers-reduced-motion:reduce){.maintenance-trace *{scroll-behavior:auto}}
