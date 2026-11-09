@@ -24,8 +24,7 @@ selection, mounting a Canvas ECharts overview and optional Three lens. Its year
 inputs and collapsed native year list remain usable without either library.
 A member can fold the whole exploration area to return to the compact list.
 
-FORM: 现有 Operate 界面扩展，沿用已确认设计与 Three 原型；本轮未发起新的 visual-world roll。
-(unavailable). The signature interaction is the boundary-to-list filter,
+FORM: 本轮作为既有 Operate 界面扩展，沿用现有项目与 Three 原型，未执行新的 visual-world / seed 流程。 The signature interaction is the boundary-to-list filter,
 duplicated by textual controls. The local Three globe rotates only on user input;
 there is no auto rotation or authored camera animation.
 

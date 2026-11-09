@@ -25,7 +25,12 @@ Every entry exports `mount(container, options)` and returns an instance exposing
 query/data/account generation; modules must not reach into global application
 state. Dispose before replacing a slot, on route/identity changes, and disconnect
 observers/listeners/workers/RAF/GPU resources. Do not render an animation loop
-while hidden. A rejected module leaves the caller's text/ordinary actions usable.
+while hidden. Globe, timeline and network also expose `getViewState()`; globe
+and timeline expose `restoreViewState(value)`. Their optional mount `viewState`
+contains only camera/target, selection and chart zoom/brush state, never a copied
+record window. The page adapter captures it before disposing on document hiding
+and remounts only after a fresh authorized read. No module resumes itself on
+visibility return. A rejected module leaves the caller's text/ordinary actions usable.
 The loader caches code only, never account data or instances.
 
 Globe options: `{geometry, snapshot:{countries:[{value,label,count}],selected:[]},
@@ -50,7 +55,9 @@ year,precision}],lens:boolean,kindLabels},onRange(start,end),onSelect(recordID),
 onStatus(message)}`. ECharts brush and dataZoom report an unapplied range; the page
 adapter applies it through the existing query. Optional Three lens picking uses
 the same authorized record window and precision, and opens the ordinary reader.
-`reset()` resets its lens camera. There is no invented date for unknown items.
+`reset()` resets its lens camera. Lens year/type labels use projected DOM text
+at 14 CSS pixels, independent of camera fit; the geometry and text share the
+authorized date domain. There is no invented date for unknown items.
 `GET /api/material-discovery?visual_window=1&...` adds `time_context` with
 `scope=query_without_time`, `total` and all three date distributions; it also adds
 `timeline_window` with `date_field`, `items`, `total`, `loaded`, `limit=300` and
@@ -60,6 +67,7 @@ Network options: `{snapshot:{center:'record:'+id,nodes:[{key:'type:'+id,type,id,
 name}],edges:[{key:stableRelationID,from:nodeKey,to:nodeKey}],selected:nodeKey},
 onSelect(nodeKey),onStatus(message),mode:'plane'|'space'}`. Cytoscape plane and
 Three space share the identical authorized one-hop snapshot and selected object.
+`getViewState()` retains the plane and space cameras for authorized remounts.
 `setMode(mode)` changes the view; `reset()` resets its camera. The caller retains
 the semantic relationship direction, basis, AI/human provenance and real profile
 destinations in ordinary text. The local Cytoscape stylesheet compatibility rule
@@ -97,3 +105,12 @@ Their screenshots and JSON outputs stay in ignored local artifacts. Runtime stri
 CSP sentinels deliberately exercise denied inline styles/eval; those expected
 denials are recorded separately from library violations. Test suppliers are
 synthetic and test servers use isolated data and ports.
+
+Refresh/lifecycle regression is `python scripts/check_discovery_refresh_browser.py
+--evidence-dir tests/artifacts/<new-directory>`. It checks ordinary authorized
+HTTP reads, failed-read mouse interaction, focus/drafts/zoom, actor changes,
+and explicitly labelled controlled-DOM visibility with real WebGL context-loss
+observation. This is not native OS visibility evidence. The single-year visual
+review scene can be recaptured with `python scripts/capture_time_review_browser.py
+--evidence-dir tests/artifacts/<new-directory>`; it writes new screenshots and
+metadata without modifying prior review evidence.

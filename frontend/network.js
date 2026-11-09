@@ -4,9 +4,9 @@ import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 
 // One application snapshot owns identities and edges in both views. Geometry,
 // on-demand drawing and picking adapt the licensed discovery prototype.
-export function mount(container,{snapshot,onSelect=()=>{},onStatus=()=>{},mode='plane'}){
+export function mount(container,{snapshot,onSelect=()=>{},onStatus=()=>{},mode='plane',viewState}){
   let current=snapshot,view=null,disposed=false;
-  const cameras={};
+  const cameras=structuredClone(viewState||{});
   function createPlane(){
     let atHome=cameras.plane?.atHome!==false;
     const labels=[];
@@ -32,7 +32,7 @@ export function mount(container,{snapshot,onSelect=()=>{},onStatus=()=>{},mode='
       if(previous){cy.zoom(zoom);cy.pan(pan);}else if(cameras.plane){cy.zoom(cameras.plane.zoom);cy.pan(cameras.plane.pan);}else cy.fit(undefined,60);
       placeLabels();
     }
-    return {update,resize(){cy.resize();if(atHome)cy.fit(undefined,40);placeLabels();},reset(){atHome=true;cy.fit(undefined,40);},dispose(){cameras.plane={zoom:cy.zoom(),pan:cy.pan(),atHome};cy.destroy();labels.splice(0).forEach(l=>l.el.remove());}};
+    return {update,getViewState(){return {zoom:cy.zoom(),pan:cy.pan(),atHome};},resize(){cy.resize();if(atHome)cy.fit(undefined,40);placeLabels();},reset(){atHome=true;cy.fit(undefined,40);},dispose(){cameras.plane={zoom:cy.zoom(),pan:cy.pan(),atHome};cy.destroy();labels.splice(0).forEach(l=>l.el.remove());}};
   }
   function createSpace(){
     const renderer=new THREE.WebGLRenderer({antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,1.7));renderer.setClearColor(0xf0f4f9);container.append(renderer.domElement);
@@ -63,7 +63,7 @@ export function mount(container,{snapshot,onSelect=()=>{},onStatus=()=>{},mode='
     const lost=e=>{e.preventDefault();onStatus('空间图形不可用，请切换平面关系或使用下方文字，并可重试。');};
     controls.addEventListener('start',()=>{atHome=false;});controls.addEventListener('change',requestDraw);renderer.domElement.addEventListener('pointerdown',pointerDown);renderer.domElement.addEventListener('pointerup',pointerUp);renderer.domElement.addEventListener('webglcontextlost',lost);document.addEventListener('visibilitychange',visibility);
     if(cameras.space){camera.position.fromArray(cameras.space.position);controls.target.fromArray(cameras.space.target);controls.update();}else reset();
-    return {update,resize,reset,dispose(){if(closed)return;closed=true;cameras.space={position:camera.position.toArray(),target:controls.target.toArray(),atHome};cancelAnimationFrame(frame);clear();controls.dispose();document.removeEventListener('visibilitychange',visibility);renderer.domElement.removeEventListener('pointerdown',pointerDown);renderer.domElement.removeEventListener('pointerup',pointerUp);renderer.domElement.removeEventListener('webglcontextlost',lost);renderer.dispose();renderer.forceContextLoss();renderer.domElement.remove();}};
+    return {update,resize,reset,getViewState(){return {position:camera.position.toArray(),target:controls.target.toArray(),atHome};},dispose(){if(closed)return;closed=true;cameras.space={position:camera.position.toArray(),target:controls.target.toArray(),atHome};cancelAnimationFrame(frame);clear();controls.dispose();document.removeEventListener('visibilitychange',visibility);renderer.domElement.removeEventListener('pointerdown',pointerDown);renderer.domElement.removeEventListener('pointerup',pointerUp);renderer.domElement.removeEventListener('webglcontextlost',lost);renderer.dispose();renderer.forceContextLoss();renderer.domElement.remove();}};
   }
   function setMode(next){if(disposed)return;view?.dispose();view=null;mode=next;
     if(document.hidden)return;
@@ -71,9 +71,11 @@ export function mount(container,{snapshot,onSelect=()=>{},onStatus=()=>{},mode='
   }
   function update(data){if(disposed)return;current=data;view?.update(data);}
   const observer=new ResizeObserver(()=>view?.resize());observer.observe(container);
-  const visibility=()=>{if(disposed)return;if(document.hidden){view?.dispose();view=null;}else{try{setMode(mode);}catch(error){/* equivalent text belongs to the page adapter */}}};
+  const visibility=()=>{if(document.hidden)dispose();};
   document.addEventListener('visibilitychange',visibility);
   try{setMode(mode);}catch(error){observer.disconnect();document.removeEventListener('visibilitychange',visibility);throw error;}
-  return {update,setMode,resize(){view?.resize();},reset(){view?.reset();},dispose(){if(disposed)return;disposed=true;observer.disconnect();document.removeEventListener('visibilitychange',visibility);view?.dispose();view=null;container.replaceChildren();}};
+  function getViewState(){return {...cameras,[mode]:view?.getViewState()||cameras[mode]};}
+  function dispose(){if(disposed)return;disposed=true;observer.disconnect();document.removeEventListener('visibilitychange',visibility);view?.dispose();view=null;container.replaceChildren();}
+  return {update,setMode,getViewState,resize(){view?.resize();},reset(){view?.reset();},dispose};
 }
 function position(index,total,radius){if(!index)return {x:0,y:0};const angle=(index-1)*Math.PI*2/Math.max(1,total-1)-Math.PI/2;return {x:Math.cos(angle)*radius,y:Math.sin(angle)*radius};}
