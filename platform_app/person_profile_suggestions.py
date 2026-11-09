@@ -435,6 +435,11 @@ def validate_job(db, row):
         raise ValueError('人物任务目标、选择或基准版本无效。')
     original = {key: base.get(key) for key in target.keys()}
     revisions = [json.loads(r[0]) for r in db.execute("SELECT snapshot_json FROM revisions WHERE target_type='person' AND target_id=?", (row['target_id'],))]
+    if 'orcid' in target.keys():
+        # Schema29 added only this column, with ''. Compare schema28 snapshots
+        # using that known default; keep explicit values and stored bytes intact.
+        original['orcid'] = base.get('orcid', '')
+        revisions = [{'orcid': '', **snapshot} for snapshot in revisions]
     if original != dict(target) and original not in revisions:
         raise ValueError('人物任务基准与正式人物历史不一致。')
     from .author_suggestions import institution_at_version

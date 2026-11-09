@@ -1,0 +1,17 @@
+.maintenance-feedback{margin:12px 0;color:var(--text);font-size:14px;min-width:0}
+.maintenance-feedback>summary{min-height:36px;padding:6px 0;cursor:pointer}
+.maintenance-feedback>summary span{color:var(--muted);margin-inline-start:8px}
+.maintenance-feedback form{max-width:680px;padding:8px 0}
+.maintenance-feedback textarea{width:100%;min-height:76px;resize:vertical;box-sizing:border-box;font:inherit}
+.maintenance-feedback [data-feedback-status]:empty,.maintenance-feedback .form-error:empty{display:none}
+.maintenance-feedback [data-feedback-status]{margin:8px 0}
+.feedback-job{border-top:1px solid var(--border);padding:6px 0}
+.feedback-job summary,.feedback-history>summary{min-height:36px;padding:6px 0;cursor:pointer}
+.feedback-job dd{margin:4px 0 10px;overflow-wrap:anywhere;white-space:pre-wrap}
+.feedback-job dd span{display:block}
+.feedback-job p,.feedback-job a{overflow-wrap:anywhere}
+.maintenance-action{display:inline-flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0}
+.maintenance-action [role=status]{color:var(--muted);font-size:14px}
+.maintenance-action .form-error:empty{display:none}
+.maintenance-action .form-error{overflow-wrap:anywhere}
+@media(max-width:700px){.maintenance-feedback summary,.maintenance-feedback button{min-height:44px}.maintenance-feedback .row{gap:8px}.maintenance-feedback textarea{min-height:88px}}

@@ -378,7 +378,7 @@ class RecordRevisions:
         Existing records receive new provenance only; their fields and review
         state remain under the ordinary editing boundary.
         """
-        from . import ingestion, translations, source_adapters, author_suggestions
+        from . import ingestion, translations, source_adapters
         if self.actor['id'] != ingestion.SYSTEM_ID or self.actor['role'] != 'system':
             raise ValueError('后台取得只能由专属系统主体提交。')
         with self._transaction():
@@ -433,11 +433,6 @@ class RecordRevisions:
                 evidence_items.append(evidence)
             automatic = raw.setdefault('automatic_acquisition',dict(actor_id=ingestion.SYSTEM_ID,adapter=adapter['id'],
                 chinese_status='pending_configuration',snapshots=[],attempts=[]))
-            if found is None:
-                config = self.db.execute('SELECT * FROM ingestion_sources WHERE source_id=? AND enabled=1', (source['id'],)).fetchone()
-                operator = self.db.execute("SELECT * FROM users WHERE id=? AND active=1 AND role='admin'", (config['updated_by'],)).fetchone() if config else None
-                if operator:
-                    automatic['new_article_author_request'] = dict(actor_id=operator['id'], credential_version=operator['credential_version'], source_id=source['id'])
             snapshots = automatic.setdefault('snapshots',[])
             snapshot_changed = snapshot is not None and not any(s['sha256']==snapshot['sha256'] for s in snapshots)
             if snapshot_changed:
@@ -469,27 +464,29 @@ class RecordRevisions:
                 (rid,current['version'],translations.digest(*translations.inputs(current)),now()))
             self.db.execute('UPDATE ingestion_entries SET stage=?,record_id=?,error=? WHERE id=?',
                 ('failed' if page_error else 'saved',rid,page_error,entry_id))
-            request = automatic.get('new_article_author_request')
-            if snapshot and request:
-                config = self.db.execute('SELECT * FROM ingestion_sources WHERE source_id=? AND enabled=1', (source['id'],)).fetchone()
-                operator = self.db.execute("SELECT * FROM users WHERE id=? AND active=1 AND role='admin'", (config['updated_by'],)).fetchone() if config else None
-                if operator and request == dict(actor_id=operator['id'], credential_version=operator['credential_version'], source_id=source['id']):
-                    author_suggestions.enqueue(self.db, operator, rid, 'ingestion-new:'+source['id']+':'+rid)
+            # Public articles join the autonomous scanner. Explicit legacy
+            # suggestion APIs remain available, without a second automatic bill.
             return 'failed' if page_error else 'saved'
 
     def edit(self, rid, data, file=None):
         with self._transaction():
-            row = self.get(rid, edit=True)
-            rid = row["id"]
-            check_version(data, row)
-            values, linked, associated, cited = self._values(data, row)
-            self._unique_doi(values["doi"], rid)
-            self._initial_history(rid)
-            attachments = self._upload(rid, data, json.loads(row["attachment_ids"]), file)
-            self._relations(rid, linked, associated, cited, data.get("refresh_citations") is True)
-            if "research_subjects" in data:
-                note_subjects.save(self.db, rid, values["kind"], data["research_subjects"], self.actor["id"])
-            self._finish(row, {**values, "attachment_ids": json.dumps(attachments), "status": "pending"}, "修订资料")
+            return self.edit_in_transaction(rid, data, file)
+
+    def edit_in_transaction(self, rid, data, file=None):
+        if not self.db.in_transaction:
+            raise RuntimeError('Record edit requires an owning transaction.')
+        row = self.get(rid, edit=True)
+        rid = row["id"]
+        check_version(data, row)
+        values, linked, associated, cited = self._values(data, row)
+        self._unique_doi(values["doi"], rid)
+        self._initial_history(rid)
+        attachments = self._upload(rid, data, json.loads(row["attachment_ids"]), file)
+        self._relations(rid, linked, associated, cited, data.get("refresh_citations") is True)
+        if "research_subjects" in data:
+            note_subjects.save(self.db, rid, values["kind"], data["research_subjects"], self.actor["id"])
+        self._finish(row, {**values, "attachment_ids": json.dumps(attachments), "status": "pending"}, "修订资料")
+
         return rid
 
     def confirm_author(self, rid, data):

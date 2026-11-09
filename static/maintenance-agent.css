@@ -1,0 +1,23 @@
+.maintenance-agent form{margin-block:16px;max-width:70ch}
+.maintenance-status{padding-block:8px 16px;border-bottom:1px solid var(--border,#d6e0eb)}
+.maintenance-status>strong{font-size:17px}
+.maintenance-status p{margin-block:6px}
+.maintenance-counts{display:flex;flex-wrap:wrap;gap:6px 16px;list-style:none;padding:0;margin-block:8px}
+.maintenance-counts li{white-space:nowrap;font-variant-numeric:tabular-nums}
+.maintenance-single{margin-top:24px}
+.maintenance-single>summary{cursor:pointer;min-height:36px;padding-block:6px}
+.maintenance-changes{padding:0;list-style:none}
+.maintenance-changes li{display:flex;justify-content:space-between;gap:12px;padding-block:8px;border-bottom:1px solid var(--border,#d6e0eb);overflow-wrap:anywhere}
+.maintenance-changes span{flex-shrink:0;font-variant-numeric:tabular-nums}
+.maintenance-changes p{margin-block:4px 0}
+.maintenance-agent label{display:block;font-weight:600;margin-bottom:6px}
+.maintenance-agent input,.maintenance-agent select{min-width:0;max-width:100%;width:100%;padding:8px;border:1px solid var(--control-border,#aebdce);border-radius:4px;font:inherit}
+.maintenance-agent [data-form="maintenance-find"] input{flex:1;min-width:12ch}
+.maintenance-agent [data-form="maintenance-submit"] select{margin-bottom:12px}
+.maintenance-job{border-top:1px solid var(--border,#d6e0eb);padding-block:12px;overflow-wrap:anywhere}
+.maintenance-job>summary{min-height:36px;cursor:pointer}
+.maintenance-steps{padding-inline-start:24px}
+.maintenance-steps>li{padding-block:10px;border-bottom:1px solid var(--border,#d6e0eb)}
+.maintenance-agent pre{white-space:pre-wrap;overflow-wrap:anywhere;max-width:100%}
+.maintenance-agent blockquote{margin:10px 0;padding:8px 12px;background:#f0f4f9;border:1px solid #d6e0eb}
+@media(max-width:700px){.maintenance-agent button,.maintenance-agent input,.maintenance-agent select,.maintenance-job>summary,.maintenance-single>summary{min-height:44px}.maintenance-agent [data-form="maintenance-find"] .row{align-items:stretch}.maintenance-agent input{flex-basis:100%}.maintenance-changes li{display:block}.maintenance-changes span{display:block;margin-top:4px}}
