@@ -196,7 +196,12 @@ class SourceAdapterTests(unittest.TestCase):
         client.post('/api/login', json=dict(username='admin', password='LocalDemo2026!'), headers={'X-CSRF-Token': csrf})
         recovered = client.get('/api/records/' + rid).json
         self.assertEqual(client.get(recovered['automatic_acquisition']['snapshots'][0]['download_url']).data, GSSC_PAGE.encode())
-        self.assertEqual(client.get('/api/records/' + rid + '/suggestions').json['jobs'][0]['status'], 'queued')
+        self.assertEqual(client.get('/api/records/' + rid + '/suggestions').json['jobs'], [])
+        from platform_app.maintenance_agent import run_pending as maintain_pending
+        maintain_pending(restored, limit=0)
+        jobs = [job for job in client.get('/api/maintenance/jobs').json['items'] if job['target_id'] == rid]
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(jobs[0]['status'], 'queued')
         self.assertTrue(client.get('/api/sources/' + sid + '/ingestion').json['enabled'])
         # Integrity hashes alone must not authorize a substituted summary body
         # or an adapter relabel that evades replay of the saved official bytes.

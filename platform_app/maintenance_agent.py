@@ -382,6 +382,8 @@ def run_job(db,job,data_dir,stopping):
                         save_step(db,job,step,messages,value,ai)
                         if value.get('completed'):
                             db.execute("UPDATE maintenance_jobs SET status='completed',reason=?,finished_at=?,lease_token='',lease_until='' WHERE id=?",(value['reason'],store.now(),job['id']))
+                            from .maintenance_scan import completed
+                            completed(db,job,data_dir)
                             return True
             except (ValueError,HTTPException) as failure:
                 if isinstance(failure,(ai_gateway.AIBlocked,ai_gateway.AIFailure)):
@@ -433,8 +435,6 @@ def run_pending(data_dir,limit=1,stopping=lambda:False):
             result['tasks']+=1
             try:
                 done=run_job(db,job,data_dir,stopping);result['completed']+=bool(done)
-                if done:
-                    with db:maintenance_scan.completed(db,job,data_dir)
                 if not done:
                     with db:db.execute("UPDATE maintenance_jobs SET status='queued',lease_token='',lease_until='' WHERE id=? AND lease_token=?",(job['id'],job['lease_token']))
             except (ValueError,HTTPException) as failure:
