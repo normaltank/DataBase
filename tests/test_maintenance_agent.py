@@ -272,6 +272,153 @@ class MaintenanceAgentTests(unittest.TestCase):
         self.assertEqual(current['introduction_html'],intro)
         self.assertEqual(current['chinese_name'],'亚历克斯')
 
+    def test_relationship_field_can_be_read_completely_before_replacing_one_of_ten_bylines(self):
+        original=self.call('/api/people',{'name':'Original Author','change_note':'Synthetic identity'}).json['id']
+        correct=self.call('/api/people',{'name':'Correct Author','change_note':'Independent synthetic identity'}).json['id']
+        rows=[{'raw_name':f'Synthetic Author {i}','target_type':'person','target_id':original,'status':'confirmed','evidence':'Synthetic source https://uni.example/archive'} for i in range(10)]
+        saved=self.call('/api/records/'+self.rid+'/bylines',{'version':0,'record_version':1,'items':rows,'change_note':'Synthetic ten authors'},method='PUT')
+        self.assertEqual(saved.status_code,200,saved.json)
+        self.call('/api/records/'+self.rid,{'version':1,'abstract':'Long public abstract. '*1000},method='PUT')
+        expected=self.clients['researcher'].get('/api/records/'+self.rid+'/bylines').json['items']
+        pieces=[];normal=self.respond
+        def model():
+            if self.rounds==1:return 'fetch',{'url':'https://uni.example/alex'}
+            evidence=next(x['evidence_id'] for x in self.tool_results if x.get('method')=='deepseek-fetch-markdown')
+            if self.rounds==2:return 'read',{'target_type':'record','id':self.rid}
+            if self.rounds==3:
+                relation=self.tool_results[-1]['object']['bylines']
+                self.assertNotIn('omitted_items',json.dumps(relation))
+                return 'read_field',{'target_type':'record','id':self.rid,'field':'bylines'}
+            last=self.tool_results[-1]
+            if last.get('field')=='bylines':
+                self.assertNotIn('error',last)
+                self.assertEqual(last['offset'],sum(len(p) for p in pieces))
+                pieces.append(last['text'])
+                if last['next_offset'] is not None:return 'read_field',{'target_type':'record','id':self.rid,'field':'bylines','offset':last['next_offset']}
+                complete=json.loads(''.join(pieces))
+                self.assertEqual([r['id'] for r in complete['items']],[r['id'] for r in expected])
+                items=[{k:r[k] for k in ['id','raw_name','target_type','target_id']} for r in complete['items']]
+                items[0]['target_id']=correct
+                return 'set_bylines',{'id':self.rid,'version':complete['version'],'record_version':2,'items':items,'evidence_id':evidence,'quote':'Alex Vale is a lecturer at North University.'}
+            if last.get('changed_target'):return 'read',{'target_type':'record','id':self.rid}
+            return 'finish',{'reason':'已纠正一项，保留其他九项署名。'}
+        self.next_action=model
+        jid=self.queue('ten-bylines');self.call('/api/admin/maintenance/run',user='admin')
+        self.assertEqual(self.job(jid)['status'],'completed',self.job(jid)['reason'])
+        current=self.clients['researcher'].get('/api/records/'+self.rid+'/bylines').json['items']
+        self.assertEqual([r['id'] for r in current],[r['id'] for r in expected])
+        self.assertEqual([r['target_id'] for r in current],[correct]+[original]*9)
+
+    def test_evidence_page_cursors_cover_exact_chinese_text_sent_to_model(self):
+        text='公开资料段落'*700;pieces=[];normal=self.respond;sent_pages={}
+        def supplier(request,*args,**kwargs):
+            if request.full_url.endswith('/tools/fetch'):return Reply({'content':text},request.full_url)
+            if request.full_url.endswith('/chat/completions'):
+                for message in json.loads(request.data)['messages']:
+                    if message['role']!='tool':continue
+                    value=json.loads(message['content'])
+                    if 'text' not in value or 'offset' not in value:continue
+                    key=message['tool_call_id']
+                    if key in sent_pages:self.assertEqual(value,sent_pages[key],'older pages retain the exact text and cursor already delivered')
+                    sent_pages[key]=value
+            return normal(request,*args,**kwargs)
+        def model():
+            if self.rounds==1:return 'fetch',{'url':'https://uni.example/alex'}
+            evidence=next(x['evidence_id'] for x in self.tool_results if x.get('method')=='deepseek-fetch-markdown')
+            last=self.tool_results[-1]
+            if self.rounds==2:return 'read_evidence',{'evidence_id':evidence,'offset':0,'limit':4500}
+            if 'offset' in last:
+                self.assertEqual(last['offset'],sum(len(p) for p in pieces))
+                self.assertEqual(last['text'],text[last['offset']:last['offset']+len(last['text'])])
+                pieces.append(last['text'])
+                if last['next_offset'] is not None:return 'read_evidence',{'evidence_id':evidence,'offset':last['next_offset'],'limit':4500}
+                self.assertEqual(''.join(pieces),text)
+                return 'read',{'target_type':'record','id':self.rid}
+            return 'finish',{'reason':'资料已读取，暂无有据改动。'}
+        self.next_action=model;self.provider.side_effect=supplier
+        jid=self.queue('chinese-pages');self.call('/api/admin/maintenance/run',user='admin')
+        self.assertEqual(self.job(jid)['status'],'completed',self.job(jid)['reason'])
+        self.assertEqual(''.join(pieces),text)
+
+    def test_exhausted_job_explicitly_continues_once_with_old_evidence_and_current_instructions(self):
+        import hashlib,sqlite3,zipfile
+        from platform_app.maintenance import create_backup,restore_backup
+        from platform_app.maintenance_agent import run_pending
+        self.next_action=lambda:('fetch',{'url':'https://uni.example/alex'}) if self.rounds==1 else ('read',{'target_type':'record','id':self.rid})
+        jid=self.queue('exhausted-old-job');run_pending(self.data_dir)
+        before=self.job(jid)
+        self.assertEqual((before['status'],before['turns']),('failed',24))
+        charges=self.clients['admin'].get('/api/admin/ai').json['attempts']
+        # A valid old backup can contain the instructions frozen at job creation.
+        # Change only that historical prompt in this synthetic fixture, preserving
+        # the actual paid observations, call order, steps and ledger.
+        backup=create_backup(self.data_dir)
+        with zipfile.ZipFile(backup) as archive:files={n:archive.read(n) for n in archive.namelist()}
+        database=self.data_dir.parent/'legacy-prompt.sqlite3';database.write_bytes(files['platform.sqlite3'])
+        db=sqlite3.connect(database)
+        with db:
+            messages=json.loads(db.execute('SELECT messages_json FROM maintenance_jobs WHERE id=?',(jid,)).fetchone()[0])
+            messages[0]['content']='Historical instructions: survey all unknowns before writing.'
+            db.execute('UPDATE maintenance_jobs SET messages_json=? WHERE id=?',(json.dumps(messages),jid))
+        db.close();files['platform.sqlite3']=database.read_bytes()
+        manifest=json.loads(files['manifest.json']);manifest['files']['platform.sqlite3']={'bytes':len(files['platform.sqlite3']),'sha256':hashlib.sha256(files['platform.sqlite3']).hexdigest()};files['manifest.json']=json.dumps(manifest).encode()
+        legacy=self.data_dir.parent/'legacy.zip'
+        with zipfile.ZipFile(legacy,'w') as archive:
+            for name,value in files.items():archive.writestr(name,value)
+        restored=self.data_dir.parent/'continued';restore_backup(legacy,restored)
+        self.data_dir=restored;self.app=create_app(restored,testing=True)
+        self.clients={n:self.login(n) for n in ['researcher','colleague','admin']}
+        response=self.call('/api/maintenance/jobs/'+jid+'/resume')
+        self.assertEqual(response.status_code,200,response.json)
+        grant=response.json['continuation']
+        self.assertEqual((grant['from_turns'],grant['limit'],grant['actor_id']),(24,48,'researcher'))
+        self.assertEqual(response.json['turns'],24)
+        self.assertEqual(self.call('/api/maintenance/jobs/'+jid+'/resume').json['continuation'],grant)
+        self.assertEqual(self.clients['admin'].get('/api/admin/ai').json['attempts'],charges)
+        restore_backup(create_backup(restored),restored.parent/'granted-restored')
+        normal=self.respond
+        def supplier(request,*args,**kwargs):
+            self.assertFalse(request.full_url.endswith('/tools/search') or request.full_url.endswith('/tools/fetch'))
+            body=json.loads(request.data);self.assertIn('Work incrementally',body['messages'][0]['content'])
+            self.assertNotIn('Historical instructions',body['messages'][0]['content'])
+            return normal(request,*args,**kwargs)
+        def model():
+            evidence=next(x['evidence_id'] for x in self.tool_results if x.get('method')=='deepseek-fetch-markdown')
+            if self.rounds==25:return 'save_record',{'id':self.rid,'version':1,'data':{'countries':'Latvia'},'evidence_id':evidence,'quote':'North University is in Latvia.'}
+            if self.rounds==26:return 'read',{'target_type':'record','id':self.rid}
+            return 'finish',{'reason':'保存有据字段，其余未知项留缺。'}
+        self.next_action=model;self.provider.side_effect=supplier
+        self.assertEqual(run_pending(restored),{'tasks':1,'completed':1})
+        final=self.job(jid)
+        self.assertEqual(final['turns'],27);self.assertEqual(final['steps'][:24],before['steps'])
+        self.assertEqual(final['evidence'],before['evidence']);self.assertEqual(final['continuation'],grant)
+        self.assertEqual(self.detail(self.rid)['countries'],'Latvia')
+        restore_backup(create_backup(restored),restored.parent/'continued-final-restored')
+
+    def test_continuation_cannot_renew_past_absolute_limit_or_restore_tampered_authorization(self):
+        import hashlib,sqlite3,zipfile
+        from platform_app.maintenance import create_backup,restore_backup
+        from platform_app.maintenance_agent import run_pending
+        self.next_action=lambda:('read',{'target_type':'record','id':self.rid})
+        jid=self.queue('absolute-limit');run_pending(self.data_dir)
+        self.assertEqual(self.job(jid)['turns'],24)
+        self.assertEqual(self.call('/api/maintenance/jobs/'+jid+'/resume').status_code,200)
+        run_pending(self.data_dir);self.assertEqual(self.job(jid)['turns'],48)
+        charges=self.clients['admin'].get('/api/admin/ai').json['attempts']
+        self.assertEqual(self.call('/api/maintenance/jobs/'+jid+'/resume').status_code,409)
+        self.assertEqual(self.clients['admin'].get('/api/admin/ai').json['attempts'],charges)
+        backup=create_backup(self.data_dir)
+        with zipfile.ZipFile(backup) as archive:files={n:archive.read(n) for n in archive.namelist()}
+        database=self.data_dir.parent/'bad-grant.sqlite3';database.write_bytes(files['platform.sqlite3']);db=sqlite3.connect(database)
+        with db:
+            grant=json.loads(db.execute('SELECT value FROM settings WHERE key=?',('maintenance_continuation:'+jid,)).fetchone()[0]);grant['limit']=72
+            db.execute('UPDATE settings SET value=? WHERE key=?',(json.dumps(grant),'maintenance_continuation:'+jid))
+        db.close();files['platform.sqlite3']=database.read_bytes();manifest=json.loads(files['manifest.json']);manifest['files']['platform.sqlite3']={'bytes':len(files['platform.sqlite3']),'sha256':hashlib.sha256(files['platform.sqlite3']).hexdigest()};files['manifest.json']=json.dumps(manifest).encode()
+        bad=self.data_dir.parent/'bad-grant.zip'
+        with zipfile.ZipFile(bad,'w') as archive:
+            for name,value in files.items():archive.writestr(name,value)
+        with self.assertRaisesRegex(ValueError,'AI维护'):restore_backup(bad,self.data_dir.parent/'must-not-restore')
+
     def test_same_name_is_recalled_but_identity_is_not_merged_and_article_unit_is_not_employment(self):
         created=self.call('/api/people',{'name':'Alex Vale','introduction_html':'<p>Physicist at South Laboratory.</p>','change_note':'Independent synthetic identity'})
         self.assertEqual(created.status_code,201,created.json)
