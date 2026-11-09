@@ -4,6 +4,7 @@ import base64
 import json
 import logging
 import os
+import subprocess
 from pathlib import Path
 import sys
 import threading
@@ -157,6 +158,28 @@ def main():
                     if width < 700 or factor == 2:
                         controls = material.locator('.handoff-lineage button:visible,.handoff-lineage select:visible').evaluate_all('els=>els.map(e=>({text:e.textContent,h:e.getBoundingClientRect().height}))')
                         assert all(c['h'] >= 44 for c in controls), controls
+                        picker=material.get_by_label('选择材料版本',exact=True)
+                        picker.focus();picker.select_option(versions[0]['ref'])
+                        expect(picker).to_be_focused()
+                        jump=material.get_by_role('button',name='查看所选版本 1 的原件与意见',exact=True)
+                        expect(jump).to_be_visible()
+                        assert jump.evaluate('e=>{const r=e.getBoundingClientRect();return r.top>=56&&r.bottom<=innerHeight}'),jump.bounding_box()
+                        before=root/f'lineage-{width}-zoom{factor}-selected.png'
+                        if factor==2:
+                            capture=browser.new_cdp_session(page)
+                            before.write_bytes(base64.b64decode(capture.send('Page.captureScreenshot',{'format':'png','fromSurface':True,'captureBeyondViewport':False})['data']))
+                            capture.detach()
+                        else:page.screenshot(path=str(before))
+                        captures.append(str(before))
+                        jump.focus();page.keyboard.press('Enter')
+                        expect(jump).to_be_focused()
+                        expect(reading.locator('[data-reading-version]')).to_have_attribute('data-reading-version',versions[0]['ref'])
+                        assert reading.evaluate('e=>{const r=e.getBoundingClientRect();return r.top>=56&&r.top<innerHeight-100}'),reading.bounding_box()
+                        expect(upload.locator('[name=note]')).to_have_value('保留上传草稿')
+                        expect(review_form.locator('[name=note]')).to_have_value('保留审阅草稿')
+                        assert upload.locator('[name=file]').evaluate('e=>e.files[0].name')=='draft.txt'
+                        assert review_form.locator('[name=file]').evaluate('e=>e.files[0].name')=='review-draft.txt'
+                        expect(review_form).to_have_attribute('data-version',versions[2]['ref'])
                     shot = root/f'lineage-{width}-zoom{factor}.png'
                     if factor == 2:
                         # Native zoom changes CSS viewport dimensions; compositor capture
@@ -168,20 +191,36 @@ def main():
                     else:
                         page.screenshot(path=str(shot))
                     captures.append(str(shot))
+                    if width<700:
+                        page.evaluate('scrollTo(0,0)')
+                        full=root/f'lineage-{width}-fullpage.png';page.screenshot(path=str(full),full_page=True)
+                        captures.append(str(full))
+                    if width<700 or factor==2:
+                        review_node=material.get_by_role('button',name='查看版本 1 的退回审阅',exact=True)
+                        review_node.focus();page.keyboard.press('Enter');expect(review_node).to_be_focused()
+                        jump.focus();page.keyboard.press('Enter');expect(jump).to_be_focused()
+                        expect(reading).to_contain_text('正在查看此版审阅')
+                        expect(reading.locator('[data-reading-review].is-selected')).to_have_count(1)
                 zoom.evaluate('async url=>{const t=(await chrome.tabs.query({})).find(t=>t.url.startsWith(url));await chrome.tabs.setZoom(t.id,1)}', base)
                 page.set_viewport_size({'width':1366,'height':1000})
                 material.get_by_role('button', name='回当前版', exact=True).click()
                 material.locator('.handoff-lineage').scroll_into_view_if_needed()
                 page.wait_for_timeout(250)
                 page.screenshot(path=str(root/'lineage-current-desktop.png'), full_page=True)
+                captures.append(str(root/'lineage-current-desktop.png'))
                 # Both progressive-enhancement fallbacks complete the same operation.
                 page.emulate_media(reduced_motion='reduce')
                 material.get_by_role('button', name='查看版本 2', exact=True).click()
                 expect(reading).to_contain_text('历史版 2 · 通过')
+                page.set_viewport_size({'width':390,'height':844})
+                reduced_jump=material.get_by_role('button',name='查看所选版本 2 的原件与意见',exact=True)
+                reduced_jump.focus();page.keyboard.press('Enter');expect(reduced_jump).to_be_focused()
+                assert reading.evaluate('e=>{const r=e.getBoundingClientRect();return r.top>=56&&r.top<innerHeight-100}')
                 page.evaluate('Element.prototype.animate=undefined;document.startViewTransition=undefined')
                 page.emulate_media(reduced_motion='no-preference')
                 material.get_by_role('button', name='回当前版', exact=True).click()
                 expect(reading).to_contain_text('当前版 3 · 待审')
+                page.set_viewport_size({'width':1366,'height':1000})
                 # Failed state reads keep last readable content, and no parallel chain accumulates.
                 page.route('**/handoffs', lambda route: route.fulfill(status=503, json={'error':'合成读取失败'}))
                 material.get_by_role('button', name='刷新材料状态', exact=True).click()
@@ -261,7 +300,9 @@ def main():
                 page.unroute('**/handoffs')
                 expect(page.locator('[data-handoff-reading]')).to_have_count(0)
                 assert not errors, errors
-                print(json.dumps({'ok': True, 'url': base, 'evidence': str(root), 'errors': errors, 'screenshots': captures, 'native_zoom':2,'original_and_review_bytes':True,'draft_files_and_nodes_retained':True,'concurrent_review_target_retained':True}, ensure_ascii=False))
+                result={'head':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'ok': True, 'url': base, 'evidence': str(root), 'errors': errors, 'screenshots': captures, 'native_zoom':2,'original_and_review_bytes':True,'draft_files_and_nodes_retained':True,'concurrent_review_target_retained':True,'narrow_keyboard_location_preserves_selection_focus_and_drafts':True}
+                (root/'result.json').write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
+                print(json.dumps(result, ensure_ascii=False))
             finally:
                 browser.close()
     finally:

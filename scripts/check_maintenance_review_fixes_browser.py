@@ -71,8 +71,27 @@ def main():
                 def reader_job():
                     job=panel.locator(f'[data-key="feedback-job-{jid}"]')
                     if job.get_attribute('open') is None:job.locator(':scope>summary').click()
-                    job.locator('[data-trace-step]').filter(has_text='关联作者').click()
+                    job.locator('[data-trace-step]').filter(has_text='关联作者').press('Enter')
                     return job
+
+                # The saved relationship has an ID, but no historical name.
+                # A current authorized lookup must never masquerade as that name.
+                sid=payload['object']['serial_id']
+                sources=reader.request.get(base+'/api/sources').json()['items']
+                assert next(item for item in sources if item['id']==sid)['name']=='Baltic Review'
+                institution=next(item for item in sources if item['name']=='North University')
+                save_changes({'serial_id':{'before':'','after':sid}})
+                admin.get_by_role('button',name='刷新状态',exact=True).click()
+                admin.locator('[data-trace-step]').filter(has_text='关联作者').click()
+                panel.get_by_role('button',name='刷新结果',exact=True).click();job=reader_job()
+                for root in [admin.locator('[data-trace-detail]'),job.locator('[data-trace-detail]')]:
+                    new_value=root.locator('.trace-diff>div').last
+                    expect(new_value).to_contain_text('Baltic Review')
+                    expect(new_value).to_contain_text(sid)
+                    expect(new_value).to_contain_text('当前名称')
+                    expect(new_value).to_contain_text('历史名称未记录')
+                result['checks'].append('both consumers identify current source name, original stableID and missing historical name')
+                for page in [admin,reader]:page.emulate_media(reduced_motion='reduce')
 
                 # Each pair differs only in the named business field. Existing
                 # identities stay fixed; these are durable synthetic changes.
@@ -87,6 +106,7 @@ def main():
                 cases.append(('affiliations',{'items':[{'id':'synthetic-affiliation','byline_id':'synthetic-byline-A','institution_id':'synthetic-institution','evidence':'unchanged basis'}]}, {'items':[{'id':'synthetic-affiliation','byline_id':'synthetic-byline-B','institution_id':'synthetic-institution','evidence':'unchanged basis'}]},'synthetic-byline-A','synthetic-byline-B'))
                 cases.append(('employments',{'items':[{'id':'synthetic-employment','role':'讲师','evidence':'旧任职依据','start_date':'2020','human_checked':False}]},{'items':[{'id':'synthetic-employment','role':'讲师','evidence':'新任职依据','start_date':'2020','human_checked':False}]},'旧任职依据','新任职依据'))
                 cases.append(('employments',{'items':[{'id':'synthetic-employment','role':'讲师','evidence':'unchanged','start_date':'2020','human_checked':False}]},{'items':[{'id':'synthetic-employment','role':'教授','evidence':'unchanged','start_date':'2024','human_checked':True}]},'讲师','教授'))
+                cases.append(('employments',{'items':[{'id':'synthetic-employment','institution_id':institution['id'],'institution':{'id':institution['id'],'name':'SYNTHETIC historical institution'},'evidence':'旧任职依据'}]},{'items':[{'id':'synthetic-employment','institution_id':institution['id'],'institution':{'id':institution['id'],'name':'SYNTHETIC historical institution'},'evidence':'新任职依据'}]},'SYNTHETIC historical institution','历史记录名称'))
                 cases.append(('relationships',[{'type':'part_of','evidence':'旧机构关系依据'}],[{'type':'cooperates_with','evidence':'新机构关系依据'}],'旧机构关系依据','新机构关系依据'))
                 for field,before,after,old,new in cases:
                     save_changes({field:{'before':before,'after':after}})
@@ -94,12 +114,13 @@ def main():
                     actual_change=next(s for s in actual['steps'] if s['id']==original['id'])['result']['changes'][field]
                     assert actual_change=={'before':before,'after':after}
                     admin.get_by_role('button',name='刷新状态',exact=True).click()
-                    admin.locator('[data-trace-step]').filter(has_text='关联作者').click()
+                    admin.locator('[data-trace-step]').filter(has_text='关联作者').press('Enter')
                     panel.get_by_role('button',name='刷新结果',exact=True).click()
                     job=reader_job()
                     for root in [admin.locator('[data-trace-detail]'),job.locator('[data-trace-detail]')]:
                         expect(root.locator('.trace-diff>div').first).to_contain_text(old)
                         expect(root.locator('.trace-diff>div').last).to_contain_text(new)
+                        if new=='历史记录名称':expect(root.locator('.trace-diff')).not_to_contain_text('North University')
                         if field=='employments' and new=='教授':
                             expect(root.locator('.trace-diff>div').first).to_contain_text('2020')
                             expect(root.locator('.trace-diff>div').last).to_contain_text('2024')
@@ -115,8 +136,9 @@ def main():
                 panel.get_by_role('button',name='刷新结果',exact=True).click()
                 expect(reader_job().locator('[data-trace-detail]')).to_contain_text('此步没有记录字段或关系改动。')
                 result['checks'].append('revision-only changes remain absent')
+                for page in [admin,reader]:page.emulate_media(reduced_motion='no-preference')
 
-                save_changes({'bylines':{'before':basis_before,'after':basis_after}})
+                save_changes({'bylines':{'before':basis_before,'after':basis_after},'serial_id':{'before':'','after':sid}})
                 panel.get_by_role('button',name='刷新结果',exact=True).click();job=reader_job()
                 textarea=panel.locator('textarea');textarea.fill('SYNTHETIC unsent feedback remains')
                 old_jobs=panel.locator('.feedback-job').count()
@@ -176,6 +198,10 @@ def main():
                         page.evaluate('scrollTo(0,0)')
                         file=f'{name}-{width}-fullpage.png';page.screenshot(path=str(out/file),full_page=True)
                         result['captures'].append({'file':file,'width':width,'method':'full_page; all native scroll roots at top, feedback real viewport height expanded, no CSS/image edits','metrics':page.evaluate('({innerWidth,innerHeight,scrollY})')})
+                        page.set_viewport_size({'width':width,'height':900})
+                        page.locator('[data-key="change-serial_id"]').evaluate('e=>e.scrollIntoView({block:"center"})')
+                        file=f'{name}-{width}-relationship.png';page.screenshot(path=str(out/file))
+                        result['captures'].append({'file':file,'width':width,'method':'viewport; current-name relationship change explicitly scrolled into view','metrics':page.evaluate('({innerWidth,innerHeight,scrollY})')})
                 for name,page in [('maintenance',admin),('feedback',reader)]:
                     zoom=zooms[page]
                     page.set_viewport_size({'width':1366,'height':900})
@@ -194,6 +220,10 @@ def main():
                         shot=cdp.send('Page.captureScreenshot',{'format':'png','fromSurface':True,'captureBeyondViewport':False})
                         file=f'{name}-native200-{label}-raw.png';(out/file).write_bytes(base64.b64decode(shot['data']))
                         result['captures'].append({'file':file,'zoom':actual_zoom,'method':'CDP raw viewport, '+label+' basis scrolled to center; native tabs.setZoom2','metrics':page.evaluate('({innerWidth,innerHeight,scrollY})')})
+                    detail.locator('[data-key="change-serial_id"]').evaluate('e=>e.scrollIntoView({block:"center"})')
+                    shot=cdp.send('Page.captureScreenshot',{'format':'png','fromSurface':True,'captureBeyondViewport':False})
+                    file=f'{name}-native200-relationship-raw.png';(out/file).write_bytes(base64.b64decode(shot['data']))
+                    result['captures'].append({'file':file,'zoom':actual_zoom,'method':'CDP raw viewport; current-name relationship change scrolled to center; native tabs.setZoom2','metrics':page.evaluate('({innerWidth,innerHeight,scrollY})')})
                     zoom.evaluate('async url=>{const tab=(await chrome.tabs.query({})).find(t=>t.url===url);await chrome.tabs.setZoom(tab.id,1);}',page.url)
                 assert not errors,errors
                 result['browser_errors']=errors

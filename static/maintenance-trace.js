@@ -15,7 +15,7 @@ function maintenanceTraceText(value){
   if(typeof value!=='string')return String(value);
   const text=document.createElement('div');text.innerHTML=readRich(value);return text.textContent||'未填写';
 }
-function maintenanceTraceValue(value,depth=0,field=''){
+function maintenanceTraceValue(value,depth=0,field='',historicalTarget=null){
   if(depth>7)return '<span>内容层级较深，请查看对象档案。</span>';
   if(typeof value==='string'&&['relationships','institution_types','byline_snapshot_json','original_byline_json'].includes(field)){try{const parsed=JSON.parse(value);if(parsed&&typeof parsed==='object')return maintenanceTraceValue(parsed,depth+1,field);}catch(failure){/* Preserve the actual unparsed historical value. */}}
   if(Array.isArray(value))return value.length?`<ul>${value.map((v,i)=>`<li data-key="value-${i}">${maintenanceTraceValue(v,depth+1,field)}</li>`).join('')}</ul>`:'<span>无条目</span>';
@@ -26,9 +26,13 @@ function maintenanceTraceValue(value,depth=0,field=''){
     }
     const target=value.target||value.institution;
     const entries=Object.entries(value).filter(([k])=>!['target','institution','created_at','updated_at'].includes(k));
-    return `${target?maintenanceObjectLink(target.type==='person'?'person':'source',target.id,target.name):''}<dl class="trace-values">${entries.map(([k,v])=>`<div data-key="field-${esc(k)}"><dt>${esc(maintenanceTraceFields[k]||k)}</dt><dd>${maintenanceTraceValue(v,depth+1,k)}</dd></div>`).join('')}</dl>`;
+    return `${target?maintenanceObjectLink(target.type==='person'?'person':'source',target.id,target.name):''}<dl class="trace-values">${entries.map(([k,v])=>`<div data-key="field-${esc(k)}"><dt>${esc(maintenanceTraceFields[k]||k)}</dt><dd>${maintenanceTraceValue(v,depth+1,k,k==='institution_id'?value.institution:null)}</dd></div>`).join('')}</dl>`;
   }
-  if(typeof value==='string'&&value&&['institution_id','serial_id','source_id','host_id','publisher_id'].includes(field))return value.split('|').map(id=>maintenanceObjectLink('source',id.trim(),id.trim())).join(' · ');
+  if(typeof value==='string'&&value&&['institution_id','serial_id','source_id','host_id','publisher_id'].includes(field))return value.split('|').map(raw=>{
+    const id=raw.trim(),source=(state.sources||[]).find(item=>item.id===id);
+    if(historicalTarget?.id===id&&historicalTarget.name)return `${maintenanceObjectLink('source',id,historicalTarget.name)} <span class="muted">历史记录名称 · 编号 ${esc(id)}</span>`;
+    return `${maintenanceObjectLink('source',id,source?.name||id)} <span class="muted">${source?.name?'当前名称 · 编号 '+esc(id):'当前名称未读取'}；历史名称未记录。</span>`;
+  }).join(' · ');
   const labels={person:'人物',institution:'机构',think_tank:'智库',journal:'期刊',serial:'其他出版物',record:'资料',part_of:'隶属',established_by:'共同设立',cooperates_with:'合作',funded_by:'资助',university:'大学',research_institute:'研究机构',faculty:'院系',confirmed:'已确认',pending:'待核对',unknown:'未知'};
   const text=['kind','type','target_type','institution_types','status','human_status'].includes(field)&&labels[value]?labels[value]:maintenanceTraceText(value);
   if(text.length>500)return `<p class="trace-value">${esc(text.slice(0,180))}…</p><details class="trace-long"><summary>展开完整内容（${text.length} 字符）</summary><span class="trace-value">${esc(text)}</span></details>`;
