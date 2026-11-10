@@ -127,6 +127,7 @@ document.addEventListener('click',async event=>{
       button.disabled=true;const pending=libraryWorkspace.finishContext;
       const result=await api('/api/reading-batches/'+encodeURIComponent(pending.batch)+'/finish',{method:'POST',body:{conditions:pending.conditions,confirmation:pending.confirmation}});
       if(account!==state.me?.id||load!==state.loadId||!button.isConnected)return;
+      libraryWorkspace.batch=null; // The next new-feed entry must obtain its current pending batch.
       if(result.confirmed){toast('已确认当前结果 '+result.confirmed+' 条，其余新增继续保留。');go('library',{feed:'new'});}
       else{const next=new URLSearchParams(pending.conditions);next.delete('batch');next.delete('page');next.set('feed','new');toast('本次确认 0 条，全部未浏览资料继续保留。');go('library',next);}
     }else if(action==='reading-reread'){
@@ -206,12 +207,21 @@ function libraryAfterRender() {
   document.dispatchEvent(new CustomEvent('library:rendered',{detail:{root:document.querySelector('.library-workspace'),items:libraryWorkspace.items}}));
 }
 // Country/time navigation is an ordinary history entry, but it does not replace
-// the workspace. Other routes retain their existing lifecycle (saved searches,
-// batch changes and archive contexts may resolve additional server-side state).
+// the workspace. Explicit batch/scope changes still resolve server-side state;
+// a bare new-feed history entry inherits the active derived batch, not a new one.
+function libraryQueryWithBatch(params,previous){
+  const query=new URLSearchParams(params);
+  if(state.page==='library'&&(query.get('feed')||(!query.size?'new':'all'))==='new'){
+    query.set('feed','new');
+    for(const key of ['batch','batch_scope'])if(!query.has(key)&&previous.has(key))query.set(key,previous.get(key));
+  }
+  return query;
+}
 function libraryCanUpdateQuery(previousPage){
   const root=document.querySelector('.library-workspace');
   if(!root||previousPage!==state.page||root._page!==state.page||root._account!==state.me?.id||state.params.has('saved_search'))return false;
-  const context=p=>{const copy=new URLSearchParams(p);if(state.page==='library'&&!copy.has('sort'))copy.set('sort','collected');if(state.page==='favorites')copy.set('favorite','1');if(state.page==='review')copy.set('status','pending');for(const key of ['country','from','to','date_field','date_unknown','page','size','saved_search'])copy.delete(key);copy.sort();return String(copy);};
+  if(state.page==='library'&&(state.params.get('feed')||(!state.params.size?'new':'all'))==='new'&&!libraryWorkspace.batch)return false;
+  const context=p=>{const copy=libraryQueryWithBatch(p,root._query);if(state.page==='library'&&!copy.has('sort'))copy.set('sort','collected');if(state.page==='favorites')copy.set('favorite','1');if(state.page==='review')copy.set('status','pending');for(const key of ['country','from','to','date_field','date_unknown','page','size','saved_search'])copy.delete(key);copy.sort();return String(copy);};
   return context(root._query)===context(state.params);
 }
 function libraryCanResolveSavedQuery(previousPage){
@@ -220,6 +230,9 @@ function libraryCanResolveSavedQuery(previousPage){
 }
 async function libraryUpdateSavedQuery(previousPage){
   const root=document.querySelector('.library-workspace'),account=state.me.id,hash=location.hash,load=++state.loadId,sid=state.params.get('saved_search'),page=state.params.get('page');
+  // The pending URL identifies a query; the visible controls still act on the
+  // last resolved, authorized query until that URL has actually resolved.
+  state.params=new URLSearchParams(root._query);
   const current=()=>root.isConnected&&state.me?.id===account&&location.hash===hash&&state.loadId===load;
   try{
     // Resolve the owned, current persisted conditions through its public API;
@@ -233,6 +246,7 @@ async function libraryUpdateSavedQuery(previousPage){
 }
 async function libraryUpdateQuery(){
   const root=document.querySelector('.library-workspace'),account=state.me.id,hash=location.hash,load=++state.loadId;
+  state.params=libraryQueryWithBatch(state.params,root._query);
   const current=()=>root.isConnected&&account===state.me?.id&&load===state.loadId&&hash===location.hash;
   closeModal(false);state.detail=null;
   if(!state.params.has('saved_search'))savedSearchUI.active=null;
@@ -255,7 +269,11 @@ async function libraryUpdateQuery(){
     if(chips){if(nextChips)chips.replaceWith(nextChips);else chips.remove();}else if(nextChips)root.querySelector('[data-reading-filters]').after(nextChips);
     for(const input of root.querySelectorAll('[data-reading-filters] [name]')){
       const key=input.name;if(root._query.get(key)===state.params.get(key))continue;
-      if(input.type==='checkbox')input.checked=(state.params.get(key)||'').split('|').includes(input.value);
+      if(input.type==='checkbox'){
+        const country=['country','source_country','employment_country','subject_country'].includes(key);
+        const selected=(state.params.get(key)||'').split('|').map(value=>country?countryKey(value):value);
+        input.checked=selected.includes(country?countryKey(input.value):input.value);
+      }
       else input.value=state.params.get(key)||(key==='date_field'?'published':'');
     }
     for(const [index,facet] of [...root.querySelectorAll('.reading-facet')].entries()){const next=template.content.querySelectorAll('.reading-facet')[index];if(next)facet.querySelector('summary').textContent=next.querySelector('summary').textContent;}
@@ -356,7 +374,14 @@ async function libraryCheckPermissions() {
     if(!readerAllowed&&libraryWorkspace.readerId===readerId)libraryCloseReader(false);
     if(changed)libraryRefreshResults(root,data);
     if(removed){librarySelectionChanged();toast('资料访问范围已更新，已清空选择中的失效条目。');}
-  }catch(error){if(current()){if([401,403,404].includes(error.status)){libraryCloseReader(false);libraryClearSelection();await route();}toast(error.message);}}
+  }catch(error){if(current()){
+    if([401,403,404].includes(error.status)){
+      // A confirmed collection denial invalidates the displayed representation.
+      // Remove it before rereading: a subsequent transient failure cannot keep it.
+      libraryResetAccount();root.remove();await route(true);
+    }
+    toast(error.message);
+  }}
   finally{libraryPermissionCheck=false;}
 }
 window.addEventListener('focus',()=>{libraryCheckPermissions().catch(error=>toast(error.message));});
