@@ -24,7 +24,10 @@ def main():
     evidence = Path(args.evidence).resolve()
     evidence.mkdir(parents=True, exist_ok=False)
     data = evidence / 'synthetic-data'
-    captures, errors, checks = [], [], {}
+    captures, errors, checks, positions = [], [], {}, []
+    def capture(page,name):
+        page.screenshot(path=str(evidence/name))
+        positions.append({'path':name,'viewport':page.viewport_size,'position':page.evaluate('({x:scrollX,y:scrollY,readerY:document.querySelector(".library-reader")?.scrollTop||0})'),'focus':page.locator(':focus').evaluate_all('els=>els.map(e=>e.getAttribute("aria-label")||e.textContent)')})
     logging.getLogger('werkzeug').setLevel(logging.ERROR)
     # No test action can reach a paid or real external provider.
     with patch('urllib.request.OpenerDirector.open', side_effect=AssertionError('Unexpected external provider')):
@@ -46,7 +49,7 @@ def main():
             with sync_playwright() as playwright:
                 browser = playwright.chromium.launch(headless=True)
                 try:
-                    page = browser.new_page(viewport={'width': 1366, 'height': 900}, reduced_motion='reduce')
+                    page = browser.new_page(viewport={'width': 1366, 'height': 900}, reduced_motion='reduce',has_touch=True)
                     strict_policy(page)
                     page.on('pageerror', lambda error: errors.append(str(error)))
                     page.goto(base + '/#library?feed=all&q=合成对象资料')
@@ -82,6 +85,35 @@ def main():
                     source.locator('.workbench-source-meta span').first.click(button='right');expect(menu).to_have_count(0)
                     page.evaluate('getSelection().removeAllRanges()')
                     checks['native_links_and_selected_text'] = True
+                    title_href = source.locator('h2 a').get_attribute('href')
+                    source.get_by_role('button', name='更多来源操作').click()
+                    assert menu.get_by_role('menuitem', name='打开档案', exact=True).get_attribute('href') == title_href
+                    menu.get_by_role('menuitem', name='打开档案', exact=True).click()
+                    expect(page.locator('.source-profile')).to_be_visible()
+                    page.go_back()
+                    expect(source).to_be_visible()
+                    checks['filtered_source_menu_matches_title'] = True
+                    page.goto(base + '/#library?feed=all&q=合成对象资料')
+                    page.get_by_text('整理与导出', exact=True).click()
+                    page.get_by_role('button', name='卡片视图', exact=True).click()
+                    cards=page.locator('.library-card-item')
+                    expect(cards).to_have_count(4)
+                    card_more=cards.first.get_by_role('button', name='更多资料操作', exact=True)
+                    expect(card_more).to_be_visible()
+                    card_more.focus();page.keyboard.press('Enter')
+                    expect(menu.get_by_role('menuitem', name='阅读资料', exact=True)).to_be_focused()
+                    page.keyboard.press('Escape');expect(card_more).to_be_focused()
+                    expect(cards.first.locator('[data-library-select]')).to_have_count(1)
+                    expect(cards.first.locator('.record-title [data-action=detail]')).to_be_visible()
+                    for width,height in [(1280,720),(515,791),(320,844)]:
+                        page.set_viewport_size({'width':width,'height':height})
+                        card_more.tap();expect(menu).to_be_visible()
+                        assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+2')
+                        name=f'card-more-open-{width}x{height}.png';capture(page,name);captures.append(name)
+                        page.keyboard.press('Escape');expect(card_more).to_be_focused()
+                        name=f'card-more-closed-focus-{width}x{height}.png';capture(page,name);captures.append(name)
+                    checks['card_visible_keyboard_more'] = True
+                    page.goto(base + '/#sources?q=合成')
                     for width in [1366, 1280, 515, 390, 320]:
                         page.set_viewport_size({'width': width, 'height': 900 if width > 700 else 844})
                         page.evaluate('scrollTo(0,0)')
@@ -92,7 +124,7 @@ def main():
                         assert box['y'] >= 0 and box['y'] + box['height'] <= page.viewport_size['height'] + 1, box
                         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth + 2')
                         expect(page.locator('#toast')).to_have_css('opacity','0',timeout=7000)
-                        page.screenshot(path=str(evidence / f'sources-menu-{width}.png'))
+                        capture(page,f'sources-menu-{width}.png')
                         captures.append(f'sources-menu-{width}.png')
                         page.keyboard.press('Escape')
                     checks['five_widths_menu_edges'] = True
@@ -114,7 +146,7 @@ def main():
                         node.get_by_role('button',name='更多节点操作').click()
                         expect(menu).to_be_visible()
                         assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+2')
-                        page.screenshot(path=str(evidence/f'material-menu-{width}.png'));captures.append(f'material-menu-{width}.png')
+                        capture(page,f'material-menu-{width}.png');captures.append(f'material-menu-{width}.png')
                         page.keyboard.press('Escape')
                     page.set_viewport_size({'width':1366,'height':900})
                     node.get_by_role('button', name='更多节点操作').click()
@@ -177,13 +209,15 @@ def main():
                     fallback.get_by_role('button',name='更新页面',exact=True).click()
                     expect(upload.locator('[name=note]')).to_have_value('模块更新失败仍保留输入')
                     assert upload.locator('[name=file]').evaluate('e=>e.files[0].name')=='pending.txt'
+                    capture(fallback,'lazy-module-update-file-retained.png');captures.append('lazy-module-update-file-retained.png')
                     checks['old_revision_lazy_failure_visible_update_keeps_file']=True
                     fallback.close()
                     assert not errors, errors
                 finally:
                     browser.close()
                 # Separate portable browser verifies authenticated identity return.
-                portable_app = create_app(evidence / 'portable-synthetic', testing=True, embedded_worker=False, portable_trial=True)
+                portable_data = evidence / 'portable-synthetic'
+                portable_app = create_app(portable_data, testing=True, embedded_worker=False, portable_trial=True)
                 portable_server = make_server('127.0.0.1', 0, portable_app, threaded=True)
                 portable_thread = threading.Thread(target=portable_server.serve_forever, daemon=True);portable_thread.start()
                 browser = playwright.chromium.launch(headless=True)
@@ -195,10 +229,10 @@ def main():
                     page.goto(f'http://127.0.0.1:{portable_server.server_port}/#collaboration')
                     page.get_by_role('button', name='主机本机维护', exact=True).click()
                     expect(page.locator('.workbench-account-link[data-id=personal]')).to_have_text('本机维护')
-                    page.screenshot(path=str(evidence/'portable-return-1280.png'));captures.append('portable-return-1280.png')
+                    capture(page,'portable-return-1280.png');captures.append('portable-return-1280.png')
                     page.set_viewport_size({'width':320,'height':844})
                     page.get_by_role('button',name='打开导航',exact=True).click()
-                    page.screenshot(path=str(evidence/'portable-return-320.png'));captures.append('portable-return-320.png')
+                    capture(page,'portable-return-320.png');captures.append('portable-return-320.png')
                     page.get_by_role('button', name='返回研究身份', exact=True).click()
                     expect(page.locator('.workbench-account-link[data-id=personal]')).to_contain_text('临时研究员')
                     assert page.request.get(f'http://127.0.0.1:{portable_server.server_port}/api/session').json()['user']['id'] == identity
@@ -208,9 +242,12 @@ def main():
                     browser.close();portable_server.shutdown();portable_server.server_close();portable_thread.join(5)
         finally:
             server.shutdown();server.server_close();thread.join(5)
-            (evidence / 'result.json').write_text(json.dumps({'checks': checks, 'captures':captures, 'errors':errors, 'worker_enabled':False, 'paid_calls':0, 'base':base}, ensure_ascii=False, indent=2), encoding='utf-8')
             assert data.parent == evidence and data.name == 'synthetic-data'
             if data.exists():shutil.rmtree(data)
+            if 'portable_data' in locals():
+                assert portable_data.parent == evidence and portable_data.name == 'portable-synthetic'
+                if portable_data.exists():shutil.rmtree(portable_data)
+            (evidence / 'result.json').write_text(json.dumps({'checks': checks, 'captures':captures, 'capture_positions':positions, 'errors':errors, 'worker_enabled':False, 'paid_calls':0, 'base':base,'server_thread_stopped':not thread.is_alive(),'portable_base':f'http://127.0.0.1:{portable_server.server_port}' if 'portable_server' in locals() else None,'portable_server_thread_stopped':not portable_thread.is_alive() if 'portable_thread' in locals() else None,'synthetic_data_removed':not data.exists() and not (evidence/'portable-synthetic').exists()}, ensure_ascii=False, indent=2), encoding='utf-8')
 
 
 if __name__ == '__main__':

@@ -14,18 +14,23 @@ function clientControlChanged(el){
 
 // Files remain in their native forms. A reload is allowed only after the user
 // saves or clears drafts; no background refresh can destroy a selected File.
-function clientHasDraft(){
+function clientDraftState(){
+  let present=false,otherAccount=false;
   const forms=new Set(document.querySelectorAll('form'));
   if(typeof handoffDrafts!=='undefined')for(const form of handoffDrafts.values())forms.add(form);
   if(typeof handoffDraftForms!=='undefined')for(const form of handoffDraftForms)forms.add(form);
   for(const form of forms){
     if(form.dataset.saved==='true')continue;
-    if(form.dataset.saving==='true'||form._attempt||form._conflict||form._dirty||form._draftFailed||form._fileSaveFailed)return true;
-    if(/search|filter|login|nickname/.test(form.dataset.form||'')||form.matches('[data-work-search]'))continue;
-    if([...form.querySelectorAll('input,textarea,select')].some(clientControlChanged))return true;
+    const pending=form.dataset.saving==='true'||form._attempt||form._conflict||form._dirty||form._draftFailed||form._fileSaveFailed;
+    if(!pending&&(/search|filter|login|nickname/.test(form.dataset.form||'')||form.matches('[data-work-search]')))continue;
+    if(pending||[...form.querySelectorAll('input,textarea,select')].some(clientControlChanged)){
+      present=true;
+      if(form.dataset.account&&form.dataset.account!==state.me?.id)otherAccount=true;
+    }
   }
-  return typeof draftFileWrites!=='undefined'&&!!draftFileWrites;
+  return {present:present||(typeof draftFileWrites!=='undefined'&&!!draftFileWrites),otherAccount};
 }
+function clientHasDraft(){return clientDraftState().present;}
 function clientGuardTransition(){if(!clientHasDraft())return true;toast('有未提交的文件或输入，请先保存或清空，再继续。');return false;}
 
 (() => {
@@ -36,7 +41,19 @@ function clientGuardTransition(){if(!clientHasDraft())return true;toast('有未�
     available=true;window.objectActions?.close(false);
     const bar=document.createElement('aside');bar.className='client-update';bar.setAttribute('aria-label','页面更新');
     bar.innerHTML='<span>有新版本</span><button type="button" class="button primary" data-client-update>更新页面</button>';
-    bar.querySelector('button').addEventListener('click',()=>{if(clientGuardTransition())location.reload();});document.body.append(bar);
+    bar.querySelector('button').addEventListener('click',()=>{
+      if(!clientDraftState().otherAccount){if(clientGuardTransition())location.reload();return;}
+      // A same-origin native new-page link keeps this page's File/unknown
+      // requests alive. The new page authenticates normally as the current user.
+      if(!bar.querySelector('[data-client-continue]')){
+        const copy=document.createElement('span');copy.className='client-update-recovery';
+        copy.textContent='其他账号的草稿留在本页，原账号登录后可接续。';
+        const link=document.createElement('a');link.className='button';link.dataset.clientContinue='';
+        link.target='_blank';link.rel='noopener';link.textContent='新页继续（保留本页）';
+        bar.append(copy,link);
+      }
+      bar.querySelector('[data-client-continue]').href=location.href;
+    });document.body.append(bar);
   }
   async function check(){
     if(checking||!state.me||document.hidden)return;checking=true;

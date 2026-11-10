@@ -148,7 +148,7 @@ function libraryRow(record) {
 }
 function libraryResultsHTML() {
   if(!libraryWorkspace.items.length)return empty('暂时没有符合条件的资料','','file')+'<div class="empty-actions">'+linkButton('重置筛选','reading-reset','','button primary')+linkButton('查看全部资料','work-read')+'</div>';
-  return libraryWorkspace.items.map(record=>libraryWorkspace.view==='list'?libraryRow(record):'<div class="library-card-item" data-object-kind="record" data-object-id="'+esc(record.id)+'" data-library-record="'+esc(record.id)+'">'+libraryCheckbox(record)+recordCard(record)+'</div>').join('');
+  return libraryWorkspace.items.map(record=>libraryWorkspace.view==='list'?libraryRow(record):'<div class="library-card-item" data-object-kind="record" data-object-id="'+esc(record.id)+'" data-library-record="'+esc(record.id)+'">'+libraryCheckbox(record)+recordCard(record,objectActions.more('更多资料操作'))+'</div>').join('');
 }
 async function libraryWorkspacePage() {
   const account=state.me?.id,loadId=state.loadId;

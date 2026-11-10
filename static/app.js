@@ -111,7 +111,7 @@ async function route(){
 }
 async function dashboard(){return readingPersonalPage();}
 async function libraryPage(){const render=()=>libraryWorkspacePage();return typeof savedSearchLibraryPage==='function'?savedSearchLibraryPage(render):render();}
-function recordCard(record){return uxRecordCard(record);}
+function recordCard(record,more=''){return uxRecordCard(record,more);}
 function recordSourceLabels(r) {
   const labels=[], sourceName=String(r.source_name||state.sources.find(s=>s.id===r.source_id)?.name||'').trim();
   const serialName=state.sources.find(s=>s.id===r.serial_id)?.name||'', publication=String(r.publication_title||'').trim();

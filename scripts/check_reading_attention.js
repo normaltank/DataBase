@@ -2,6 +2,7 @@
 // Actual page scripts, DOM events and controlled HTTP. No listener or provider.
 const {JSDOM}=require('jsdom');
 const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),assert=require('node:assert/strict');
+const {loadPageScripts,jsonResponse}=require('./dom_page_contract');
 const root=path.join(__dirname,'..'),tick=()=>new Promise(resolve=>setImmediate(resolve));
 async function waitFor(check){for(let i=0;i<80;i++){if(check())return;await tick();}assert.ok(check(),'page did not reach expected state');}
 const record={id:'r1',title:'港湾文化活动',display_title:'港湾文化活动',original_title:'Harbour culture',kind:'journal_article',status:'pending',visibility:'shared',version:1,authors:'Synthetic Author',published_on:'2026-10-01',language:'en',body_html:'<p>保存的文章正文，应当先于维护信息。</p>',abstract:'Original abstract',display_abstract:'Original abstract',translation_origin:'machine',has_chinese:true,abstract_is_chinese:false,can_edit:true,attachments:[{id:'f1',name:'article.pdf',bytes:100}],reading_access:{platform_files:[{id:'f1',name:'article.pdf',url:'/api/attachments/f1'}],official_files:[],has_body:true},related_source_ids:[],linked_records:[],cited_by:[],translations:[]};
@@ -28,7 +29,7 @@ async function page(route,profile={},overrides={}){
     else if(p==='/api/records/r1')body=material;
     else if(p==='/api/records/r1/bylines')body={items:[],raw_authors:record.authors};
     else if(p==='/api/people/p1/profile-suggestions'){
-      if(profileFailure)return {ok:false,status:503,json:async()=>({error:'合成补全读取失败，请重试'})};
+      if(profileFailure)return jsonResponse({error:'合成补全读取失败，请重试'},503);
       body=profileData;
     }
     else if(p.endsWith('/profile-suggestions/decide')){const decision=JSON.parse(options.body);profileData={...profileData,version:2,candidates:profileData.candidates.map(c=>({...c,status:decision.reject?.includes(c.id)?'rejected':c.status}))};body={};}
@@ -36,10 +37,9 @@ async function page(route,profile={},overrides={}){
     else if(p.endsWith('/works'))body={items:[{...record,bylines:[]}],total:1,page:1,size:20};
     else if(p.startsWith('/api/'))body={items:[],total:0,page:1,size:20,version:1,person,subjects:[],bylines:[]};
     else throw new Error('Unexpected request '+raw);
-    return {ok:true,status:200,json:async()=>body};
+    return jsonResponse(body);
   };
-  const html=fs.readFileSync(path.join(root,'templates/index.html'),'utf8');
-  for(const [,file] of html.matchAll(/<script src="\/static\/([^"]+)"/g))vm.runInContext(fs.readFileSync(path.join(root,'static',file),'utf8'),dom.getInternalVMContext(),{filename:file});
+  loadPageScripts(dom);
   try{await waitFor(()=>w.document.querySelector(route==='sources'?'#content [data-action="source-preview"]':'#content [data-action="detail"]'));}catch(error){console.error(route,w.document.querySelector('#content')?.textContent);w.close();throw error;}
   return {w,requests,failProfile:value=>{profileFailure=value;},close(){w.close();assert.deepEqual(errors,[],'actual scripts run without browser errors');}};
 }
@@ -56,14 +56,13 @@ async function historyPage(){
   const dom=new JSDOM('<div id="app"><main id="content"></main></div><div id="modal-root"></div><div id="toast"></div>',{runScripts:'outside-only',url:'http://synthetic.local/'}),w=dom.window,requests=[];
   const add=w.addEventListener.bind(w);w.addEventListener=(type,handler,...rest)=>{if(type!=='DOMContentLoaded')add(type,handler,...rest);};
   w.matchMedia=()=>({matches:false,addEventListener(){},removeEventListener(){}});w.scrollTo=()=>{};
-  const html=fs.readFileSync(path.join(root,'templates/index.html'),'utf8');
-  for(const [,file] of html.matchAll(/<script src="\/static\/([^"]+)"/g))vm.runInContext(fs.readFileSync(path.join(root,'static',file),'utf8'),dom.getInternalVMContext(),{filename:file});
+  loadPageScripts(dom);
   w.eval("state.me={id:'reader',name:'合成研究员'};state.page='collaboration';state.loadId=1;");
   const topic={id:'A',theme:'合成历史 A',stage:'compilation',lifecycle_state:'open',materials:[],participants:[]},workflow={meetings:[],assignments:[],summaries:[]};
   let release,held;
   w.fetch=async url=>{
     requests.push(url);if(held===url){held=null;await new Promise(resolve=>release=resolve);}
-    return {ok:true,status:200,json:async()=>url.endsWith('/workflow')?workflow:topic};
+    return jsonResponse(url.endsWith('/workflow')?workflow:topic);
   };
   async function render(){w.document.querySelector('#content').innerHTML=await w.workbenchTopic('A');}
   await render();

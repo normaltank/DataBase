@@ -2,6 +2,7 @@
 // Public page scripts and DOM actions with controlled HTTP responses; no server or real data.
 const {JSDOM}=require('jsdom');
 const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),assert=require('node:assert/strict');
+const {loadPageScripts,jsonResponse}=require('./dom_page_contract');
 const root=path.join(__dirname,'..');
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 async function waitFor(check){for(let i=0;i<50;i++){if(check())return;await tick();}assert.ok(check(),'page did not reach expected state');}
@@ -21,10 +22,9 @@ async function page(query,failure,savedConditions=null){
       if(failing){if(failure==='network')throw new TypeError('Failed to fetch');status=failure.status;body={error:failure.error};}
       else body={items:[],total:0,page:1,size:20,facets:{},facet_options:{}};
     }else throw new Error('Unexpected request: '+url);
-    return {ok:status<400,status,json:async()=>body};
+    return jsonResponse(body,status);
   };
-  const html=fs.readFileSync(path.join(root,'templates/index.html'),'utf8');
-  for(const [,file] of html.matchAll(/<script src="\/static\/([^"]+)"/g))vm.runInContext(fs.readFileSync(path.join(root,'static',file),'utf8'),dom.getInternalVMContext(),{filename:file});
+  loadPageScripts(dom);
   await waitFor(()=>w.document.querySelector('#content .notice.error'));
   return {w,requests,recover(){failing=false;},close(){w.close();}};
 }
