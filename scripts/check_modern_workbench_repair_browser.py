@@ -90,6 +90,7 @@ def reader_checks(page, base, out, case, result):
                 relation.locator('[data-explore-locate]').click()
                 capture(page,out,f'reader-relations-{mode}-{width}')
                 assert len(boxes)==2,boxes;assert all(item['inside'] for item in boxes),boxes
+                assert all(a['right']<=b['x']+1 or b['right']<=a['x']+1 or a['bottom']<=b['y']+1 or b['bottom']<=a['y']+1 for i,a in enumerate(boxes) for b in boxes[i+1:]),boxes
                 viewport=relation.locator('[data-network-viewport]');viewport.scroll_into_view_if_needed();box=viewport.bounding_box()
                 page.mouse.move(box['x']+25,box['y']+25);page.mouse.down();page.mouse.move(box['x']+55,box['y']+45,steps=6);page.mouse.up();page.wait_for_timeout(100)
                 moved=network_boxes(page)

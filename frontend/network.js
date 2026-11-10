@@ -64,10 +64,12 @@ export function mount(container,{snapshot,onSelect=()=>{},onStatus=()=>{},mode='
         camera.updateMatrixWorld();
         const boxes=labels.map(({object,el})=>{el.hidden=false;const p=object.position.clone().project(camera),rect=el.getBoundingClientRect(),transform=new DOMMatrixReadOnly(getComputedStyle(el).transform),x=(p.x+1)*width/2,y=(-p.y+1)*height/2;
           const radius=.4*height/(2*Math.tan(THREE.MathUtils.degToRad(camera.fov/2))*camera.position.distanceTo(object.position));
-          return {left:x+Math.min(-radius,transform.e),right:x+Math.max(radius,transform.e+rect.width),top:y+Math.min(-radius,transform.f),bottom:y+Math.max(radius,transform.f+rect.height)};});
+          return {label:{left:x+transform.e,right:x+transform.e+rect.width,top:y+transform.f,bottom:y+transform.f+rect.height},left:x+Math.min(-radius,transform.e),right:x+Math.max(radius,transform.e+rect.width),top:y+Math.min(-radius,transform.f),bottom:y+Math.max(radius,transform.f+rect.height)};});
         const left=Math.min(...boxes.map(b=>b.left)),right=Math.max(...boxes.map(b=>b.right)),top=Math.min(...boxes.map(b=>b.top)),bottom=Math.max(...boxes.map(b=>b.bottom));
         const scale=Math.max((right-left)/(width-16),(bottom-top)/(height-16));
         if(scale>1){const distance=camera.position.distanceTo(controls.target)*scale*1.02;camera.position.copy(controls.target).addScaledVector(direction,distance);continue;}
+        const collides=boxes.some((box,index)=>boxes.slice(index+1).some(other=>box.label.left<other.label.right+6&&box.label.right+6>other.label.left&&box.label.top<other.label.bottom+6&&box.label.bottom+6>other.label.top));
+        if(collides){const distance=camera.position.distanceTo(controls.target)*.9;camera.position.copy(controls.target).addScaledVector(direction,distance);continue;}
         const dx=(left+right-width)/2,dy=(top+bottom-height)/2;if(Math.abs(dx)<.1&&Math.abs(dy)<.1)break;
         const units=2*Math.tan(THREE.MathUtils.degToRad(camera.fov/2))*camera.position.distanceTo(controls.target)/height;
         const shift=new THREE.Vector3(1,0,0).applyQuaternion(camera.quaternion).multiplyScalar(dx*units).addScaledVector(new THREE.Vector3(0,1,0).applyQuaternion(camera.quaternion),-dy*units);
