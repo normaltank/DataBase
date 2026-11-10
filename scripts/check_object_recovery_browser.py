@@ -117,6 +117,14 @@ def main():
                     assert len(attempts)==2 and attempts[0]==attempts[1]
                     checks['a_normal_login_restores_same_version_file_note_unknown_request']=True
                     assert not page.evaluate('clientHasDraft()')
+                    route_before=page.url
+                    with page.expect_navigation(wait_until='load'):
+                        page.get_by_role('button',name='更新页面',exact=True).click()
+                    expect(page.locator('.workbench-account-link[data-id=personal]')).to_contain_text('研究员')
+                    assert page.url==route_before
+                    expect(page.get_by_role('complementary',name='页面更新')).to_have_count(0)
+                    capture(page,'updated-clean-same-route.png')
+                    checks['clean_explicit_update_preserves_route_query']=True
                     checks['policy']=verify_policy(page)
                     assert not errors,errors
                 finally:browser.close()

@@ -209,6 +209,7 @@ def main():
                     fallback.get_by_role('button',name='更新页面',exact=True).click()
                     expect(upload.locator('[name=note]')).to_have_value('模块更新失败仍保留输入')
                     assert upload.locator('[name=file]').evaluate('e=>e.files[0].name')=='pending.txt'
+                    capture(fallback,'lazy-module-update-file-retained.png');captures.append('lazy-module-update-file-retained.png')
                     checks['old_revision_lazy_failure_visible_update_keeps_file']=True
                     fallback.close()
                     assert not errors, errors
