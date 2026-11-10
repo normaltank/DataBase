@@ -143,6 +143,7 @@ html{font-size:16px}body{font-family:"Noto Sans CJK SC","Microsoft YaHei","Segoe
   .reading-library form[data-reading-filters]{padding:4px 0;margin-bottom:4px}
   .reading-library .reading-quick{flex-wrap:nowrap;gap:8px}
   .reading-library .reading-quick>.reading-keyword{flex:1;flex-basis:auto;min-width:0}
+  .reading-library .reading-quick>.button{flex-shrink:0;min-width:64px;white-space:nowrap}
   .reading-library .reading-keyword>span{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
   .reading-library .reading-keyword input{min-height:44px}
   .reading-library .reading-more>summary{padding:8px 0}
