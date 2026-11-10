@@ -152,7 +152,7 @@ async function handoffReadRefresh(root){
       const v=t.materials.flatMap(item=>item.versions).find(v=>v.ref===form.dataset.version),target=t.materials.find(item=>item.ref===form.dataset.material),allowed=form.dataset.form==='handoff-review'?!!v?.can_review:form.dataset.material?!!target?.can_submit:t.can_submit;
       form.dataset.allowed=String(allowed);if(!form._attempt&&!form._conflict)form.dataset.token=t.token;
       form.querySelectorAll('[type=submit]').forEach(b=>b.disabled=!allowed||form.dataset.saving==='true'||!!(form._attempt&&form.dataset.form==='handoff-review'&&b.value!==form._decision));
-      if(!allowed){form.querySelector('.form-error').textContent='此版当前不可提交。文件与输入仍保留。';if(form.dataset.form==='handoff-review'&&!form.closest('.handoff-retained-draft')&&form.dataset.version!==t.materials.find(item=>item.versions.some(version=>version.ref===form.dataset.version))?.versions[0].ref){const wrapper=document.createElement('details');wrapper.className='handoff-retained-draft';wrapper.innerHTML='<summary>保留的旧版审阅草稿</summary>';const area=form.closest('.handoff-review');area.before(wrapper);wrapper.append(area);}}
+      if(!allowed){form.querySelector('.form-error').textContent='此版当前不可提交。文件与输入仍保留。';if(form.dataset.form==='handoff-review'&&form.dataset.saved!=='true'&&!form.closest('.handoff-retained-draft')&&form.dataset.version!==t.materials.find(item=>item.versions.some(version=>version.ref===form.dataset.version))?.versions[0].ref){const wrapper=document.createElement('details');wrapper.className='handoff-retained-draft';wrapper.innerHTML='<summary>保留的旧版审阅草稿</summary>';const area=form.closest('.handoff-review');area.before(wrapper);wrapper.append(area);}}
     });
     const actions=material.querySelector('.handoff-current-actions>p'),bound=material.querySelector('[data-form=handoff-review]')?.dataset.version,boundVersion=m.versions.find(v=>v.ref===bound);
     if(actions)actions.textContent=boundVersion&&bound!==m.versions[0].ref?'草稿绑定版本 '+boundVersion.version+'，当前版 '+m.versions[0].version:'';
@@ -257,6 +257,7 @@ document.addEventListener('submit',async event=>{
     form._attempt=null;form._decision=null;form.dataset.request=crypto.randomUUID();form.reset();form.querySelectorAll('input,textarea').forEach(input=>input.disabled=false);
     const root=form.closest('[data-material-ref]')?.querySelector('.handoff-lineage');
     if(root)await handoffReadRefresh(root);else await handoffRefreshNew(form);
+    if(type==='handoff-review'){form.dataset.saved='true';form.closest('.handoff-review').hidden=true;}
     toast(result.reused?'已保存，已读取当前状态':type==='handoff-upload'?'材料已上传':'审阅已保存');
   }catch(e){
     if(account===state.me?.id&&load===state.loadId&&form.isConnected){if([401,403,404].includes(e.status)){form.dataset.allowed='false';const root=form.closest('[data-material-ref]')?.querySelector('.handoff-lineage')||form.closest('.handoff-materials')?.querySelector('.handoff-lineage');if(root)await handoffReadRefresh(root);}

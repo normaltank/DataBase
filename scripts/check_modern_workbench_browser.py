@@ -177,6 +177,7 @@ def main():
                 approve.dblclick()
                 expect(material.locator(':scope > .between > .badge')).to_have_text('当前版 1 · 通过')
                 assert len(writes)==1,writes
+                expect(material.locator('[data-form=handoff-review]:visible')).to_have_count(0)
                 expect(draft.locator('[name=note]')).to_have_value('另一份材料的草稿保留')
                 assert draft.locator('[name=file]').evaluate('e=>e.files[0].name') == 'other.txt'
                 board = fixture.board(tid)
