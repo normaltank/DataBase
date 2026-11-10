@@ -17,7 +17,7 @@ try{Function('return 1')();window.flowEvalSentinel=false;}catch(e){window.flowEv
 const FlowNativeWorker=window.Worker;window.flowWorkerCounts={created:0,terminated:0};
 window.Worker=class extends FlowNativeWorker{constructor(...args){super(...args);this.flowTerminated=false;flowWorkerCounts.created++;}terminate(){if(!this.flowTerminated){this.flowTerminated=true;flowWorkerCounts.terminated++;}return super.terminate();}};
 """.replace('POLICY',json.dumps(policy))
-    page.route('**/static/visual-loader.js',lambda route:route.fulfill(content_type='text/javascript',body=prefix+(ROOT/'static/visual-loader.js').read_text(encoding='utf-8')))
+    page.route('**/static/visual-loader.js*',lambda route:route.fulfill(content_type='text/javascript',body=prefix+(ROOT/'static/visual-loader.js').read_text(encoding='utf-8')))
     if baseline:
         for name in ['topic-handoffs','maintenance-trace']:
             source=subprocess.run(['git','show',f'f6dffda:static/{name}.js'],cwd=ROOT,capture_output=True,check=True).stdout.decode('utf-8')

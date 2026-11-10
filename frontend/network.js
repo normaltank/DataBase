@@ -4,7 +4,7 @@ import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 
 // One application snapshot owns identities and edges in both views. Geometry,
 // on-demand drawing and picking adapt the licensed discovery prototype.
-export function mount(container,{snapshot,onSelect=()=>{},onStatus=()=>{},mode='plane',viewState}){
+export function mount(container,{snapshot,onSelect=()=>{},onMenu=()=>{},onStatus=()=>{},mode='plane',viewState}){
   let current=snapshot,view=null,disposed=false;
   const cameras=structuredClone(viewState||{});
   function createPlane(){
@@ -18,6 +18,7 @@ export function mount(container,{snapshot,onSelect=()=>{},onStatus=()=>{},mode='
         {selector:'node:selected',style:{'border-width':4,'border-color':'#b47d00'}},
         {selector:'edge',style:{'width':1.5,'line-color':'#718eac','target-arrow-color':'#718eac','target-arrow-shape':'triangle','curve-style':'bezier'}}]});
     cy.on('tap','node',e=>onSelect(e.target.id()));
+    cy.on('cxttap','node',e=>{if(window.getSelection()?.toString())return;onMenu(e.target.id(),e.originalEvent,container);});
     cy.on('dragpan scrollzoom pinchzoom',()=>{atHome=false;});
     function placeLabels(){for(const {key,el} of labels){const p=cy.getElementById(key).renderedPosition();el.style.left=p.x+'px';el.style.top=p.y+'px';}}
     function fit(){
@@ -89,11 +90,13 @@ export function mount(container,{snapshot,onSelect=()=>{},onStatus=()=>{},mode='
     const raycaster=new THREE.Raycaster(),pointer=new THREE.Vector2();
     const pointerDown=e=>{down={x:e.clientX,y:e.clientY};};
     const pointerUp=e=>{if(!down)return;const start=down;down=null;if(Math.hypot(e.clientX-start.x,e.clientY-start.y)>6)return;const r=renderer.domElement.getBoundingClientRect();pointer.set((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1);raycaster.setFromCamera(pointer,camera);const hit=raycaster.intersectObjects([...labels.map(l=>l.object)])[0];if(hit)onSelect(hit.object.userData.key);};
+    const context=e=>{if(window.getSelection()?.toString())return;const r=renderer.domElement.getBoundingClientRect();pointer.set((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1);raycaster.setFromCamera(pointer,camera);const hit=raycaster.intersectObjects(labels.map(l=>l.object))[0];if(hit)onMenu(hit.object.userData.key,e,container);};
+    renderer.domElement.addEventListener('contextmenu',context);
     const visibility=()=>{if(document.hidden){cancelAnimationFrame(frame);frame=0;}else requestDraw();};
     const lost=e=>{e.preventDefault();onStatus('空间图形不可用，请切换平面关系或使用下方文字，并可重试。');};
     controls.addEventListener('start',()=>{atHome=false;});controls.addEventListener('change',requestDraw);renderer.domElement.addEventListener('pointerdown',pointerDown);renderer.domElement.addEventListener('pointerup',pointerUp);renderer.domElement.addEventListener('webglcontextlost',lost);document.addEventListener('visibilitychange',visibility);
     if(cameras.space){camera.position.fromArray(cameras.space.position);controls.target.fromArray(cameras.space.target);controls.update();}else reset();
-    return {update,resize,reset,getViewState(){return {position:camera.position.toArray(),target:controls.target.toArray(),atHome};},dispose(){if(closed)return;closed=true;cameras.space={position:camera.position.toArray(),target:controls.target.toArray(),atHome};cancelAnimationFrame(frame);clear();controls.dispose();document.removeEventListener('visibilitychange',visibility);renderer.domElement.removeEventListener('pointerdown',pointerDown);renderer.domElement.removeEventListener('pointerup',pointerUp);renderer.domElement.removeEventListener('webglcontextlost',lost);renderer.dispose();renderer.forceContextLoss();renderer.domElement.remove();}};
+    return {update,resize,reset,getViewState(){return {position:camera.position.toArray(),target:controls.target.toArray(),atHome};},dispose(){if(closed)return;closed=true;cameras.space={position:camera.position.toArray(),target:controls.target.toArray(),atHome};cancelAnimationFrame(frame);clear();controls.dispose();document.removeEventListener('visibilitychange',visibility);renderer.domElement.removeEventListener('contextmenu',context);renderer.domElement.removeEventListener('pointerdown',pointerDown);renderer.domElement.removeEventListener('pointerup',pointerUp);renderer.domElement.removeEventListener('webglcontextlost',lost);renderer.dispose();renderer.forceContextLoss();renderer.domElement.remove();}};
   }
   function setMode(next){if(disposed)return;view?.dispose();view=null;mode=next;
     if(document.hidden)return;
