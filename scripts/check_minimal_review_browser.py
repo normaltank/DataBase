@@ -79,10 +79,12 @@ def main():
                 assert response.status == 201, response.json()
                 saved = response.json()
                 page.goto(base+'#library?saved_search='+saved['id'])
+                expect(page.locator('.saved-search-bar strong')).to_have_text('检索：'+saved['name'])
                 panel = page.locator('.material-discovery')
                 expect(panel.locator('[data-material-globe] canvas')).to_be_visible()
                 panel.locator('.material-country-list [data-material-country=LV]').click()
                 expect(page.locator('.library-row')).to_have_count(1)
+                saved_canvas=panel.locator('[data-material-globe] canvas').element_handle()
                 held = []
                 page.route('**/api/saved-searches/'+saved['id'], lambda route: held.append(route))
                 page.go_back()
@@ -92,10 +94,12 @@ def main():
                 panel.locator('.material-country-list [data-material-country=DE]').click()
                 query = parse_qs(urlsplit(page.url).fragment.split('?', 1)[1])
                 result['race_url'] = page.url
+                assert saved_canvas.evaluate('e=>e.isConnected'),'Pending saved-query click replaced the live canvas'
                 for route in held:
                     route.fulfill(response=route.fetch())
                 page.unroute('**/api/saved-searches/'+saved['id'])
                 assert query.get('q') == ['合成正文'] and query.get('source') == [source] and query.get('sort') == ['title'] and query.get('country') == ['DE'], query
+                assert saved_canvas.evaluate('e=>e.isConnected'),'Late saved-query response replaced the live canvas'
                 expect(page.locator('.library-row')).to_contain_text('乙')
                 expect(page.locator('.library-row')).to_have_count(1)
                 result['checks'].append('P1: country click during delayed saved resolution retains original source/sort, updates URL/results, and ignores late read')

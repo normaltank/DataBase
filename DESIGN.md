@@ -40,7 +40,7 @@ typography:
     fontWeight: 650
     lineHeight: 1.5
   phone-material:
-    fontSize: "19px"
+    fontSize: "18px"
     fontWeight: 650
     lineHeight: 1.5
   section:
@@ -107,7 +107,7 @@ components:
 
 ## Typography
 
-界面使用既有中文系统字体栈。正文15px、元数据14px；对象题名22px、页面题名28px。手机题名20–24px。阅读正文16px、行高1.9，目标宽度不超过72ch。Operate 界面沿用熟悉字体和控件，不引入展示字体。
+界面使用既有中文系统字体栈。正文15px、元数据14px；对象题名22px、页面题名28px。手机一般页面题名20–24px，期次题名及材料题名18px。阅读正文16px、行高1.9；手机材料原件行高1.85，目标宽度不超过72ch。Operate 界面沿用熟悉字体和控件，不引入展示字体。
 
 ## Layout
 
@@ -123,7 +123,7 @@ components:
 
 ## Shapes
 
-按钮和输入使用6px圆角，内容对象10px，档案阅读面12px。细边界用于版本、字段和语义分组。手机主要控件保持至少44px触控高度。
+按钮和材料版本选择使用6px圆角；普通字段 input／select／textarea 沿用4px，内容对象10px，档案阅读面12px。细边界用于版本、字段和语义分组。手机材料／版本选择与审阅按钮为44px；公共导航40px、个人菜单触发36px、返回40px、普通字段36px，按实际控件分别理解。
 
 ## Components
 

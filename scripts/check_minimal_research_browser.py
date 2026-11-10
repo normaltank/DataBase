@@ -65,6 +65,10 @@ def main():
             token=page.request.get(result['base']+'/api/session').json()['csrf']
             saved=page.request.post(result['base']+'/api/saved-searches',data={'name':'合成 · 固定来源检索','conditions':{'feed':'all','q':'合成探索','source':source,'sort':'title'}},headers={'X-CSRF-Token':token}).json()
             page.goto(result['base']+'/#library?saved_search='+saved['id'])
+            # This navigation changes source/sort and may replace the old shell.
+            # Its visible canvas is not the saved-query canvas until the named
+            # query has rendered; subsequent interactions must retain this one.
+            expect(page.locator('.saved-search-bar strong')).to_have_text('检索：'+saved['name'])
             expect(panel.locator('[data-material-globe] canvas')).to_be_visible()
             saved_canvas=panel.locator('[data-material-globe] canvas').element_handle()
             panel.locator('.material-country-list [data-material-country=LV]').click()
