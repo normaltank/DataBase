@@ -128,7 +128,7 @@ class LayoutBrowserTests(unittest.TestCase):
             page.locator(".record-title button").first.click()
             expect(page.get_by_role("region", name="连续阅读")).to_be_visible()
             page.screenshot(path=str(self.evidence / "before-reading.png"))
-            page.get_by_role("button", name="返回列表", exact=True).click()
+            page.get_by_role("button", name="返回探索与结果", exact=True).click()
             page.get_by_role("button", name="提交资料", exact=True).click()
             page.screenshot(path=str(self.evidence / "before-editor.png"))
             page.get_by_role("button", name="关闭并保留草稿", exact=True).click()
@@ -280,7 +280,7 @@ class LayoutBrowserTests(unittest.TestCase):
             audit(f"history-{width}")
             page.screenshot(path=str(self.evidence / f"after-history-{width}.png"))
             page.get_by_role("button",name="关闭",exact=True).click()
-            reader.get_by_role("button",name="返回列表",exact=True).click()
+            reader.get_by_role("button",name="返回探索与结果",exact=True).click()
             page.get_by_text("整理与导出",exact=True).click()
             page.get_by_role("button",name="整理重复",exact=True).click()
             page.get_by_label("保留的主记录",exact=True).select_option(self.sample["records"][14])
@@ -306,7 +306,7 @@ class LayoutBrowserTests(unittest.TestCase):
         zpage.screenshot(path=str(self.evidence / "after-reflow-200-percent.png"))
         zpage.locator(".record-title button").first.click()
         expect(zpage.get_by_role("dialog",name="连续阅读")).to_be_visible()
-        zpage.get_by_role("button",name="返回列表",exact=True).click()
+        zpage.get_by_role("button",name="返回探索与结果",exact=True).click()
         zoom_resources.close()
         (self.evidence / "text-audit.json").write_text(json.dumps(findings,ensure_ascii=False,indent=2),encoding="utf-8")
 
@@ -335,13 +335,13 @@ class LayoutBrowserTests(unittest.TestCase):
                     expect(current).to_be_visible()
                     if resized<1200:
                         expect(page.get_by_role("navigation",name="主导航")).to_have_count(0)
-                        current.get_by_role("button",name="返回列表",exact=True).focus()
+                        current.get_by_role("button",name="返回探索与结果",exact=True).focus()
                         page.keyboard.press("Shift+Tab")
                         self.assertTrue(current.locator(":focus").count())
                 page.set_viewport_size({"width":width,"height":900})
             page.screenshot(path=str(self.evidence / f"after-reader-{width}.png"))
             if width < 1200:
-                reader.get_by_role("button", name="返回列表", exact=True).click()
+                reader.get_by_role("button", name="返回探索与结果", exact=True).click()
             else:
                 page.keyboard.press("Escape")
             expect(reader).not_to_be_visible()

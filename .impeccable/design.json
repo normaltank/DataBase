@@ -1,16 +1,12 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-02T17:30:26.325876+00:00",
+  "generatedAt": "2026-11-10T10:55:28.518739+00:00",
   "title": "Design System: 北外中东欧研究中心内部使用",
   "extensions": {
     "colorMeta": {
       "primary": {
         "role": "primary",
         "displayName": "研究蓝"
-      },
-      "shell-navy": {
-        "role": "shell",
-        "displayName": "研究界面深蓝"
       },
       "surface-selected": {
         "role": "selection",
@@ -19,6 +15,22 @@
       "pending-bg": {
         "role": "state",
         "displayName": "待处理柔黄"
+      },
+      "shell-surface": {
+        "role": "shell",
+        "displayName": "浅中性导航底面"
+      },
+      "data-low": {
+        "role": "data",
+        "displayName": "资料数量低段"
+      },
+      "data-middle": {
+        "role": "data",
+        "displayName": "资料数量中段"
+      },
+      "legacy-login": {
+        "role": "legacy",
+        "displayName": "既有登录说明底面"
       }
     },
     "typographyMeta": {
@@ -76,14 +88,14 @@
       "refersTo": "button-primary",
       "description": "当前工作中有权限执行的主要动作。",
       "html": "<button class=\"ds-button\">提交原件</button>",
-      "css": ".ds-button{font:14px/1.5 \"Noto Sans CJK SC\",sans-serif;padding:5px 12px;min-height:34px;border:1px solid var(--primary,#174e9c);border-radius:4px;background:var(--primary,#174e9c);color:#fff;cursor:pointer}.ds-button:hover{background:var(--primary-hover,#103d7d)}.ds-button:focus-visible{outline:3px solid var(--focus,#b47d00);outline-offset:3px}.ds-button:disabled{background:#edf0f4;color:#607080;border-color:#aebdce;cursor:default}"
+      "css": ".ds-button{font:14px/1.5 \"Noto Sans CJK SC\",sans-serif;padding:5px 12px;min-height:34px;border:1px solid var(--primary,#174e9c);border-radius:4px;background:var(--primary,#174e9c);color:#fff;cursor:pointer}.ds-button:hover{background:var(--primary-hover,#103d7d)}.ds-button:focus-visible{outline:3px solid var(--focus,#174e9c);outline-offset:3px}.ds-button:disabled{background:#edf0f4;color:#607080;border-color:#b8bcb8;cursor:default}"
     },
     {
       "name": "清单检索",
       "kind": "input",
       "description": "位于所作用清单的上方。",
       "html": "<label class=\"ds-field\">工作标题<input placeholder=\"查找工作标题\"></label>",
-      "css": ".ds-field{display:grid;gap:6px;font:14px/1.6 \"Noto Sans CJK SC\",sans-serif;color:var(--text,#243347)}.ds-field input{font:inherit;min-height:35px;border:1px solid var(--control-border,#aebdce);border-radius:4px;padding:6px 10px;color:inherit;caret-color:var(--primary,#174e9c)}.ds-field input:focus-visible{outline:3px solid var(--focus,#b47d00);outline-offset:3px}"
+      "css": ".ds-field{display:grid;gap:6px;font:14px/1.6 \"Noto Sans CJK SC\",sans-serif;color:var(--text,#292c2a)}.ds-field input{font:inherit;min-height:35px;border:1px solid var(--control-border,#b8bcb8);border-radius:4px;padding:6px 10px;color:inherit;caret-color:var(--primary,#174e9c)}.ds-field input:focus-visible{outline:3px solid var(--focus,#174e9c);outline-offset:3px}"
     },
     {
       "name": "待处理状态",
@@ -95,8 +107,8 @@
     }
   ],
   "narrative": {
-    "northStar": "清单与具体交接并列",
-    "overview": "稳定导航、紧凑清单与当前对象的就地详情。中心产出优先，资料阅读和研究档案共享熟悉的层级与控件。",
+    "northStar": "大画布探索，正文优先阅读",
+    "overview": "浅中性导航、石墨文字与单一研究蓝。桌面探索/结果3:2，选择资料后结果/正文28:72，探索原画布保留并可一键返回。",
     "keyCharacteristics": [
       "记录身份稳定",
       "紧凑但保持可读",

@@ -89,7 +89,7 @@ def shortcuts(page, base, evidence, suffix='focused', editable=True):
     page.keyboard.press('Alt+ArrowUp')
     expect(heading).to_have_text(second)
     page.keyboard.press('Escape')
-    reader.get_by_role('button',name='返回列表',exact=True).focus()
+    reader.get_by_role('button',name='返回探索与结果',exact=True).focus()
     page.keyboard.press('Alt+Shift+ArrowUp')
     expect(heading).to_have_text(second)
     page.keyboard.press('Alt+Control+ArrowUp')

@@ -1,49 +1,40 @@
 # Material discovery
 
-Mode: Operate. Ordinary extension of the compact library; retain DESIGN.md and
-its blue, white, grey and pale gold control/state language. Issues #138/#139, fixed
-specification 2.0 at 788adf5. Research staff find an article from its country or
-year distribution while preserving a visible, complete and authorized query.
+Mode: Operate / Read. Issue [#146](https://github.com/normaltank/DataBase/issues/146),
+2026-11-10. User explicitly requested a minimal replacement of the cramped
+exploration/sidebar composition. The parent supplied the visual direction and
+authorized technical choices; this is a code-led build, without randomized
+concept selection, a new questionnaire, image assets or extra motion libraries.
 
 ## Direction contract
 
-THESIS: Keep live country/time exploration beside visible candidate rows on desktop;
-phone readers reach results first and explicitly open the exploration scene.
+THESIS: Make country/time exploration the primary work surface. Selecting a
+record gives the saved text priority; returning restores the same exploration.
 
-OWN-WORLD: Use the existing 14px interface type, 4px buttons, white surfaces,
-blue selection and gold focus. Colour encodes counts, never research importance.
+OWN-WORLD: Light neutral navigation and surfaces, graphite text, 14px minimum
+interface text, one restrained blue accent. Existing business status colours
+retain their meaning. Ordinary controls, thin separators and no decorative motion.
 
-STORY: See the current query distribution, choose a country or
-year and return to the same filtered list. Explicit clear controls restore each
-dimension. Europe is the first view; the world remains one button away.
+STORY: Start with the current authorized query, choose a country on the globe,
+flat map or text list, then read a candidate. Clear only the intended dimension.
+Applied query/URL and unapplied year inputs remain distinct. Slow and failed
+reads retain the previous content with local status and recovery.
 
-FIRST VIEWPORT: The existing blue/white Operate workbench now follows #142 v1.
-Desktop places the real globe and time scene in an independent scrolling side
-area; candidates begin in the same viewport. Reading, list and exploration keep
-stable boundaries. A pointer/keyboard divider allocates list and prose width.
-Phone exploration starts folded with a clear entry; current conditions are short
-removable chips. Keyword and find stay first; date, country and sort controls remain in the existing more-filters disclosure. Map, years, unknown dates and unmapped countries remain usable.
+FIRST VIEWPORT: Desktop exploration/results use 3:2; textual country choices
+precede the large globe. Scope and map provenance are disclosed. Reading uses
+28:72 candidates/prose and hides, without detaching, exploration. A visible
+return action restores it. At 1280×720 the country controls remain in view.
+390/320 and native 200% use results-first responsive flow and explicit exploration.
 
-FORM: 本轮作为既有 Operate 界面扩展，沿用现有项目与 Three 原型，未执行新的 visual-world / seed 流程。 The signature interaction is the boundary-to-list filter,
-duplicated by textual controls. The local Three globe rotates only on user input;
-there is no auto rotation or authored camera animation.
+FORM: The signature interaction is continuous country-to-query updating with a
+stable canvas, camera and focus. Existing Three/ECharts engines update snapshots;
+no added runtime. Scene changes release the hidden engine and restore its view.
+Account/confirmed permission changes discard stale authorized content. Year brush
+and time lens set a pending range before application. Browser history preserves
+ordinary query semantics, and original archive/collection/favorite features remain.
 
-Time brush and zoom write a pending year range; applying it updates the ordinary
-query and URL. Published, collected and updated retain their own meaning.
-The overview excludes only time filters while preserving the other query scope;
-the light record window describes the current complete query, capped at 300.
-The lens uses real IDs and date intervals, leaves unknown dates unplaced, and
-opens the existing reader. The window and original date precision remain visible
-as text. Switching scenes disposes the hidden graph and preserves input/query.
-
-FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
-
-Verification: HTTP complete-query contracts and isolated synthetic browser
-checks. Parent coordinator runs the final mechanical detector and independent
-Standards/Spec reviews on the integrated commit. No raster assets introduced.
-
-#142 development evidence and final-review ownership: work/现代研究工作台142开发验证.md.
-Healthy graphs omit explanatory paragraphs and persistent retries. Scope/precision
-remain available on demand; errors reveal the local retry and text alternatives.
-
-第二轮R2保持手机查找主动作单行、最小64px且不收缩；更多筛选仍按需打开，结果首屏位置和查询行为保持。作者验证见既有#142开发验证记录。
+FINISH: Developer evidence is the isolated public HTTP/real Chromium script
+[scripts/check_minimal_research_browser.py](../../scripts/check_minimal_research_browser.py).
+All fixture records are synthetic, the worker is off and the port is random.
+The parent owns independent Standards/Spec and visual review. Developer checks
+are not deployment or independent acceptance. No shipping raster assets.

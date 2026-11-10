@@ -273,7 +273,7 @@ def main():
                 with page.expect_response(lambda r:'/api/records/'+ids[0] in r.url and r.status==200):
                     page.mouse.click(b['x']+b['width']/2,b['y']+b['height']/2-dot([0,1.5,-1.28],up)*scale)
                 expect(page.locator('.library-reader')).to_contain_text('合成刷新验收 1990')
-                page.get_by_role('button',name='返回列表',exact=True).click()
+                page.get_by_role('button',name='返回探索与结果',exact=True).click()
                 panel.locator('[data-material-retry]').click()
                 expect(panel.locator('[data-material-time-status]')).not_to_contain_text('读取失败')
                 checks.append('After separate failed reads: real globe country click changes query; real lens block click opens the matching existing reader')
@@ -292,8 +292,12 @@ def main():
                     held = []
                     page.route('**/api/material-discovery?**', lambda route: held.append(route), times=1)
                     with page.expect_response(lambda r: '/api/material-discovery?' in r.url and r.status == 200):
-                        page.evaluate("window.controlledHidden=false;document.dispatchEvent(new Event('visibilitychange'))")
-                        page.wait_for_timeout(150)
+                        with page.expect_request(lambda r: '/api/material-discovery?' in r.url, timeout=10000):
+                            page.evaluate("window.controlledHidden=false;document.dispatchEvent(new Event('visibilitychange'))")
+                        # The request event precedes route dispatch in Chromium's
+                        # protocol. Flush that dispatch, rather than assuming the
+                        # session reauthorization finishes within 150ms.
+                        page.evaluate('document.visibilityState')
                         assert held, 'resume must reauthorize through the HTTP read'
                         expect(panel.locator('[data-material-timeline] canvas')).to_have_count(0)
                         held[0].fulfill(response=held[0].fetch())

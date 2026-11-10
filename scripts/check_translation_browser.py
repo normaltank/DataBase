@@ -62,14 +62,14 @@ try:
    expect(panel.locator('[data-translation-status]')).to_contain_text('更新')
    expect(adoption.locator('[name=chinese_title]')).to_have_value('冲突时保留的人工输入')
    page.screenshot(path=str(root/f'conflict-{width}.png'),full_page=True)
-   page.get_by_role('button',name='返回列表',exact=True).click()
+   page.get_by_role('button',name='返回探索与结果',exact=True).click()
    panel=open_reader()
    expect(panel).to_contain_text('原文已变化，待复核')
    panel.get_by_role('button',name='新建翻译任务',exact=True).click()
    provider_delay['seconds']=.4
    with page.expect_response(lambda response: '/api/translations/' in response.url and response.url.endswith('/run')):
     panel.get_by_role('button',name='执行本篇翻译',exact=True).first.click()
-    page.get_by_role('button',name='返回列表',exact=True).click()
+    page.get_by_role('button',name='返回探索与结果',exact=True).click()
    expect(panel).not_to_be_attached()
    provider_delay['seconds']=0
    results[str(width)]={'page_errors':errors,'horizontal_overflow':page.evaluate('document.documentElement.scrollWidth>innerWidth'),'conflict_preserves_input':True,'late_response_keeps_reader_closed':True}

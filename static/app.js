@@ -79,9 +79,10 @@ document.addEventListener('keydown',event=>{
   }
 });
 function shell(){return workbenchShell();}
-async function route(){
+async function route(forceFull=false){
   if(!state.me)return showLogin();
   if(typeof continuityRouteStart==='function'&&!continuityRouteStart())return;
+  const previousPage=state.page;
   const [page,query='']=location.hash.slice(1).split('?');
   state.page=page==='journal-results'||navs.some(n=>n[0]===page)?page:'collaboration';state.params=new URLSearchParams(query);
   const legacyPortals=state.page==='sources'&&state.params.get('group')==='maintenance';
@@ -90,6 +91,8 @@ async function route(){
   if(legacyWork&&state.me.role==='admin')return go('maintenance-work',state.params);
   const denied=state.me.role!=='admin'&&(isMaintenancePage()||legacyPortals||legacyWork);
   if(!denied&&state.page==='compilations'&&state.params.get('kind')?.split('|').some(k=>!['compilation','research_report','directory_translation'].includes(k))){const old=new URLSearchParams(state.params);old.delete('legacy');old.set('feed','all');return go('library',old);}
+  if(forceFull!==true&&typeof libraryCanUpdateQuery==='function'&&libraryCanUpdateQuery(previousPage))return libraryUpdateQuery();
+  if(forceFull!==true&&typeof libraryCanResolveSavedQuery==='function'&&libraryCanResolveSavedQuery(previousPage))return libraryUpdateSavedQuery(previousPage);
   if(typeof libraryRouteContext==='function')libraryRouteContext();if(typeof continuityBeforeRender==='function')continuityBeforeRender();closeModal(false);state.detail=null;shell();const id=++state.loadId;
   try{
     let html;

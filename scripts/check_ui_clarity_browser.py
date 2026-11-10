@@ -74,7 +74,7 @@ def reading(page, base, evidence, suffix):
     reader.get_by_role('button',name='加入资料夹',exact=True).click()
     expect(page.get_by_role('dialog',name='加入资料夹',exact=True)).to_be_visible()
     page.keyboard.press('Escape')
-    page.get_by_role('button',name='返回列表',exact=True).click()
+    page.get_by_role('button',name='返回探索与结果',exact=True).click()
     expect(title).to_be_focused()
     assert page.url==saved
     return {'filter_and_return':True,'toolbar_favorite_and_collection':True,'permission_version_origin_visible':True}
