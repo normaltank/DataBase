@@ -106,6 +106,7 @@ def check_maintenance(playwright,evidence):
             capture(page,evidence/'maintenance-mobile.png')
             page.set_viewport_size({'width':320,'height':780});page.evaluate('window.scrollTo(0,0)');capture(page,evidence/'maintenance-entry-320.png');page.get_by_role('button',name='查看修改与依据',exact=True).click()
             capture(page,evidence/'maintenance-320.png')
+            page.set_viewport_size({'width':556,'height':884});page.evaluate('window.scrollTo(0,0)');capture(page,evidence/'maintenance-entry-556.png');page.get_by_role('button',name='查看修改与依据',exact=True).click();capture(page,evidence/'maintenance-556.png')
             page.get_by_role('button',name='执行问题',exact=True).click()
             expect(page.locator('[data-trace-step]:visible')).to_have_count(0)
             expect(page.locator('[data-trace-filter-status]')).to_contain_text('当前步骤在筛选外')
@@ -228,7 +229,7 @@ def main():
                 expect(old.get_by_role('button',name='通过此版',exact=True)).to_be_disabled()
                 concurrent.get_by_text('保留的旧版审阅草稿',exact=True).click()
                 result['conflict_preserves_original_version_draft']='passed'
-                for width,height in [(390,844),(320,780)]:
+                for width,height in [(390,844),(320,780),(556,884)]:
                     page.set_viewport_size({'width':width,'height':height})
                     page.evaluate('window.scrollTo(0,0)');capture(page,evidence/f'handoff-entry-{width}.png')
                     concurrent.get_by_label('选择材料版本',exact=True).select_option(old_ref)
@@ -352,7 +353,7 @@ def main():
                 expect(page.locator('[data-explore-mode=space]')).to_have_attribute('aria-pressed','true')
                 capture(page,evidence/'reader-relations-desktop.png')
                 page.get_by_role('button',name='关闭关联',exact=True).click()
-                for width,height in [(390,844),(320,780)]:
+                for width,height in [(390,844),(320,780),(556,884)]:
                     page.set_viewport_size({'width':width,'height':height})
                     page.goto(base+'/#library?feed=all&q=合成工作台');page.reload()
                     expect(page.locator('.library-row')).to_have_count(12)

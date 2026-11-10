@@ -41,3 +41,21 @@
 @media(max-width:700px){.maintenance-agent button,.maintenance-agent input,.maintenance-agent select,.maintenance-job>summary,.maintenance-single>summary{min-height:44px}.maintenance-agent [data-form="maintenance-find"] .row{align-items:stretch}.maintenance-agent input{flex-basis:100%}.maintenance-changes li{display:block}.maintenance-changes span{display:block;margin-top:4px}}
 @media(max-width:1200px){.maintenance-workspace{grid-template-columns:210px minmax(0,1fr)}.maintenance-selected{padding-inline-start:12px}}
 @media(max-width:900px){.maintenance-workspace{display:block}.maintenance-job-list{border-inline-end:0;padding-inline-end:0}.maintenance-job-list [data-maintenance-jobs]{max-height:300px}.maintenance-selected{padding-inline-start:0;border-top:1px solid #d6e0eb}.maintenance-secondary>summary{min-height:44px}}
+
+.maintenance-window-details>summary{cursor:pointer;min-height:44px;padding:10px 0;color:#174e9c}
+.maintenance-agent [data-maintenance-error]:empty,.maintenance-agent [data-maintenance-selection-note]:empty{display:none}
+@media(max-width:700px){
+  .maintenance-agent{padding-block:8px}
+  .maintenance-agent>.between h2{margin-block:0}
+  .maintenance-running{padding:4px 0;gap:4px 8px}
+  .maintenance-running>a{min-height:44px;display:inline-flex;align-items:center}
+  .maintenance-job-list{padding-block:8px}
+  .maintenance-job-list h3{font-size:16px;margin-bottom:4px}
+  .maintenance-job-list>label{display:none}
+  .maintenance-job-list>select{min-height:44px}
+  .maintenance-job-list [data-maintenance-jobs]{max-height:144px}
+  .maintenance-job-row{gap:2px;padding:8px}
+  .maintenance-current-object{padding:6px 0;min-height:44px}
+  .maintenance-selected .trace-summary{padding:6px 0}
+  .maintenance-selected .trace-summary p{margin:0}
+}
