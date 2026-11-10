@@ -21,7 +21,7 @@ the concrete version under the real role, and return to the same context.
 
 FIRST VIEWPORT: Horizontal primary navigation, two-column work objects, no empty
 detail. A selected period has a compact head and a wide material workface. Mobile
-uses one selected material and places the real action before long original text.
+uses compact material/viewed-version/write-target context, direct decisions and on-demand native note/file forms before continuous long original text.
 
 FORM: concept reference seed:92fd3efe7ab4bf4c, grounded candidate4 university
 publishing. The user did not explicitly choose a named card. One short object-to-
@@ -40,3 +40,15 @@ new version, approval, historical original, File/note recovery, responsive menus
 and nonempty supporting surfaces. The discovery script retains same-canvas,
 slow/failure/history/permission and actual native200% regressions. CSP source
 records distinguish blocked external AdGuard injection from application assets.
+
+## Round-two composition repair
+
+The primary handoff history groups each submission with its actual reviews in a
+single chronological record. A complete relationship graph is optional, uses the
+explicit material-lineage mode and equal-height read-only nodes, and fits the
+whole chain on narrow screens. Approvals remain in the native material actions.
+The selected version changes reading; retained forms keep their original version,
+File identity, conflict target and focus. Source originals render only in their
+triggering concrete version block. The personal menu restores local host entry
+only when the server session says host_available; return preserves research actor
+and query. Developer evidence is handed off separately for independent review.

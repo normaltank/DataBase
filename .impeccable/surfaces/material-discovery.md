@@ -14,8 +14,10 @@ OWN-WORLD: Follow [DESIGN](../../DESIGN.md): cool white/pale indigo, dark graphi
 STORY: Apply country or time to the authorized query, select a candidate, read,
 and return to the same canvas, camera, filters and unapplied year draft.
 
-FIRST VIEWPORT: Desktop chart/map is above a bottom candidate tray. Search and
-extra filters are disclosed. Reading hides the attached exploration and results
+FIRST VIEWPORT: Desktop chart/map is above a bottom candidate tray. Surrounding headings and controls stay compact; the large map and first
+candidates share the desktop viewport. Search and extra filters are disclosed.
+Reading uses one return, compact title/metadata and early opening text at narrow
+widths and native zoom. Reading hides the attached exploration and results
 without destroying them; the article is centered. Mobile starts with results,
 opens exploration explicitly and keeps one task in a single-column flow.
 

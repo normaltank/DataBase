@@ -65,7 +65,7 @@ def main():
                 page.goto(base+'/#'+route);expect(page.locator('#content h1').first).to_be_visible();
                 if route.startswith('library'):expect(page.locator('[data-material-globe] canvas')).to_be_visible()
                 page.screenshot(path=str(out/(route.split('?')[0]+'-desktop.png')),full_page=True)
-            page.locator('.library-row .title-button').first.click();expect(page.locator('.library-reader .detail-title')).to_be_visible();page.screenshot(path=str(out/'reader-desktop.png'),full_page=True);page.get_by_role('button',name='返回探索',exact=True).click()
+            page.locator('.library-row .title-button').first.click();expect(page.locator('.library-reader .detail-title')).to_be_visible();page.screenshot(path=str(out/'reader-desktop.png'),full_page=True);page.get_by_role('button',name='返回探索与结果',exact=True).click()
             page.goto(base+'/#sources');page.locator('.workbench-source-row h2 a').last.click();expect(page.locator('.source-introduction .rich-prose')).to_be_visible();page.screenshot(path=str(out/'source-profile-desktop.png'),full_page=True)
             page.goto(base+'/#people');page.locator('.workbench-person-row h2 a').first.click();expect(page.locator('#person-introduction')).to_be_visible();page.screenshot(path=str(out/'person-profile-desktop.png'),full_page=True)
             for width in (320,390):

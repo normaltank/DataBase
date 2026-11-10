@@ -48,7 +48,12 @@
         "name": "wide",
         "value": "1600px"
       }
-    ]
+    ],
+    "composition": {
+      "materials": "Compact viewed-version and actual write target; grouped chronological handoffs; optional read-only material-lineage graph.",
+      "reading": "One return and compact article header; comparison under reader tools; retained query/canvas.",
+      "profiles": "Continuous introduction/works, subordinate maintenance and evidence."
+    }
   },
   "components": [
     {

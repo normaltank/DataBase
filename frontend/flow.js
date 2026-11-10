@@ -15,16 +15,16 @@ export function mount(container, options={}) {
   function focusSelected(){
     pendingFocus=true;if(disposed||elk||!instance)return;
     const selected=nodes.find(node=>(snapshot.selected||[]).includes(node.id));
-    if(selected){instance.setCenter(selected.position.x+selected.style.width/2,selected.position.y+selected.style.height/2,{zoom:1,duration:0});pendingFocus=false;}
+    if(selected){if(snapshot.layout==='material-lineage')instance.fitView({padding:.12,maxZoom:1,duration:0});else instance.setCenter(selected.position.x+selected.style.width/2,selected.position.y+selected.style.height/2,{zoom:1,duration:0});pendingFocus=false;}
   }
   const showMenu=(node,event)=>{const anchor=event.currentTarget.closest('.react-flow__node');options.onMenu?.(node.id,event,anchor);};
   const label=node=>React.createElement('div',{className:'flow-node-object'},React.createElement('span',{},node.label),node.menuActions?.length?React.createElement('button',{type:'button',className:'object-more nodrag nopan','aria-label':'更多节点操作','aria-haspopup':'menu','aria-expanded':false,'data-object-more':'',onClick:event=>{event.stopPropagation();showMenu(node,event);},onKeyDown:event=>{if(event.key==='F10'&&event.shiftKey||event.key==='ContextMenu'){event.preventDefault();event.stopPropagation();showMenu(node,event);}}},React.createElement('svg',{viewBox:'0 0 24 24','aria-hidden':true},...[5,12,19].map(x=>React.createElement('circle',{key:x,cx:x,cy:12,r:1.5})))):null,node.actions?.length?React.createElement('div',{className:'flow-node-actions nodrag nopan'},...node.actions.map(action=>React.createElement('button',{key:action.id,type:'button',className:'button tiny '+(action.primary?'primary':''),disabled:action.disabled,onClick:event=>{event.stopPropagation();options.onAction?.(node.id,action.id);},onKeyDown:event=>{event.stopPropagation();if(event.key===' '){event.preventDefault();if(!event.repeat)event.currentTarget.click();}}},action.label))):null);
   function render(){
     if(disposed)return;
-    const fitLineage=snapshot.layout==='lineage'&&nodes.length<=8&&container.clientWidth>=500&&!options.viewport;
+    const fitLineage=(snapshot.layout==='material-lineage'||snapshot.layout==='lineage'&&nodes.length<=8&&container.clientWidth>=500)&&!options.viewport;
     root.render(React.createElement(ReactFlow,{
       nodes,edges,nodesDraggable:false,nodesConnectable:false,edgesReconnectable:false,
-      deleteKeyCode:null,minZoom:.15,maxZoom:2,preventScrolling:false,fitView:fitLineage,fitViewOptions:{padding:.025,minZoom:.98,maxZoom:1},
+      deleteKeyCode:null,minZoom:.15,maxZoom:2,preventScrolling:false,fitView:fitLineage,fitViewOptions:snapshot.layout==='material-lineage'?{padding:.12,minZoom:.15,maxZoom:1}:{padding:.025,minZoom:.98,maxZoom:1},
       onInit:value=>{instance=value;const first=nodes.find(node=>(snapshot.selected||[]).includes(node.id))||nodes[0];if(options.viewport)value.setViewport(options.viewport,{duration:0});else if(first&&!fitLineage)value.setCenter(first.position.x+first.style.width/2,first.position.y+first.style.height/2,{zoom:1,duration:0});if(pendingFocus)focusSelected();},
       onNodesChange:changes=>{nodes=applyNodeChanges(changes,nodes);render();},
       onNodeClick:(_,node)=>options.onSelect?.(node.id),
@@ -45,7 +45,8 @@ export function mount(container, options={}) {
   async function update(next){
     if(disposed)return;
     snapshot=next;
-    const signature=JSON.stringify([next.nodes.map(({id,label,actions,menuActions})=>({id,label,actions:actions?.map(action=>action.id),menuActions:menuActions?.map(action=>action.id)})),next.edges,next.layout]);
+    const narrow=next.layout==='material-lineage'&&container.clientWidth<500;
+    const signature=JSON.stringify([narrow,next.nodes.map(({id,label,actions,menuActions})=>({id,label,actions:actions?.map(action=>action.id),menuActions:menuActions?.map(action=>action.id)})),next.edges,next.layout]);
     if(signature===topology){if(!elk)select();return;}
     topology=signature;
     const turn=++generation;stop();
@@ -53,19 +54,19 @@ export function mount(container, options={}) {
     let layout;
     try{
       layout=new ELK({workerFactory:()=>new Worker('/static/vendor/visual/elk-worker.min.js'+(options.assetRevision?'?v='+encodeURIComponent(options.assetRevision):''))});elk=layout;
-      const compact=next.layout==='lineage',width=compact?138:216,height=compact?80:112;
+      const material=next.layout==='material-lineage',compact=material||next.layout==='lineage',width=material?176:compact?138:216,height=material?88:compact?80:112;
       options.onStatus?.('正在排列实际记录…');
       const result=await Promise.race([
-        layout.layout({id:'actual',layoutOptions:{'elk.algorithm':'layered','elk.direction':'RIGHT','elk.spacing.nodeNode':compact?'18':'36','elk.layered.spacing.nodeNodeBetweenLayers':compact?'24':'140'},
+        layout.layout({id:'actual',layoutOptions:{'elk.algorithm':'layered','elk.direction':narrow?'DOWN':'RIGHT','elk.spacing.nodeNode':material?'44':compact?'18':'36','elk.layered.spacing.nodeNodeBetweenLayers':material?'64':compact?'24':'140'},
           children:next.nodes.map(node=>({id:node.id,width:node.actions?.length?224:width,height:node.actions?.length?156:height})),
           edges:next.edges.map(edge=>({id:edge.id,sources:[edge.source],targets:[edge.target]}))}),
         new Promise((_,reject)=>{cancelLayout=()=>reject(new Error('布局已取消'));timer=setTimeout(()=>reject(new Error('布局超时')),10000);}),
       ]);
       if(disposed||turn!==generation)return;
       const positions=new Map(result.children.map(node=>[node.id,node]));
-      if(compact)container.style.height=Math.min(380,Math.max(210,...result.children.map(node=>node.y+node.height+32)))+'px';
+      if(compact)container.style.height=(material?Math.min(760,Math.max(440,...result.children.map(node=>node.y+node.height+48))):Math.min(380,Math.max(210,...result.children.map(node=>node.y+node.height+32))))+'px';
       nodes=next.nodes.map(node=>({id:node.id,data:{label:label(snapshot.nodes.find(item=>item.id===node.id)||node)},position:{x:positions.get(node.id).x,y:positions.get(node.id).y},
-        ariaLabel:node.label,sourcePosition:Position.Right,targetPosition:Position.Left,style:{width:positions.get(node.id).width,height:positions.get(node.id).height},selected:(snapshot.selected||[]).includes(node.id)}));
+        ariaLabel:node.label,sourcePosition:narrow?Position.Bottom:Position.Right,targetPosition:narrow?Position.Top:Position.Left,style:{width:positions.get(node.id).width,height:positions.get(node.id).height},selected:(snapshot.selected||[]).includes(node.id)}));
       const selected=new Set(snapshot.selected||[]);
       edges=next.edges.map(edge=>({...edge,data:{label:edge.label},label:selected.has(edge.source)||selected.has(edge.target)?edge.label:undefined,type:'smoothstep',ariaLabel:edge.description||edge.label,markerEnd:{type:MarkerType.ArrowClosed,color:'#58697b'}}));
       render();options.onStatus?.('');
@@ -78,7 +79,7 @@ export function mount(container, options={}) {
     }
   }
   update(snapshot);
-  return {update,resize(){if(!disposed)render();},
+  return {update,resize(){if(!disposed){if(snapshot.layout==='material-lineage')update(snapshot);else render();}},
     getViewport(){return instance?.getViewport();},
     zoomIn(){instance?.zoomIn({duration:0});},zoomOut(){instance?.zoomOut({duration:0});},
     focusSelected,

@@ -143,6 +143,8 @@ def main():
                 expect(page.locator('.library-row')).to_have_count(1)
                 expect(panel.locator('.material-country-list [data-material-country=LV]')).to_have_attribute('aria-pressed', 'true')
                 assert canvas.evaluate('(element)=>element.isConnected')
+                parent=page.locator('.desk-progressive').filter(has=page.locator('[data-reading-filters]'))
+                if parent.get_attribute('open') is None: parent.get_by_text('查找与筛选资料',exact=True).click()
                 page.locator('.reading-more>summary').click()
                 checkbox = page.locator('[data-reading-filters] input[name=country][value=LV]')
                 expect(checkbox).to_be_checked()

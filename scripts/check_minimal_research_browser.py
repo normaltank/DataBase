@@ -80,7 +80,7 @@ def main():
             assert 'saved_search=' in page.url
             page.go_forward();expect(page.locator('.library-row')).to_have_count(6)
             page.locator('.library-row .title-button').first.click();expect(page.locator('.library-reader .detail-title')).to_be_visible()
-            page.get_by_role('button',name='返回探索',exact=True).click();assert saved_canvas.evaluate('(e)=>e.isConnected')
+            page.get_by_role('button',name='返回探索与结果',exact=True).click();assert saved_canvas.evaluate('(e)=>e.isConnected')
             assert page.url==selected_url
             result['checks'].append('saved-search resolution keeps source/sort/query, same canvas on select/clear/history/reader return')
             if args.case=='saved':
@@ -145,7 +145,7 @@ def main():
             result['reading_layout']=page.evaluate('''()=>{const b=s=>document.querySelector(s).getBoundingClientRect();return {work:b('.material-workspace').width,reader:b('.library-reader').width,list:b('.record-list').width}}''')
             assert result['reading_layout']['reader']/result['reading_layout']['work']>.65,result['reading_layout']
             page.screenshot(path=str(out/'reading-desktop.png'))
-            page.get_by_role('button',name='返回探索',exact=True).click();expect(panel).to_be_visible()
+            page.get_by_role('button',name='返回探索与结果',exact=True).click();expect(panel).to_be_visible()
             assert canvas.evaluate('(e)=>e.isConnected')
             expect(panel.locator('[data-material-from]')).to_have_value('2019')
             panel.locator('[data-material-clear=country]').click();expect(page.locator('.library-row')).to_have_count(12)
