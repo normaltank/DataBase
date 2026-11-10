@@ -22,7 +22,7 @@ Desktop places the real globe and time scene in an independent scrolling side
 area; candidates begin in the same viewport. Reading, list and exploration keep
 stable boundaries. A pointer/keyboard divider allocates list and prose width.
 Phone exploration starts folded with a clear entry; current conditions are short
-removable chips. Map, years, unknown dates and unmapped countries remain usable.
+removable chips. Keyword and find stay first; date, country and sort controls remain in the existing more-filters disclosure. Map, years, unknown dates and unmapped countries remain usable.
 
 FORM: 本轮作为既有 Operate 界面扩展，沿用现有项目与 Three 原型，未执行新的 visual-world / seed 流程。 The signature interaction is the boundary-to-list filter,
 duplicated by textual controls. The local Three globe rotates only on user input;

@@ -17,7 +17,15 @@ function materialCompareReset(restore=false){
     window.scrollTo(0,materialCompare.y);
   }
   materialCompare.root=null;materialCompare.account=null;
-  if(restore&&origin&&previous?.isConnected&&account===state.me?.id&&hash===location.hash){libraryOpenReader(origin.id).then(()=>{if(account!==state.me?.id||hash!==location.hash)return;const reader=previous.querySelector('.library-reader');reader.querySelectorAll('details').forEach((item,index)=>item.open=origin.details.includes(index));reader.scrollTop=origin.y;}).catch(error=>toast(error.message));}
+  if(restore&&origin&&previous?.isConnected&&account===state.me?.id&&hash===location.hash){
+    const load=state.loadId,pending=libraryOpenReader(origin.id),epoch=libraryWorkspace.readerEpoch;
+    pending.then(()=>{
+      if(account!==state.me?.id||hash!==location.hash||load!==state.loadId||epoch!==libraryWorkspace.readerEpoch||libraryWorkspace.readerId!==origin.id||libraryWorkspace.readerRecord?.id!==origin.id||!previous.isConnected)return;
+      const reader=previous.querySelector('.library-reader'),article=reader.querySelector('.ux-reading-article');if(!article)return;
+      readingChooseLanguage(article,libraryWorkspace.readerRecord,origin.language==='original');
+      reader.querySelectorAll('details').forEach((item,index)=>item.open=origin.details.includes(index));reader.scrollTop=origin.y;
+    }).catch(error=>toast(error.message));
+  }
 }
 function materialCompareStatus(){
   materialCompareReadingActions();
@@ -112,7 +120,7 @@ async function materialCompareRead(ids=materialCompare.ids){
 }
 function materialCompareOpen(button){
   const ids=window.librarySelection.ids();if(ids.length<2||ids.length>3){materialCompareStatus();return;}
-  const reader=libraryWorkspace.readerId?{id:libraryWorkspace.readerId,y:button.closest('.library-workspace').querySelector('.library-reader').scrollTop,details:[...button.closest('.library-workspace').querySelectorAll('.library-reader details')].flatMap((item,index)=>item.open?[index]:[])}:null;
+  const reader=libraryWorkspace.readerId?{id:libraryWorkspace.readerId,language:button.closest('.library-workspace').querySelector('.ux-reading-article')?.dataset.readingLanguage||'chinese',y:button.closest('.library-workspace').querySelector('.library-reader').scrollTop,details:[...button.closest('.library-workspace').querySelectorAll('.library-reader details')].flatMap((item,index)=>item.open?[index]:[])}:null;
   continuityRemember();materialCompareReset();
   Object.assign(materialCompare,{originReader:reader,mode:'compare',ids,account:state.me?.id,hash:location.hash,load:state.loadId,root:button.closest('.library-workspace'),focus:button,y:window.scrollY,listY:document.querySelector('.record-list')?.scrollTop||0});
   libraryCloseReader(false);materialCompare.root.classList.add('material-comparing');

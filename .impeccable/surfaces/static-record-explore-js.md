@@ -29,7 +29,7 @@ FINISH：unreviewed and undocumented is unfinished; this build ends with the fin
 
 验证入口 scripts/check_network_browser.py 使用随机独立端口、新临时合成库、真实HTTP及Chrome；AI正式关系由既有有界worker与确定性合成供应商生成，零真实收费。严格策略通过正常外部脚本加载动态meta，并以被拒的内联样式／eval哨兵证明生效。包含真实渲染节点拾取及旋转后拾取、档案往返、手机、原生200%、减少动态、模块失败与无WebGL回退；截图及结果在ignored tests/artifacts/network-<port>/，具体执行与SHA由交接证据提供。
 
-空间默认不自动旋转，仅交互／尺寸变化按需绘制；隐藏时释放当前图实例并保留视角标识，返回时重建。切换、离页销毁Cytoscape、Three资源、监听与观察器。窄屏标签固定可读宽度并留在容器内，不挤成单字竖排。
+空间默认不自动旋转，仅交互／尺寸变化按需绘制；隐藏时释放当前图实例并保留视角标识，返回时重建。切换、离页销毁Cytoscape、Three资源、监听与观察器。窄屏标签固定可读宽度；初始与显式复位以节点和真实 DOM 标签包围框共同适配画布，空间视图同时保留多行标签间距。用户操作后的相机不因选择或刷新重置。
 
 本记录为实现方向与开发自测约定，不表示统一集成审查、独立finish review或部署已完成。DESIGN.md与既有sidecar保持原状态；本扩展没有新增栅格素材。统一审查由指挥Agent执行，真实未决业务项无新增。
 

@@ -10,22 +10,28 @@ function visualFlowUpdate(host,snapshot,onSelect,onAction){
   if(!model){
     model={actor:state.me?.id,page:state.loadId,snapshot,onSelect,instance:null,loading:false};host._actualFlow=model;visualFlowHosts.add(host);
     if(typeof ResizeObserver==='function'){model.resize=new ResizeObserver(()=>{if(host.getBoundingClientRect().width<=0)return;if(model.instance)model.instance.resize();else visualFlowMount(host);});model.resize.observe(host);}
-    host.addEventListener('click',event=>{const command=event.target.closest('[data-flow-command]')?.dataset.flowCommand;if(!command)return;if(command==='retry'){model.instance?.dispose();model.instance=null;visualFlowMount(host);}else if(command==='in')model.instance?.zoomIn();else if(command==='out')model.instance?.zoomOut();else if(command==='selected')model.instance?.focusSelected();else model.instance?.fit();});
+    host.addEventListener('click',event=>{const command=event.target.closest('[data-flow-command]')?.dataset.flowCommand;if(!command)return;if(command==='retry'){model.instance?.dispose();model.instance=null;model.failed=false;host.querySelector('[data-flow-slot]').hidden=false;visualFlowMount(host);}else if(command==='in')model.instance?.zoomIn();else if(command==='out')model.instance?.zoomOut();else if(command==='selected')model.instance?.focusSelected();else model.instance?.fit();});
   }
   model.snapshot=snapshot;model.onSelect=onSelect;model.onAction=onAction;const legend=host.querySelector('[data-flow-legend]');if(legend.textContent!==(snapshot.legend||''))legend.textContent=snapshot.legend||'';
-  const empty=!snapshot.nodes.length;host.querySelector('[data-flow-slot]').hidden=empty;
+  const empty=!snapshot.nodes.length;host.querySelector('[data-flow-slot]').hidden=empty||!!model.failed;
   host.querySelectorAll('[data-flow-command]').forEach(button=>{button.disabled=empty;});
   if(empty){model.instance?.dispose();model.instance=null;host.querySelector('[data-flow-status]').textContent='尚无图节点；实际步骤出现后再显示流程图。';return;}
   if(model.instance)model.instance.update(snapshot);else visualFlowMount(host);
 }
+function visualFlowStatus(host,model,message){
+  model.failed=/失败|未能|暂不可用/.test(message);host.querySelector('[data-flow-status]').textContent=message;
+  host.querySelector('[data-flow-slot]').hidden=model.failed||!model.snapshot.nodes.length;
+  host.querySelectorAll('[data-flow-command]').forEach(button=>{button.hidden=button.dataset.flowCommand==='retry'?!model.failed:model.failed;});
+  if(model.failed){const text=host.closest('.handoff-lineage')?.querySelector('.handoff-track-details');if(text)text.open=true;}
+}
 function visualFlowCurrent(host,model){return host.isConnected&&host._actualFlow===model&&state.me?.id===model.actor&&state.loadId===model.page&&!document.hidden&&(!host.closest('.trace-graph,.handoff-graph')||host.closest('.trace-graph,.handoff-graph').open)&&model.snapshot.nodes.length>0;}
 async function visualFlowMount(host){
-  const model=host._actualFlow;if(!model||model.loading||model.instance||!visualFlowCurrent(host,model)||host.getBoundingClientRect().width<=0||host.querySelector('[data-flow-slot]').getBoundingClientRect().height<=0)return;
+  const model=host._actualFlow;if(!model||model.failed||model.loading||model.instance||!visualFlowCurrent(host,model)||host.getBoundingClientRect().width<=0||host.querySelector('[data-flow-slot]').getBoundingClientRect().height<=0)return;
   model.loading=true;
   try{
-    model.instance=await window.visualLoader.mount('flow',host.querySelector('[data-flow-slot]'),{snapshot:model.snapshot,viewport:model.viewport,onSelect:id=>{if(visualFlowCurrent(host,model))model.onSelect(id);},onAction:(id,action)=>{if(visualFlowCurrent(host,model))model.onAction?.(id,action);},onStatus:message=>{if(visualFlowCurrent(host,model)){host.querySelector('[data-flow-status]').textContent=message;host.querySelector('[data-flow-command=retry]').hidden=!/失败|未能|暂不可用/.test(message);}}},{isCurrent:()=>visualFlowCurrent(host,model)});
+    model.instance=await window.visualLoader.mount('flow',host.querySelector('[data-flow-slot]'),{snapshot:model.snapshot,viewport:model.viewport,onSelect:id=>{if(visualFlowCurrent(host,model))model.onSelect(id);},onAction:(id,action)=>{if(visualFlowCurrent(host,model))model.onAction?.(id,action);},onStatus:message=>{if(visualFlowCurrent(host,model)){visualFlowStatus(host,model,message);}}},{isCurrent:()=>visualFlowCurrent(host,model)});
     if(model.instance){model.instance.update(model.snapshot);if(model.focusOnMount){model.instance.focusSelected();model.focusOnMount=false;}}
-  }catch(error){if(visualFlowCurrent(host,model)){host.querySelector('[data-flow-status]').textContent='流程图未能加载，可继续查看文字记录。';host.querySelector('[data-flow-command=retry]').hidden=false;const text=host.closest('.handoff-lineage')?.querySelector('.handoff-track-details');if(text)text.open=true;}}
+  }catch(error){if(visualFlowCurrent(host,model)){visualFlowStatus(host,model,'流程图未能加载，可继续查看文字记录。');}}
   finally{model.loading=false;}
 }
 function visualDiffMount(host){
@@ -159,7 +165,7 @@ function maintenanceTraceHtml(job){
 function maintenanceTraceUpdate(root,job){
   let model=root._maintenanceTrace;
   if(!model||model.job.id!==job.id){
-    root.innerHTML='<div class="trace-summary" data-trace-summary></div><details class="trace-graph"><summary>步骤与材料关系图</summary>'+visualFlowHtml()+'</details><div class="trace-layout"><div class="trace-rail"><h4>实际步骤</h4><div class="trace-filters" role="group" aria-label="步骤筛选"><button type="button" class="button tiny" data-trace-filter="all">全部</button><button type="button" class="button tiny" data-trace-filter="changed">有改动</button><button type="button" class="button tiny" data-trace-filter="error">执行问题</button></div><p data-trace-filter-status role="status"></p><button type="button" class="button trace-locate" data-trace-locate>查看修改与依据</button><div class="trace-steps" data-trace-steps></div><details class="trace-material-index"><summary>按材料定位步骤</summary><div data-trace-materials></div></details></div><div class="trace-detail" data-trace-detail tabindex="-1"></div><svg class="trace-connector" aria-hidden="true"><path></path></svg></div>';
+    root.innerHTML='<button type="button" class="button trace-locate" data-trace-locate>查看修改与依据</button><div class="trace-summary" data-trace-summary></div><details class="trace-graph"><summary>步骤与材料关系图</summary>'+visualFlowHtml()+'</details><div class="trace-layout"><div class="trace-rail"><h4>实际步骤</h4><div class="trace-filters" role="group" aria-label="步骤筛选"><button type="button" class="button tiny" data-trace-filter="all">全部</button><button type="button" class="button tiny" data-trace-filter="changed">有改动</button><button type="button" class="button tiny" data-trace-filter="error">执行问题</button></div><p data-trace-filter-status role="status"></p><div class="trace-steps" data-trace-steps></div><details class="trace-material-index"><summary>按材料定位步骤</summary><div data-trace-materials></div></details><div data-trace-task-info></div></div><div class="trace-detail" data-trace-detail tabindex="-1"></div><svg class="trace-connector" aria-hidden="true"><path></path></svg></div>';
     model={job,step:job.steps?.[0]?.id||'',evidence:'',filter:'all',signature:''};root._maintenanceTrace=model;
     maintenanceTraceRoots.add(root);
     root.addEventListener('click',event=>{
@@ -182,9 +188,11 @@ function maintenanceTraceUpdate(root,job){
   }
   model.job=job;
   if(!job.steps.some(s=>s.id===model.step))model.step=job.steps[0]?.id||'';
-  const signature=JSON.stringify([job,model.step,model.evidence,model.filter]);if(signature===model.signature)return;
+  const listed=!!root.closest('.maintenance-selected')&&[...root.closest('.maintenance-agent').querySelectorAll('[data-maintenance-select]')].some(button=>button.dataset.maintenanceSelect===job.id);
+  const signature=JSON.stringify([job,model.step,model.evidence,model.filter,listed]);if(signature===model.signature)return;
   model.signature=signature;
-  maintenancePatch(root.querySelector('[data-trace-summary]'),`<strong>${esc(maintenanceStatuses[job.status]||job.status)}</strong> · ${esc(job.title||job.target_id)}${job.reason?`<p>${esc(job.reason)}</p>`:''}${job.feedback?`<p>问题说明：${esc(job.feedback)}</p>`:''}<p class="muted">已记录 ${job.steps.length} 个实际步骤 · ${job.evidence.length} 份材料</p>`);
+  maintenancePatch(root.querySelector('[data-trace-summary]'),`${listed?'':`<strong>${esc(maintenanceStatuses[job.status]||job.status)}</strong> · ${esc(job.title||job.target_id)}${job.reason?`<p>${esc(job.reason)}</p>`:''}`}${job.feedback?`<p>问题说明：${esc(job.feedback)}</p>`:''}<p class="muted">${job.steps.length} 个实际步骤 · ${job.evidence.length} 份材料</p>`);
+  maintenancePatch(root.querySelector('[data-trace-task-info]'),`<details class="trace-task-info"><summary>任务时间与状态</summary><p>${esc(maintenanceStatuses[job.status]||job.status)} · ${dateTime(job.created_at)}</p>${job.last_step?`<p>末步：${esc(maintenanceTools[job.last_step.name]||job.last_step.name)}</p>`:''}</details>`);
   const visible=job.steps.filter(step=>model.filter==='all'||model.filter==='error'?(model.filter==='all'||!!step.result?.error||step.status==='failed'):Object.entries(step.result?.changes||{}).some(([field,change])=>maintenanceTraceChanged(field,change)));
   root.querySelectorAll('[data-trace-filter]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.traceFilter===model.filter)));
   root.querySelector('[data-trace-filter-status]').textContent=visible.length+' / '+job.steps.length+' 步'+(visible.some(step=>step.id===model.step)?'':' · 当前步骤在筛选外');
