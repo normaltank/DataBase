@@ -98,7 +98,17 @@ def main():
                 expect(material.locator('[data-flow-status]')).to_have_text('')
                 page.wait_for_timeout(600)
                 expect(material.locator('[data-flow-status]')).to_have_text('')
-                page.screenshot(path=str(root/'initial-desktop.png'), full_page=True)
+                # Full-page Playwright capture can transiently resize this page and
+                # start a new graph layout after the readiness assertion. Capture
+                # the loaded document without changing its actual CSS viewport.
+                initial_capture=browser.new_cdp_session(page)
+                document_size=initial_capture.send('Page.getLayoutMetrics')['cssContentSize']
+                initial_image=initial_capture.send('Page.captureScreenshot',{'format':'png','fromSurface':True,'captureBeyondViewport':True,'clip':{'x':0,'y':0,'width':document_size['width'],'height':document_size['height'],'scale':1}})
+                expect(material.locator('.react-flow__node')).to_have_count(5)
+                expect(material.locator('[data-flow-status]')).to_have_text('')
+                (root/'initial-desktop.png').write_bytes(base64.b64decode(initial_image['data']))
+                (root/'initial-desktop-metrics.json').write_text(json.dumps({'head':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'nodeCount':5,'flowStatus':'','documentSize':document_size,'viewport':page.evaluate('({innerWidth,innerHeight,deviceScale:devicePixelRatio})'),'method':'CDP captureBeyondViewport without viewport mutation'},indent=2),encoding='utf-8')
+                initial_capture.detach()
                 material.locator('.handoff-graph>summary').click()
                 material.locator('.handoff-track-details').scroll_into_view_if_needed()
                 page.screenshot(path=str(root/'timeline-primary-desktop.png'))
