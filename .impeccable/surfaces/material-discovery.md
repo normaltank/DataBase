@@ -26,14 +26,18 @@ precede the large globe. Scope and map provenance are disclosed. Reading uses
 return action restores it. At 1280×720 the country controls remain in view.
 390/320 and native 200% use results-first responsive flow and explicit exploration.
 
-FORM: The signature interaction is continuous country-to-query updating with a
+FORM: seed:none(user-directed,no roll). The signature interaction is continuous country-to-query updating with a
 stable canvas, camera and focus. Existing Three/ECharts engines update snapshots;
 no added runtime. Scene changes release the hidden engine and restore its view.
 Account/confirmed permission changes discard stale authorized content. Year brush
 and time lens set a pending range before application. Browser history preserves
 ordinary query semantics, and original archive/collection/favorite features remain.
 
-FINISH: Developer evidence is the isolated public HTTP/real Chromium script
+FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance.
+
+## Developer evidence
+
+Developer evidence is the isolated public HTTP/real Chromium script
 [scripts/check_minimal_research_browser.py](../../scripts/check_minimal_research_browser.py).
 All fixture records are synthetic, the worker is off and the port is random.
 The parent owns independent Standards/Spec and visual review. Developer checks

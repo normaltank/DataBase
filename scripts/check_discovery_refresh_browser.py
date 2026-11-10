@@ -211,6 +211,17 @@ def main():
 
             if args.case == 'access':
                 records_query=re.compile(r'/api/records\?')
+                page.locator('.library-row').first.get_by_role('button').first.click()
+                expect(page.locator('.library-reader')).to_be_visible()
+                retained_reader=page.locator('.library-reader').element_handle()
+                retained_canvas=panel.locator('canvas').first.element_handle()
+                page.route(records_query,lambda route:route.fulfill(status=503,json={'error':'合成普通读取失败'}),times=1)
+                focus_refresh()
+                expect(page.locator('#toast')).to_contain_text('合成普通读取失败')
+                expect(page.locator('.library-row')).to_have_count(3)
+                expect(page.locator('.library-reader')).to_be_visible()
+                assert retained_reader.evaluate('(e)=>e.isConnected')
+                assert retained_canvas.evaluate('(e)=>e.isConnected')
                 for status,sort in [(403,'title'),(404,'updated')]:
                     page.goto(base+'#library?feed=all&q=合成刷新验收&sort='+sort)
                     expect(page.locator('.library-row')).to_have_count(3)
@@ -221,6 +232,8 @@ def main():
                     focus_refresh()
                     expect(page.locator('.library-workspace')).to_have_count(0)
                     expect(page.locator('.library-reader')).to_have_count(0)
+                    expect(page.locator('.library-row')).to_have_count(0)
+                    expect(page.locator('.material-discovery canvas')).to_have_count(0)
                 page.goto(base+'#library?feed=all&q=合成刷新验收&sort=collected')
                 expect(page.locator('.library-row')).to_have_count(3)
                 page.locator('.library-row').first.get_by_role('button').first.click()
@@ -228,7 +241,7 @@ def main():
                 focus_refresh()
                 expect(page.locator('.library-workspace')).to_have_count(0)
                 expect(page.get_by_role('button',name='协作同事',exact=True)).to_be_visible()
-                checks.append('Collection 403/404 clear old rows/reader even when route reread fails; collection401 clears authenticated workspace and returns login')
+                checks.append('Ordinary collection503 retains authorized rows/reader/canvas; collection403/404 immediately clear old rows/reader/discovery even when reread503 fails; collection401 returns login')
 
             if args.case in ('stale', 'all'):
                 page.route('**/api/material-discovery?**', lambda route: route.fulfill(status=503, json={'error':'合成断网'}), times=1)
@@ -393,9 +406,13 @@ def main():
                 page.locator('#modal-root [data-action=close]').first.click()
                 # Late collection response after real route departure cannot replace it.
                 held=[];page.route(re.compile(r'/api/records\?'),lambda route:held.append(route),times=1)
-                focus_refresh();page.wait_for_timeout(150);assert held
+                with page.expect_request(re.compile(r'/api/records\?'),timeout=10000):
+                    focus_refresh()
                 page.goto(base+'#sources')
-                held[0].fulfill(response=held[0].fetch())
+                expect(page.locator('.sources-page')).to_be_visible()
+                assert held, 'The observed collection request must remain intercepted until route departure'
+                with page.expect_response(re.compile(r'/api/records\?'),timeout=10000):
+                    held[0].fulfill(response=held[0].fetch())
                 expect(page.locator('.library-workspace')).to_have_count(0)
                 page.get_by_role('button',name='退出登录',exact=True).click()
                 page.get_by_role('button',name='协作同事',exact=True).click()
