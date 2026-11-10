@@ -12,6 +12,7 @@ from platform_app.store import connect, now
 SAMPLES = 'portable_trial_samples_v1'
 MEMBER = 'portable_trial_member:'
 HOST = 'portable_trial_host_v1'
+RETURN = 'portable_research_return_v1'
 
 
 def local_request():
@@ -63,6 +64,25 @@ def sign_in(row):
     session.permanent = True
 
 
+def return_identity(db):
+    """A signed session marker is proof of the authenticated pre-switch user."""
+    proof = session.get(RETURN)
+    host = db.execute('SELECT value FROM settings WHERE key=?', (HOST,)).fetchone()
+    if not local_request() or not host or session.get('uid') != host[0] or not isinstance(proof, dict):
+        return None
+    row = db.execute('SELECT * FROM users WHERE id=? AND active=1', (proof.get('uid'),)).fetchone()
+    if not row or row['role'] != 'researcher' or row['credential_version'] != proof.get('credential_version') or not member(db, row['id']):
+        return None
+    return row
+
+
+def return_to_research(db):
+    row = return_identity(db)
+    if row is None:
+        abort(403, '原研究身份不能恢复，请使用已有账号或重新进入体验。')
+    sign_in(row)
+
+
 def admit(db):
     uid = 'trial_' + uuid.uuid4().hex
     with db:
@@ -78,6 +98,10 @@ def admit(db):
 def host_sign_in(db):
     if not local_request():
         abort(403, '请在主机本机地址打开维护入口。')
+    proof = session.get(RETURN) if return_identity(db) is not None else None
+    previous = db.execute('SELECT * FROM users WHERE id=? AND active=1', (session.get('uid'),)).fetchone()
+    if previous and previous['role'] == 'researcher' and member(db, previous['id']) and previous['credential_version'] == session.get('credential_version'):
+        proof = dict(uid=previous['id'], credential_version=previous['credential_version'])
     with db:
         db.execute('BEGIN IMMEDIATE')
         saved = db.execute('SELECT value FROM settings WHERE key=?', (HOST,)).fetchone()
@@ -92,3 +116,5 @@ def host_sign_in(db):
             db.execute('INSERT INTO settings VALUES (?,?)', (HOST, uid))
             row = db.execute('SELECT * FROM users WHERE id=?', (uid,)).fetchone()
     sign_in(row)
+    if proof:
+        session[RETURN] = proof

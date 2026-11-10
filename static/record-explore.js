@@ -58,7 +58,7 @@
       if(!model||!model.nodes.some(n=>n.key===key))return;selected=key;
       const slot=content.querySelector('[data-network-selection]');if(!slot)return;
       const node=model.nodes.find(n=>n.key===key),relations=model.edges.filter(e=>e.key===key);
-      slot.innerHTML='<strong>'+esc(node.name)+'</strong><span class="record-explore-note">'+esc(node.type==='person'?'人物':node.type==='source'?'来源档案':'资料／成果')+'</span>'+(relations.length?relations.map(e=>'<p>'+esc(e.direction==='out'?'本篇 → '+e.name:e.name+' → 本篇')+' · '+esc(e.role)+(e.provenance?' · '+esc(e.provenance):'')+'</p>'+basis(e.evidence)).join('')+targetLink(node,record.id):'<p class="record-explore-note">当前阅读的中心篇目。</p>')+disclosure('详细标识',node.id);
+      slot.dataset.objectKind=node.type;slot.dataset.objectId=node.id;slot.innerHTML=(node.type==='person'||node.type==='source'?objectActions.more('更多关联对象操作'):'')+'<strong>'+esc(node.name)+'</strong><span class="record-explore-note">'+esc(node.type==='person'?'人物':node.type==='source'?'来源档案':'资料／成果')+'</span>'+(relations.length?relations.map(e=>'<p>'+esc(e.direction==='out'?'本篇 → '+e.name:e.name+' → 本篇')+' · '+esc(e.role)+(e.provenance?' · '+esc(e.provenance):'')+'</p>'+basis(e.evidence)).join('')+targetLink(node,record.id):'<p class="record-explore-note">当前阅读的中心篇目。</p>')+disclosure('详细标识',node.id);
       content.querySelectorAll('[data-explore-select]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.exploreSelect===key)));
       visual?.update(snapshot());
     }
@@ -68,7 +68,7 @@
       const valid=()=>token===visualEpoch&&current(epoch)&&details.open&&!document.hidden;
       const status=message=>{if(current(epoch)&&details.open){const target=content.querySelector('[data-network-status]');if(target)target.textContent=message;const failed=/未能|不可用|失败/.test(message);const retry=content.querySelector('[data-explore-retry]');if(retry)retry.hidden=!failed;if(failed){const text=content.querySelector('.record-network-text');if(text)text.open=true;}}};
       status('正在加载关系图…');
-      try{const instance=await window.visualLoader.mount('network',slot,{snapshot:snapshot(),mode,viewState,onSelect:select,onStatus:status},{isCurrent:valid});if(valid()){visual=instance;status('');}else instance?.dispose();}
+      try{const instance=await window.visualLoader.mount('network',slot,{snapshot:snapshot(),mode,viewState,onSelect:select,onMenu:(key,event,anchor)=>{const node=model?.nodes.find(node=>node.key===key);if(!node||!['person','source'].includes(node.type)||!current(epoch))return;select(key);const slot=content.querySelector('[data-network-selection]');if(slot){event.preventDefault();objectActions.open(slot,event);}},onStatus:status},{isCurrent:valid});if(valid()){visual=instance;status('');}else instance?.dispose();}
       catch(error){if(valid())status('图形未能加载，可继续使用下方文字关系，或重试图形。');}
     }
     async function load() {

@@ -374,10 +374,10 @@ window.addEventListener('beforeunload',event=>{const form=currentEditorForm();if
 window.addEventListener('pagehide',()=>saveEditorDraft(currentEditorForm()));
 document.addEventListener('visibilitychange',()=>{if(document.hidden)saveEditorDraft(currentEditorForm());});
 const accountChannel = typeof BroadcastChannel==='function' ? new BroadcastChannel('zhihui-account') : null;
-function announceAccount(){accountChannel?.postMessage({user:state.me?.id||null});}
+function announceAccount(){window.objectActions?.close(false);accountChannel?.postMessage({user:state.me?.id||null});}
 if(accountChannel)accountChannel.onmessage=async event=>{
   if(event.data.user===(state.me?.id||null))return;
   if(typeof risReleaseAccountEditor==='function')risReleaseAccountEditor();
   saveEditorDraft(currentEditorForm());closeModal();state.loadId++;state.me=null;state.sources=[];state.collections=[];state.users=[];state.links=[];showLogin();
-  try{const session=await api('/api/session');state.me=session.user;state.csrf=session.csrf;if(state.me){await loadLookups();await route();}}catch(error){toast(error.message);}
+  try{const session=await api('/api/session');state.me=session.user;state.csrf=session.csrf;state.researchReturnAvailable=!!session.research_return_available;if(state.me){await loadLookups();await route();}}catch(error){toast(error.message);}
 };

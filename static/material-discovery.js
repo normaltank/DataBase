@@ -26,7 +26,7 @@ async function materialLoad(panel){
     const session=await api('/api/session');
     if(session.user?.id!==account)throw Object.assign(new Error('账号已切换，请重新登录。'),{status:401});
     if(!materialCurrent(panel,epoch,account,load,hash))return;
-    const [data,geometry]=await Promise.all([api('/api/material-discovery?'+query),materialDiscovery.geometry||api('/static/geo/material-world-110m.json')]);
+    const [data,geometry]=await Promise.all([api('/api/material-discovery?'+query),materialDiscovery.geometry||api(clientAsset('/static/geo/material-world-110m.json'))]);
     if(!materialCurrent(panel,epoch,account,load,hash))return;
     const latestSession=await api('/api/session');
     if(latestSession.user?.id!==account)throw Object.assign(new Error('账号已切换，请重新登录。'),{status:401});

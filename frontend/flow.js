@@ -10,14 +10,15 @@ export function mount(container, options={}) {
   let disposed=false, generation=0, elk=null, timer=null, instance=null,cancelLayout=null,pendingFocus=false;
   let snapshot={nodes:[],edges:[],...options.snapshot},nodes=[],edges=[],topology='';
   const stop=()=>{clearTimeout(timer);cancelLayout?.();cancelLayout=null;elk?.terminateWorker();elk=null;};
-  const keydown=event=>{if(event.target.closest('button,input,textarea,select,a'))return;const node=event.target.closest('.react-flow__node');if(node&&(event.key==='Enter'||event.key===' ')){event.preventDefault();options.onSelect?.(node.dataset.id);}};
+  const keydown=event=>{if((event.key==='ContextMenu'||event.key==='F10'&&event.shiftKey)&&!event.target.closest('button,input,textarea,select,a')){const node=event.target.closest('.react-flow__node');if(node&&snapshot.nodes.find(n=>n.id===node.dataset.id)?.menuActions?.length){event.preventDefault();options.onMenu?.(node.dataset.id,event,node);return;}}if(event.target.closest('button,input,textarea,select,a'))return;const node=event.target.closest('.react-flow__node');if(node&&(event.key==='Enter'||event.key===' ')){event.preventDefault();options.onSelect?.(node.dataset.id);}};
   container.addEventListener('keydown',keydown);
   function focusSelected(){
     pendingFocus=true;if(disposed||elk||!instance)return;
     const selected=nodes.find(node=>(snapshot.selected||[]).includes(node.id));
     if(selected){instance.setCenter(selected.position.x+selected.style.width/2,selected.position.y+selected.style.height/2,{zoom:1,duration:0});pendingFocus=false;}
   }
-  const label=node=>React.createElement('div',{},React.createElement('span',{},node.label),node.actions?.length?React.createElement('div',{className:'flow-node-actions nodrag nopan'},...node.actions.map(action=>React.createElement('button',{key:action.id,type:'button',className:'button tiny '+(action.primary?'primary':''),disabled:action.disabled,onClick:event=>{event.stopPropagation();options.onAction?.(node.id,action.id);},onKeyDown:event=>{event.stopPropagation();if(event.key===' '){event.preventDefault();if(!event.repeat)event.currentTarget.click();}}},action.label))):null);
+  const showMenu=(node,event)=>{const anchor=event.currentTarget.closest('.react-flow__node');options.onMenu?.(node.id,event,anchor);};
+  const label=node=>React.createElement('div',{className:'flow-node-object'},React.createElement('span',{},node.label),node.menuActions?.length?React.createElement('button',{type:'button',className:'object-more nodrag nopan','aria-label':'更多节点操作','aria-haspopup':'menu','aria-expanded':false,'data-object-more':'',onClick:event=>{event.stopPropagation();showMenu(node,event);},onKeyDown:event=>{if(event.key==='F10'&&event.shiftKey||event.key==='ContextMenu'){event.preventDefault();event.stopPropagation();showMenu(node,event);}}},React.createElement('svg',{viewBox:'0 0 24 24','aria-hidden':true},...[5,12,19].map(x=>React.createElement('circle',{key:x,cx:x,cy:12,r:1.5})))):null,node.actions?.length?React.createElement('div',{className:'flow-node-actions nodrag nopan'},...node.actions.map(action=>React.createElement('button',{key:action.id,type:'button',className:'button tiny '+(action.primary?'primary':''),disabled:action.disabled,onClick:event=>{event.stopPropagation();options.onAction?.(node.id,action.id);},onKeyDown:event=>{event.stopPropagation();if(event.key===' '){event.preventDefault();if(!event.repeat)event.currentTarget.click();}}},action.label))):null);
   function render(){
     if(disposed)return;
     const fitLineage=snapshot.layout==='lineage'&&nodes.length<=8&&container.clientWidth>=500&&!options.viewport;
@@ -27,6 +28,7 @@ export function mount(container, options={}) {
       onInit:value=>{instance=value;const first=nodes.find(node=>(snapshot.selected||[]).includes(node.id))||nodes[0];if(options.viewport)value.setViewport(options.viewport,{duration:0});else if(first&&!fitLineage)value.setCenter(first.position.x+first.style.width/2,first.position.y+first.style.height/2,{zoom:1,duration:0});if(pendingFocus)focusSelected();},
       onNodesChange:changes=>{nodes=applyNodeChanges(changes,nodes);render();},
       onNodeClick:(_,node)=>options.onSelect?.(node.id),
+      onNodeContextMenu:(event,node)=>{if(event.target.closest('a,input,textarea,select')||window.getSelection()?.toString())return;if(node.data.label&&snapshot.nodes.find(n=>n.id===node.id)?.menuActions?.length){event.preventDefault();options.onMenu?.(node.id,event,event.target.closest('.react-flow__node'));}},
       // ResizeObserver remeasures this fixed-size slot after disclosure/route
       // transitions. React Flow's zero-size measurement is transient there.
       onError:code=>{if(code!=='004')options.onStatus?.('流程图暂不可用；可继续使用下方文字入口。');},
@@ -43,14 +45,14 @@ export function mount(container, options={}) {
   async function update(next){
     if(disposed)return;
     snapshot=next;
-    const signature=JSON.stringify([next.nodes.map(({id,label,actions})=>({id,label,actions:actions?.map(action=>action.id)})),next.edges,next.layout]);
+    const signature=JSON.stringify([next.nodes.map(({id,label,actions,menuActions})=>({id,label,actions:actions?.map(action=>action.id),menuActions:menuActions?.map(action=>action.id)})),next.edges,next.layout]);
     if(signature===topology){if(!elk)select();return;}
     topology=signature;
     const turn=++generation;stop();
     if(!next.nodes.length){nodes=[];edges=[];render();options.onStatus?.('尚无图节点；实际记录出现后再显示流程图。');return;}
     let layout;
     try{
-      layout=new ELK({workerFactory:()=>new Worker('/static/vendor/visual/elk-worker.min.js')});elk=layout;
+      layout=new ELK({workerFactory:()=>new Worker('/static/vendor/visual/elk-worker.min.js'+(options.assetRevision?'?v='+encodeURIComponent(options.assetRevision):''))});elk=layout;
       const compact=next.layout==='lineage',width=compact?138:216,height=compact?80:112;
       options.onStatus?.('正在排列实际记录…');
       const result=await Promise.race([

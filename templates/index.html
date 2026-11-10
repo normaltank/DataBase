@@ -3,84 +3,88 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="client-revision" content="{{ client_revision }}">
   <meta name="theme-color" content="#234e78">
   <meta name="description" content="北外中东欧研究中心内部使用">
   <title>北外中东欧研究中心内部使用</title>
-  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="{{ asset('favicon.svg') }}" type="image/svg+xml">
   <!-- Base → common editing/reading → page layouts. Each file owns its layer. -->
-  <link rel="stylesheet" href="/static/styles.css">
-  <link rel="stylesheet" href="/static/workflow.css">
-  <link rel="stylesheet" href="/static/reading.css">
-  <link rel="stylesheet" href="/static/ux.css">
-  <script src="/static/app.js" defer></script>
-  <script src="/static/countries.js" defer></script>
-  <script src="/static/collaboration.js" defer></script>
-  <script src="/static/topic-review.js" defer></script>
-  <script src="/static/topic-finals.js" defer></script>
-  <script src="/static/topic-closure.js" defer></script>
-  <script src="/static/journal-collaboration.js" defer></script>
-  <script src="/static/journal-results.js" defer></script>
-  <link rel="stylesheet" href="/static/journal-results.css">
-  <script src="/static/collaboration-library.js" defer></script>
-  <link rel="stylesheet" href="/static/collaboration.css">
-  <script src="/static/sections.js" defer></script>
-  <link rel="stylesheet" href="/static/sections.css">
-  <script src="/static/sources.js" defer></script>
-  <script src="/static/archive-suggestions.js" defer></script>
-  <link rel="stylesheet" href="/static/archive-suggestions.css">
-  <script src="/static/source-picker.js" defer></script>
-  <link rel="stylesheet" href="/static/source-picker.css">
-  <script src="/static/workflow.js" defer></script>
-  <script src="/static/reviews.js" defer></script>
-  <script src="/static/intake.js" defer></script>
-  <script src="/static/ris.js" defer></script>
-  <script src="/static/discovery.js" defer></script>
-  <script src="/static/ingestion.js" defer></script>
-  <script src="/static/maintenance-trace.js" defer></script>
-  <link rel="stylesheet" href="/static/maintenance-trace.css">
-  <script src="/static/maintenance-agent.js" defer></script>
-  <link rel="stylesheet" href="/static/maintenance-agent.css">
-  <script src="/static/maintenance-feedback.js" defer></script>
-  <link rel="stylesheet" href="/static/maintenance-feedback.css">
-  <script src="/static/ai-budget.js" defer></script>
-  <link rel="stylesheet" href="/static/ai-budget.css">
-  <link rel="stylesheet" href="/static/ingestion.css">
-  <link rel="stylesheet" href="/static/ris.css">
-  <link rel="stylesheet" href="/static/intake.css">
-  <script src="/static/research.js" defer></script>
-  <script src="/static/operations.js" defer></script>
-  <script src="/static/ux.js" defer></script>
-  <script src="/static/translations.js" defer></script>
-  <script src="/static/library.js" defer></script>
-  <script src="/static/visual-loader.js" defer></script>
-  <script src="/static/material-discovery.js" defer></script>
-  <link rel="stylesheet" href="/static/material-discovery.css">
-  <script src="/static/record-explore.js" defer></script>
-  <link rel="stylesheet" href="/static/record-explore.css">
-  <script src="/static/material-compare.js" defer></script>
-  <link rel="stylesheet" href="/static/material-compare.css">
-  <script src="/static/continuity.js" defer></script>
-  <script src="/static/bulk.js" defer></script>
-  <script src="/static/saved-searches.js" defer></script>
-  <link rel="stylesheet" href="/static/saved-searches.css">
-  <link rel="stylesheet" href="/static/library.css">
-  <script src="/static/attachment-search.js" defer></script>
-  <link rel="stylesheet" href="/static/attachment-search.css">
-  <script src="/static/people.js" defer></script>
-  <script src="/static/person-profile-suggestions.js" defer></script>
-  <script src="/static/person-identity.js" defer></script>
-  <script src="/static/bylines.js" defer></script>
-  <script src="/static/note-subjects.js" defer></script>
-  <script src="/static/affiliations.js" defer></script>
-  <link rel="stylesheet" href="/static/people.css">
-  <link rel="stylesheet" href="/static/sources.css">
-  <link rel="stylesheet" href="/static/person-identity.css">
-  <link rel="stylesheet" href="/static/bylines.css">
-  <link rel="stylesheet" href="/static/note-subjects.css">
-  <link rel="stylesheet" href="/static/affiliations.css">
-  <link rel="stylesheet" href="/static/workbench.css">
-  <script src="/static/workbench.js" defer></script>
-  <script src="/static/topic-handoffs.js" defer></script>
+  <link rel="stylesheet" href="{{ asset('styles.css') }}">
+  <link rel="stylesheet" href="{{ asset('workflow.css') }}">
+  <link rel="stylesheet" href="{{ asset('reading.css') }}">
+  <link rel="stylesheet" href="{{ asset('ux.css') }}">
+  <script src="{{ asset('app.js') }}" defer></script>
+  <script src="{{ asset('countries.js') }}" defer></script>
+  <script src="{{ asset('collaboration.js') }}" defer></script>
+  <script src="{{ asset('topic-review.js') }}" defer></script>
+  <script src="{{ asset('topic-finals.js') }}" defer></script>
+  <script src="{{ asset('topic-closure.js') }}" defer></script>
+  <script src="{{ asset('journal-collaboration.js') }}" defer></script>
+  <script src="{{ asset('journal-results.js') }}" defer></script>
+  <link rel="stylesheet" href="{{ asset('journal-results.css') }}">
+  <script src="{{ asset('collaboration-library.js') }}" defer></script>
+  <link rel="stylesheet" href="{{ asset('collaboration.css') }}">
+  <script src="{{ asset('sections.js') }}" defer></script>
+  <link rel="stylesheet" href="{{ asset('sections.css') }}">
+  <script src="{{ asset('sources.js') }}" defer></script>
+  <script src="{{ asset('archive-suggestions.js') }}" defer></script>
+  <link rel="stylesheet" href="{{ asset('archive-suggestions.css') }}">
+  <script src="{{ asset('source-picker.js') }}" defer></script>
+  <link rel="stylesheet" href="{{ asset('source-picker.css') }}">
+  <script src="{{ asset('workflow.js') }}" defer></script>
+  <script src="{{ asset('reviews.js') }}" defer></script>
+  <script src="{{ asset('intake.js') }}" defer></script>
+  <script src="{{ asset('ris.js') }}" defer></script>
+  <script src="{{ asset('discovery.js') }}" defer></script>
+  <script src="{{ asset('ingestion.js') }}" defer></script>
+  <script src="{{ asset('maintenance-trace.js') }}" defer></script>
+  <link rel="stylesheet" href="{{ asset('maintenance-trace.css') }}">
+  <script src="{{ asset('maintenance-agent.js') }}" defer></script>
+  <link rel="stylesheet" href="{{ asset('maintenance-agent.css') }}">
+  <script src="{{ asset('maintenance-feedback.js') }}" defer></script>
+  <link rel="stylesheet" href="{{ asset('maintenance-feedback.css') }}">
+  <script src="{{ asset('ai-budget.js') }}" defer></script>
+  <link rel="stylesheet" href="{{ asset('ai-budget.css') }}">
+  <link rel="stylesheet" href="{{ asset('ingestion.css') }}">
+  <link rel="stylesheet" href="{{ asset('ris.css') }}">
+  <link rel="stylesheet" href="{{ asset('intake.css') }}">
+  <script src="{{ asset('research.js') }}" defer></script>
+  <script src="{{ asset('operations.js') }}" defer></script>
+  <script src="{{ asset('ux.js') }}" defer></script>
+  <script src="{{ asset('translations.js') }}" defer></script>
+  <script src="{{ asset('library.js') }}" defer></script>
+  <script src="{{ asset('visual-loader.js') }}" defer></script>
+  <script src="{{ asset('material-discovery.js') }}" defer></script>
+  <link rel="stylesheet" href="{{ asset('material-discovery.css') }}">
+  <script src="{{ asset('record-explore.js') }}" defer></script>
+  <link rel="stylesheet" href="{{ asset('record-explore.css') }}">
+  <script src="{{ asset('material-compare.js') }}" defer></script>
+  <link rel="stylesheet" href="{{ asset('material-compare.css') }}">
+  <script src="{{ asset('continuity.js') }}" defer></script>
+  <script src="{{ asset('bulk.js') }}" defer></script>
+  <script src="{{ asset('saved-searches.js') }}" defer></script>
+  <link rel="stylesheet" href="{{ asset('saved-searches.css') }}">
+  <link rel="stylesheet" href="{{ asset('library.css') }}">
+  <script src="{{ asset('attachment-search.js') }}" defer></script>
+  <link rel="stylesheet" href="{{ asset('attachment-search.css') }}">
+  <script src="{{ asset('people.js') }}" defer></script>
+  <script src="{{ asset('person-profile-suggestions.js') }}" defer></script>
+  <script src="{{ asset('person-identity.js') }}" defer></script>
+  <script src="{{ asset('bylines.js') }}" defer></script>
+  <script src="{{ asset('note-subjects.js') }}" defer></script>
+  <script src="{{ asset('affiliations.js') }}" defer></script>
+  <link rel="stylesheet" href="{{ asset('people.css') }}">
+  <link rel="stylesheet" href="{{ asset('sources.css') }}">
+  <link rel="stylesheet" href="{{ asset('person-identity.css') }}">
+  <link rel="stylesheet" href="{{ asset('bylines.css') }}">
+  <link rel="stylesheet" href="{{ asset('note-subjects.css') }}">
+  <link rel="stylesheet" href="{{ asset('affiliations.css') }}">
+  <link rel="stylesheet" href="{{ asset('workbench.css') }}">
+  <script src="{{ asset('workbench.js') }}" defer></script>
+  <script src="{{ asset('topic-handoffs.js') }}" defer></script>
+  <script src="{{ asset('object-actions.js') }}" defer></script>
+  <script src="{{ asset('client-update.js') }}" defer></script>
+  <link rel="stylesheet" href="{{ asset('object-actions.css') }}">
 </head>
 <body data-demo-login="{{ 'true' if config.DEMO_LOGIN else 'false' }}">
   <div id="app"><div class="boot">正在打开平台…</div></div>
