@@ -32,3 +32,193 @@ body[data-page=collaboration] .desk-location{display:none}.desk-main .desk-work-
 .desk-main .person-page>.section-navigation{grid-row:4}.desk-main .person-page>.person-section:has(#person-introduction){grid-row:5}.desk-main .person-page>.employment-section{grid-row:5}.desk-main .person-page>.person-works-group{grid-row:6 / span 2}.desk-main .person-page>.person-profile-workspace{grid-row:6}.desk-main .person-page>.person-evidence{grid-row:7}
 body:is([data-page=library],[data-page=sources],[data-page=people],[data-page=collections]) .desk-primary>.desk-menu>button{background:var(--surface-selected);color:var(--primary);font-weight:650;border-radius:6px}
 @media(max-width:1000px){.desk-main .person-page{display:block}}
+/* Round-two composition: original first, one version history, optional full graph. */
+.desk-workspace .handoff-material{display:block}
+.desk-workspace .handoff-lineage{display:grid;grid-template-columns:minmax(0,1fr) 240px;gap:12px 28px;align-items:start}
+.desk-workspace .handoff-lineage>.handoff-version-picker{grid-column:1;grid-row:1;order:0;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.desk-workspace .handoff-version-picker select{width:auto;max-width:100%;flex:1;min-width:140px}
+.desk-workspace .handoff-lineage>.handoff-current-actions{grid-column:2;grid-row:1 / span 3;margin:0;padding:0 0 0 20px;border:0;border-left:1px solid var(--border);order:1}
+.desk-workspace .handoff-current-actions>h3{display:block;margin:0 0 10px;font-size:14px;font-weight:600;line-height:1.6}
+.desk-workspace .handoff-current-actions>p:empty,.desk-workspace .handoff-current-actions .form-error:empty,.desk-workspace .handoff-current-actions [data-handoff-conflict]:empty{display:none}
+.desk-workspace .handoff-review{margin:0}.desk-workspace .handoff-current-actions .handoff-upload{margin-top:12px}
+.desk-workspace .handoff-review form{display:flex;flex-direction:column;gap:8px}
+.desk-workspace .handoff-review form>.row{order:-1}
+.desk-workspace .handoff-lineage-reading{grid-column:1;grid-row:2;order:2;padding:0}
+.desk-workspace .handoff-lineage-jump{grid-column:1;order:3;margin:0}
+.desk-workspace .handoff-lineage>.handoff-track-details{grid-column:1 / -1;order:4;margin:12px 0 0;padding-top:12px;border-top:1px solid var(--border)}
+.desk-workspace .handoff-lineage>.handoff-graph{grid-column:1 / -1;order:5;margin:0}
+.desk-workspace .handoff-lineage>[data-lineage-status]{grid-column:1 / -1;order:6}
+.desk-workspace .handoff-lineage>.desk-refresh{grid-column:1 / -1;order:7}
+.desk-workspace .handoff-lineage>[data-lineage-status]:empty{display:none}
+.desk-workspace .handoff-track-details>summary,.desk-workspace .handoff-graph>summary{font-size:14px;font-weight:600;min-height:40px;padding:8px 0}
+.desk-workspace .handoff-lineage-tracks{display:block;margin-top:8px}
+.desk-workspace .handoff-lineage-row{display:block;border:0;border-bottom:1px solid var(--border);border-radius:0;background:transparent;padding:14px 12px;margin:0}
+.desk-workspace .handoff-lineage-row.is-selected{background:var(--surface-selected)}
+.handoff-submission{display:flex;gap:8px 16px;align-items:baseline;flex-wrap:wrap}
+.handoff-submission>span{font-size:14px;color:var(--text-muted)}
+.handoff-version-link,.handoff-review-link{font:inherit;text-align:left;border:0;background:transparent;color:var(--text);cursor:pointer;padding:4px 0;line-height:1.6}
+.handoff-version-link{color:var(--primary)}
+.handoff-review-link{display:block;font-size:14px}.handoff-review-link>span{display:block;color:var(--text-muted)}
+.desk-workspace .handoff-review-events{display:block;margin:4px 0 0;padding:0}
+.desk-workspace .handoff-review-link[aria-pressed=true]{text-decoration:underline;text-underline-offset:4px}
+.handoff-graph-hint{font-size:14px;color:var(--text-muted);margin:4px 0 12px}
+.desk-workspace .handoff-graph .actual-flow{width:100%;max-width:none;min-height:480px;margin:0;border:0;border-radius:0;background:var(--surface-muted)}
+.desk-workspace .handoff-graph [data-flow-slot]{min-height:440px}
+.desk-original-text{max-height:none;overflow:visible;padding:0}
+.desk-workspace .handoff-version-reviews{margin-top:16px;padding-top:12px;border-top:1px solid var(--border)}
+.desk-workspace .handoff-version-reviews:empty{display:none}
+/* A single article head and return; the attached exploration keeps its state. */
+body[data-page=library]:has(.library-reading) .desk-location{display:none}
+.desk-main .library-reading>.page-heading,.desk-main .library-reading>.reading-current,.desk-main .library-reading>.reading-batch{display:none}
+.desk-main .library-reading .library-reader{padding:20px 28px}
+.desk-main .library-reader .library-reader-head{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:0 0 12px;margin:0;border-bottom:1px solid var(--border);background:transparent}
+.desk-main .library-reader-head>.row{margin-left:auto}.desk-main .library-reader-head>p{font-size:14px;margin:0}
+.desk-main .library-reader .library-reader-body{padding:16px 0 0}
+.desk-main .library-reader .ux-reading-labels{margin-bottom:6px}
+.desk-main .library-reader .detail-title{margin:0 0 8px;font-size:26px;line-height:1.5}
+.desk-main .library-reader .ux-bibliography{margin:6px 0}.desk-main .library-reader .ux-bibliography p{margin:2px 0}
+.desk-main .library-reader .ux-reading-toolbar{margin:8px 0 12px;gap:8px}
+.desk-main .library-reader .ux-main-body{padding-top:8px;margin-top:0;border-top:1px solid var(--border)}
+.desk-main .library-reader .ux-main-body>h3{font-size:14px;font-weight:500;margin:0 0 8px;color:var(--text-muted)}
+/* Profiles are continuous documents, with maintenance alongside the identity. */
+.desk-main .person-page,.desk-main .source-profile.source-page{display:block;max-width:1120px;padding:24px 32px}
+.desk-main .person-page>.back-link,.desk-main .source-page>.back-link{display:inline-block;margin:0 0 14px}
+.desk-main .person-page>.person-heading{display:grid;grid-template-columns:56px minmax(0,1fr);gap:16px;padding:0 0 12px;margin:0;border-bottom:1px solid var(--border)}
+.desk-main .person-page>.person-heading .person-avatar{width:52px;height:52px}
+.desk-main .person-page>.person-heading h1,.desk-main .source-profile-heading .detail-title{font-size:26px;margin:0 0 4px}
+.desk-main .person-heading p{margin:4px 0;font-size:14px}.desk-main .person-maintenance,.desk-main .source-maintenance{margin-top:8px;font-size:14px}
+.desk-main .source-profile-heading{padding:0 0 12px;margin:0;border-bottom:1px solid var(--border)}
+.desk-main .source-main-actions{margin:8px 0;gap:12px}
+.desk-main .person-page>.section-navigation,.desk-main .source-page>.section-navigation{position:static;display:flex;gap:4px 14px;flex-wrap:wrap;padding:8px 0;margin:0;border:0;background:transparent;min-height:0}
+.desk-main .person-page>.section-navigation a,.desk-main .source-page>.section-navigation a{font-size:14px;min-height:32px;padding:4px 0}
+.desk-main .person-page>.person-section,.desk-main .person-page>.person-works-group,.desk-main .source-page>.source-profile-group{margin:0;padding:20px 0;border:0;border-radius:0;background:transparent;max-width:none}
+.desk-main .person-page>.person-section:has(#person-introduction),.desk-main .source-page>.source-introduction{padding:12px 0 16px;max-width:72ch}
+.desk-main .person-page .panel{box-shadow:none}.desk-main .person-page h2,.desk-main .source-page h3{margin:0 0 8px;font-size:18px}
+.desk-main .person-page>.person-career,.desk-main .person-page>.person-evidence,.desk-main .person-page>.person-profile-workspace,.desk-main .source-page>.source-information,.desk-main .source-page>.source-profile-relations,.desk-main .source-page>.source-profile-evidence{margin:0;padding:12px 0;border:0;border-top:1px solid var(--border);background:transparent;border-radius:0}
+.desk-main .person-page .employment-section{padding:12px 0;margin:0;border:0}.desk-main .person-page .affiliation-card{padding:12px 0;border:0;border-bottom:1px solid var(--border);background:transparent}
+.desk-main .source-page .source-content-list>article{padding:14px 0}.desk-main .source-page>.source-reading-content{padding-top:8px}
+/* A large exploration and the first candidates share the first desktop view. */
+body[data-page=library]:not(:has(.library-reading)) .desk-location{display:none}
+.desk-main .reading-library>.page-heading{margin-bottom:8px;align-items:center;gap:12px}.desk-main .reading-library>.page-heading h1{font-size:24px}
+.desk-main .reading-library>.desk-progressive{margin:4px 0 10px}
+.desk-main .material-workspace{gap:12px}.desk-main .material-workspace>.material-discovery{padding:8px 20px;margin:0}
+.desk-main .material-discovery>summary{min-height:36px;padding:4px 0}
+.desk-main .material-discovery .material-scene-controls{margin:0;display:inline-flex}
+.desk-main .material-discovery .material-scope{margin:4px 0}
+.desk-main .material-discovery .material-heading{margin:8px 0 4px;gap:8px}
+.desk-main .material-discovery .material-context{margin:4px 0;font-size:14px}
+.desk-main .material-workspace .material-globe,.desk-main .material-workspace .material-time-chart,.desk-main .material-workspace .material-time-lens{height:350px}
+.desk-main .material-discovery [data-material-distribution]{padding-bottom:4px}
+.desk-main .material-discovery .material-country-list{max-height:320px}
+.desk-main .library-results-area>.results-head{margin:0;padding:4px 0}
+@media(max-width:1099px){
+ .desk-workspace .handoff-lineage{grid-template-columns:1fr;gap:10px}
+ .desk-workspace .handoff-lineage>.handoff-current-actions{grid-column:1;grid-row:2;border:0;border-bottom:1px solid var(--border);padding:0 0 10px;display:flex;gap:8px 16px;flex-wrap:wrap;align-items:start}
+ .desk-workspace .handoff-current-actions>h3{flex-basis:100%;margin:0}
+ .desk-workspace .handoff-current-actions>.handoff-upload{margin:0}
+ .desk-workspace .handoff-current-actions>.handoff-review{flex:1;min-width:150px}
+ .desk-workspace .handoff-lineage-reading{grid-row:3}
+ .desk-workspace .handoff-material>.handoff-owner{margin:4px 0 10px}
+}
+@media(max-width:700px){
+ .desk-header{padding:8px 12px;gap:4px 8px;min-height:0}.desk-primary{gap:0}.desk-primary .nav-item,.desk-primary .desk-menu>.button{padding:6px 8px;min-height:40px;font-size:14px}.workbench-brand strong{font-size:14px}.desk-account .desk-menu>.button{font-size:14px;min-height:36px;padding:4px}
+ .desk-main>.content{padding:12px 12px 32px}.desk-workspace .desk-work-toolbar{margin-bottom:10px;gap:8px}.desk-topic-header{margin-bottom:10px}.desk-topic-header>.workbench-detail-title{font-size:20px;margin-bottom:4px}.desk-topic-header>.workbench-detail-meta{font-size:14px}.desk-topic-header>.workbench-primary-actions{margin-top:6px}.desk-topic-header>.workbench-tabs{margin-top:6px}
+ .desk-workspace .handoff-materials{gap:8px}.desk-material-index{gap:4px}.desk-material-picker{gap:2px}.desk-material-index>.handoff-upload>summary{min-height:36px;padding:4px 0}.desk-workspace .handoff-material{padding:14px 12px}
+ .desk-workspace .handoff-material>.between>h2{font-size:18px;line-height:1.5;margin:0}.desk-workspace .handoff-material>.between>.badge{font-size:14px}.desk-workspace .handoff-material>.handoff-owner{font-size:14px;margin:4px 0 8px}
+ .desk-workspace .handoff-lineage>.handoff-version-picker{font-size:14px;gap:4px}.desk-workspace .handoff-version-picker select{font-size:14px;padding:6px;min-height:44px}
+ .desk-workspace .handoff-current-actions>h3{font-size:14px}.desk-workspace .handoff-current-actions .row>.button{padding:8px 12px;min-height:44px}.desk-workspace .handoff-current-actions summary{font-size:14px;min-height:36px;padding:6px 0}
+ .desk-workspace .handoff-current-actions>.handoff-upload{flex-basis:100%}.desk-workspace .handoff-current-actions>.handoff-upload:not([open]){flex-basis:auto}
+ .desk-workspace .handoff-current-actions .handoff-review form{gap:4px}
+ .desk-workspace .handoff-lineage-jump{max-width:100%}.desk-workspace .handoff-lineage:has(.handoff-graph[open]) .handoff-lineage-jump{order:3}
+ .desk-workspace .handoff-lineage-row{padding:12px 8px}.handoff-submission{display:block}.handoff-submission>span{display:block}.handoff-review-link{min-height:44px;overflow-wrap:anywhere}
+ .desk-original{padding-top:10px;margin-top:8px}.desk-original-text{font-size:16px;line-height:1.85}
+ .desk-main .library-reading .library-reader{padding:12px}.desk-main .library-reader-head>.row{margin-left:0}.desk-main .library-reader-head .button{min-height:40px;padding:6px 8px;font-size:14px}.desk-main .library-reader .library-reader-head{gap:4px;padding-bottom:8px}.desk-main .library-reader .library-reader-body{padding-top:10px}.desk-main .library-reader .detail-title{font-size:22px}.desk-main .library-reader .ux-reading-toolbar .button{min-height:36px;padding:4px 8px;font-size:14px}
+ .desk-main .person-page,.desk-main .source-profile.source-page{padding:16px 12px}.desk-main .person-page>.person-heading{gap:10px;grid-template-columns:44px minmax(0,1fr)}.desk-main .person-page>.person-heading .person-avatar{width:40px;height:40px}.desk-main .person-page>.person-heading h1,.desk-main .source-profile-heading .detail-title{font-size:22px}.desk-main .person-page>.section-navigation,.desk-main .source-page>.section-navigation{gap:0 12px}
+ .desk-main .reading-library>.page-heading h1{font-size:22px}.desk-main .reading-library>.page-heading>.button{width:auto;margin:0}.desk-main .reading-library>.page-heading{margin-bottom:6px}
+ .desk-main .material-workspace>.material-discovery{padding:8px 12px}.desk-main .material-workspace .material-country-column{order:1}.desk-main .material-discovery .material-country-list{max-height:120px}.desk-main .material-workspace .material-globe,.desk-main .material-workspace .material-time-chart,.desk-main .material-workspace .material-time-lens{height:300px}
+}
+/* The period stays compact above the selected material on a phone. */
+.desk-workspace .handoff-lineage{margin:8px 0 0}
+.desk-main .person-placeholder span{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+.desk-main .person-page .section-navigation a,.desk-main .source-page .section-navigation a{border:0;border-radius:0;background:transparent}
+.desk-main .source-page .source-main-actions:empty{display:none}
+.desk-main .person-page>.person-works-group{padding:12px 0 20px}
+.desk-main .person-page>.maintenance-feedback{margin:0;padding:12px 0;border-top:1px solid var(--border);border-radius:0}
+@media(max-width:700px){
+ .desk-workspace .desk-work-toolbar{align-items:center}.desk-workspace .desk-topic-header>.workbench-detail-title{font-size:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.5}.desk-topic-header>.workbench-detail-meta{margin:2px 0;line-height:1.6}
+ .desk-workspace .handoff-materials>.desk-material-index{grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:8px}.desk-material-index .desk-material-picker{min-width:0}.desk-material-index>.handoff-upload{margin:0}.desk-material-index>.handoff-upload[open]{grid-column:1 / -1}.desk-material-index>.handoff-upload>summary{font-size:14px;max-width:92px;padding:8px 6px;min-height:44px}.desk-material-index>.handoff-upload[open]>summary{max-width:none}.desk-material-index>.handoff-upload form{padding:12px 0}
+ .desk-workspace .handoff-material>.between>.badge{display:none}.desk-workspace .handoff-material>.between{gap:4px}.desk-workspace .handoff-material>.handoff-owner{margin:2px 0 4px}
+ .desk-workspace .handoff-current-actions{row-gap:4px}.desk-workspace .handoff-current-actions>.handoff-review{flex-basis:100%}.desk-workspace .handoff-current-actions>.handoff-upload:not([open]){flex-basis:auto}
+ .desk-workspace .handoff-current-actions .handoff-upload:not([open])>summary{min-height:36px;padding:4px 8px}
+ .desk-workspace .handoff-lineage-reading .row{margin:0;gap:16px}.desk-workspace .handoff-lineage-reading .link-button,.desk-workspace .handoff-lineage-reading .row>a{min-height:36px}
+}
+.desk-workspace .handoff-graph>summary{display:list-item}
+.desk-workspace .handoff-graph [data-flow-status]:empty,.desk-workspace .handoff-graph [data-flow-legend]:empty{display:none}
+.desk-workspace .handoff-lineage>.handoff-lineage-jump{grid-column:1;grid-row:auto;justify-self:start}
+@media(max-width:700px){.desk-workspace .handoff-lineage-reading .link-button,.desk-workspace .handoff-lineage-reading .row>a{min-height:44px}}
+/* Responsive reading keeps the opening text within the first compact viewport. */
+.desk-main .library-reading .library-reader{top:0;inset:auto;box-shadow:none}
+.desk-main .library-reader-head>p{flex-basis:auto}
+.desk-main .library-reading .library-reader-head::after{background:var(--primary)}
+@media(max-width:1099px){
+ .desk-workspace .handoff-current-actions .handoff-review form{display:flex;flex-direction:row;flex-wrap:wrap;gap:4px 12px;padding:0}
+ .desk-workspace .handoff-review form>.row{flex:0 1 auto}.desk-workspace .handoff-review form>details{flex:1;min-width:90px}.desk-workspace .handoff-review form>details[open]{flex-basis:100%;order:1}
+ .desk-workspace .handoff-current-actions .handoff-review .row>.button{flex:none;padding:6px 10px}
+ .desk-workspace .handoff-current-actions .form-error,.desk-workspace .handoff-current-actions [data-handoff-conflict]{flex-basis:100%}
+}
+@media(max-width:1000px){
+ body:has(.library-reading) .desk-header{padding:8px 12px;gap:4px 8px;min-height:0}
+ body:has(.library-reading) .workbench-brand strong{font-size:14px}
+ body:has(.library-reading) .desk-primary .nav-item,body:has(.library-reading) .desk-primary .desk-menu>.button{padding:6px 8px;min-height:40px;font-size:14px}
+ body:has(.library-reading) .desk-account .desk-menu>.button{font-size:14px;min-height:36px;padding:4px}
+ body:has(.library-reading) .desk-main>.content{padding:12px}
+ .desk-main .library-reading .library-reader{padding:12px}.desk-main .library-reader .detail-title{font-size:22px}.desk-main .library-reader .library-reader-head{padding-bottom:8px;gap:4px}.desk-main .library-reader .library-reader-body{padding-top:10px}.desk-main .library-reader .ux-reading-toolbar{margin:6px 0 8px}
+}
+@media(max-width:700px){
+ .desk-topic-header{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 8px}.desk-topic-header>.workbench-detail-title{grid-column:1 / -1}.desk-topic-header>.workbench-detail-meta{grid-column:1}.desk-topic-header>.workbench-primary-actions{grid-column:2;grid-row:2;margin:0}.desk-topic-header .workbench-primary-actions .button{min-height:36px;padding:4px 8px;font-size:14px}.desk-topic-header>.workbench-tabs{grid-column:1 / -1;margin-top:2px}
+ .desk-workspace .handoff-review form>details>summary{white-space:nowrap;min-height:44px;padding:10px 0}
+ .desk-workspace .handoff-review form>.row{gap:4px}.desk-workspace .handoff-current-actions .handoff-review .row>.button{min-height:44px;padding:6px 10px;font-size:14px}
+}
+.desk-main .library-reader .ux-main-body>h3{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);margin:0;padding:0}
+.desk-main .library-reader .ux-main-body .rich-prose>:first-child{margin-top:8px}
+@media(max-width:1000px){
+ .desk-main .library-reader .ux-bibliography p{display:inline}.desk-main .library-reader .ux-bibliography p+p::before{content:' · '}
+ .desk-main .library-reader .ux-main-body .rich-prose h2{font-size:20px;line-height:1.5;margin-block:8px}
+}
+.desk-workspace .handoff-lineage:has(.handoff-graph[open])>.handoff-lineage-jump{grid-row:1;grid-column:1;order:0}
+.desk-workspace .handoff-lineage:has(.handoff-graph[open])>.handoff-version-picker{grid-row:2}
+.desk-workspace .handoff-lineage:has(.handoff-graph[open])>.handoff-lineage-reading{grid-row:3}
+.desk-workspace .handoff-lineage:has(.handoff-graph[open])>.handoff-current-actions{grid-row:2 / span 2}
+@media(max-width:1099px){
+ .desk-workspace .handoff-lineage:has(.handoff-graph[open])>.handoff-current-actions{grid-row:3}
+ .desk-workspace .handoff-lineage:has(.handoff-graph[open])>.handoff-lineage-reading{grid-row:4}
+}
+/* Compact workfaces serve native zoom as well as phone widths. */
+.desk-period-context{margin:0 0 10px;border:0;padding:0}.desk-period-context>summary{font-size:14px;min-height:36px;padding:6px 0;color:var(--text-muted)}
+.desk-original-jump{white-space:nowrap}.desk-profile-tools{margin:12px 0;padding:12px 0;border-block:1px solid var(--border)}.desk-profile-tools>.section-navigation{margin:8px 0;border:0;position:static}.desk-profile-tools>.section-navigation>span{display:none}
+body:has(.person-page,.source-page) .desk-location,body:has(.person-page,.source-page) .desk-main>.content>.reading-tabs{display:none}
+.desk-main .person-page>.person-heading,.desk-main .source-profile-heading{padding-bottom:8px}.desk-main .person-page>.person-section:has(#person-introduction),.desk-main .source-page>.source-introduction{padding-top:16px}
+.desk-main .person-heading p,.desk-main .source-profile-heading p{margin-block:4px}
+.desk-main .person-page>.desk-profile-tools .person-maintenance,.desk-main .source-page>.desk-profile-tools .source-maintenance{margin:0}
+@media(min-width:1001px){.desk-period-context>summary{display:none}}
+@media(max-width:1000px){
+ .desk-header{padding:8px 12px;gap:4px 8px;min-height:0}.workbench-brand strong{font-size:14px}.desk-primary{gap:0}.desk-primary .nav-item,.desk-primary .desk-menu>.button{padding:6px 8px;min-height:40px;font-size:14px}.desk-account .desk-menu>.button{font-size:14px;min-height:36px;padding:4px}
+ .desk-main>.content{padding:12px 12px 32px}.desk-workspace .desk-work-toolbar{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;margin-bottom:8px;align-items:center}.desk-work-toolbar label{display:block;min-width:0}.desk-work-toolbar select{width:100%;max-width:100%;font-size:14px}.desk-main .desk-work-toolbar>.button{font-size:14px;padding:8px;min-height:40px}.desk-main .desk-work-toolbar>.button>.icon{display:none}
+ .desk-workspace .handoff-materials{display:flex;flex-direction:column;gap:8px}.desk-workspace .handoff-materials>*{width:100%;min-width:0}.desk-workspace .handoff-materials>.desk-material-index{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;overflow:visible;align-items:end}.desk-material-index>[data-desk-material],.desk-material-index>h2{display:none}.desk-material-picker{display:grid;gap:2px;min-width:0;font-size:14px;order:0}.desk-material-picker select{font:inherit;padding:8px;min-height:44px;width:100%;min-width:0;max-width:100%;border:1px solid var(--control-border);border-radius:6px;color:var(--text);background:var(--surface)}
+ .desk-material-index>.handoff-upload{order:1;margin:0}.desk-material-index>.handoff-upload[open]{grid-column:1 / -1}.desk-material-index>.handoff-upload>summary{font-size:14px;padding:8px 6px;min-height:44px;max-width:92px}.desk-material-index>.handoff-upload[open]>summary{max-width:none}
+ .desk-workspace .handoff-material{padding:12px;display:block}.desk-workspace .handoff-material>.between>h2{font-size:18px;line-height:1.5}.desk-workspace .handoff-material>.between>.badge{display:none}.desk-workspace .handoff-material>.handoff-owner{margin:2px 0 4px;font-size:14px}
+ .desk-workspace .handoff-lineage>.handoff-version-picker{display:flex;gap:6px;align-items:center}.desk-workspace .handoff-version-picker select{min-width:120px;min-height:44px;font-size:14px;padding:6px;flex:1}.desk-workspace .handoff-version-picker>.desk-original-jump{font-size:14px;min-height:44px;padding:6px 10px}
+ .desk-workspace .handoff-current-actions{gap:4px 12px}.desk-workspace .handoff-current-actions>h3{font-size:14px;margin:0}
+ .desk-workspace .handoff-lineage-reading .handoff-version{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 12px;align-items:center}.desk-workspace .handoff-version>strong{grid-column:1;grid-row:1}.desk-workspace .handoff-version>.row{grid-column:2;grid-row:1;margin:0;gap:12px}.desk-workspace .handoff-version>.desk-original,.desk-workspace .handoff-version>.desk-file-meta,.desk-workspace .handoff-version>.handoff-version-reviews{grid-column:1 / -1}.desk-workspace .handoff-version>.desk-original{margin-top:4px;padding-top:8px}
+ .desk-main .person-page,.desk-main .source-profile.source-page{padding:16px 12px}.desk-main .person-page>.person-heading h1,.desk-main .source-profile-heading .detail-title{font-size:22px}.desk-main .person-page>.back-link,.desk-main .source-page>.back-link{margin-bottom:12px}.desk-main .person-page>.person-heading{grid-template-columns:44px minmax(0,1fr);gap:10px}.desk-main .person-page>.person-heading .person-avatar{width:40px;height:40px}.desk-main .person-page>.person-heading p{font-size:14px}
+ .desk-main .reading-library>.page-heading{flex-wrap:wrap;gap:8px;margin-bottom:8px}.desk-main .reading-library>.page-heading>.button{width:auto;margin:0}.desk-main .reading-library>.page-heading [data-desk-results]{color:var(--primary);border-color:var(--primary)}
+ .desk-main .library-results-area>.results-head{gap:8px}.desk-main [data-desk-explore]{margin-left:auto}
+}
+@media(min-width:701px) and (max-width:1000px){
+ .desk-workspace .handoff-lineage>.handoff-current-actions{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;padding-bottom:8px}.desk-workspace .handoff-current-actions>h3{grid-column:1;grid-row:1}.desk-workspace .handoff-current-actions>.handoff-review{grid-column:2;grid-row:1;min-width:0}.desk-workspace .handoff-current-actions>.handoff-upload{grid-column:1 / -1;margin:0}.desk-workspace .handoff-current-actions .handoff-review form{justify-content:end}
+ .desk-workspace .handoff-material>.between,.desk-workspace .handoff-material>.handoff-owner{display:inline-flex;margin-right:12px}
+}
+.handoff-graph .react-flow__node-material{padding:12px;border:1px solid var(--control-border);border-radius:4px;background:var(--surface);color:var(--text);font-size:14px;line-height:1.5;text-align:left;box-sizing:border-box}
+.handoff-graph .react-flow__node-material.selected{border-color:var(--primary);background:var(--surface-selected)}
+.handoff-graph .material-flow-node{height:100%;display:flex;align-items:center}.handoff-graph .material-flow-node>.flow-node-object{width:100%}
+.handoff-graph .react-flow__node-material .react-flow__handle{width:3px;height:3px;opacity:0;border:0}

@@ -136,7 +136,6 @@ document.addEventListener('library:rendered',event=>{
   for(const selector of ['.results-head','.library-selection','.library-results-workspace','.pagination']){const item=root.querySelector(selector);if(item)results.append(item);}
   materialDiscovery.role=recordQuery().get('date_field')||'published';
   const panel=root.querySelector('.material-discovery');panel._page=state.page;
-  root.querySelector('.page-heading').insertAdjacentHTML('beforeend','<button type="button" class="button tiny library-explore-return" data-material-return>返回探索</button>');
   panel.addEventListener('toggle',event=>{if(event.target.matches('.material-native-years'))materialDiscovery.yearsOpen=event.target.open;},true);
   panel.addEventListener('toggle',()=>{if(!panel.isConnected)return;materialDiscovery.open=panel.open;if(panel.open)materialLoad(panel);else {panel._materialEpoch=(panel._materialEpoch||0)+1;materialDispose(panel);}});
   if(materialDiscovery.open)panel.open=true;

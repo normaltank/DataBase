@@ -14,8 +14,10 @@ OWN-WORLD: Follow [DESIGN](../../DESIGN.md): cool white/pale indigo, dark graphi
 STORY: Apply country or time to the authorized query, select a candidate, read,
 and return to the same canvas, camera, filters and unapplied year draft.
 
-FIRST VIEWPORT: Desktop chart/map is above a bottom candidate tray. Search and
-extra filters are disclosed. Reading hides the attached exploration and results
+FIRST VIEWPORT: Desktop chart/map is above a bottom candidate tray. Surrounding headings and controls stay compact; the large map and first
+candidates share the desktop viewport. Search and extra filters are disclosed.
+Reading uses one return, compact title/metadata and early opening text at narrow
+widths and native zoom. Reading hides the attached exploration and results
 without destroying them; the article is centered. Mobile starts with results,
 opens exploration explicitly and keeps one task in a single-column flow.
 
@@ -34,3 +36,8 @@ uses public HTTP, isolated synthetic records, real Chromium, random port and no
 worker/AI. It checks rapid countries, slow/late reads, retained DOM/camera/input,
 saved query/history, failure retry, batches, permission/account boundaries,
 320/390/1280/1440 and native200% browser zoom.
+
+The second repair adds visible “查看候选资料” and “返回图形探索” destinations.
+They scroll the existing authorized result/canvas DOM; they do not rebuild the
+chart, reset camera, or replace the pending year draft. Native200% and phones can
+reach candidates directly even while the expanded large canvas continues below.

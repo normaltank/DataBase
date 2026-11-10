@@ -389,7 +389,7 @@ def main():
                 csrf=page.request.get(base+'api/session').json()['csrf']
                 assert page.request.post(base+'api/login',data={'username':'researcher','password':'LocalDemo2026!'},headers={'X-CSRF-Token':csrf}).ok
                 focus_refresh()
-                expect(page.locator('.topbar')).to_contain_text('研究员 · 林')
+                expect(page.locator('.desk-header [popovertarget=desk-personal]')).to_have_text('研究员 · 林')
                 expect(page.locator('[data-library-record="'+ids[0]+'"]')).to_have_count(1)
                 csrf=client.get('/api/session').json['csrf']
                 record=client.get('/api/records/'+ids[0]).json
@@ -414,6 +414,7 @@ def main():
                 with page.expect_response(re.compile(r'/api/records\?'),timeout=10000):
                     held[0].fulfill(response=held[0].fetch())
                 expect(page.locator('.library-workspace')).to_have_count(0)
+                page.locator('.desk-header [popovertarget=desk-personal]').click()
                 page.get_by_role('button',name='退出登录',exact=True).click()
                 page.get_by_role('button',name='协作同事',exact=True).click()
                 page.goto(base+'#library?feed=all&q=合成刷新验收')

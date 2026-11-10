@@ -91,13 +91,34 @@ def main():
                 material.scroll_into_view_if_needed()
                 material.locator('.handoff-graph>summary').click()
                 material.locator('.desk-refresh>summary').click()
-                material.get_by_text('版本与责任记录',exact=True).click()
-                page.screenshot(path=str(root/'initial-desktop.png'), full_page=True)
+                material.locator('.handoff-track-details>summary').click()
                 expect(material.get_by_role('button', name='查看版本 1', exact=True)).to_be_visible()
                 reading = material.locator('[data-handoff-reading]')
                 expect(material.locator('.react-flow__node')).to_have_count(5)
                 expect(material.locator('[data-flow-status]')).to_have_text('')
                 page.wait_for_timeout(600)
+                expect(material.locator('[data-flow-status]')).to_have_text('')
+                # Full-document capture temporarily renders at 1x1 in this
+                # Chromium, which starts responsive graph layout mid-capture.
+                # Use a real full-content CSS viewport and wait for that layout.
+                initial_height=page.evaluate('document.documentElement.scrollHeight')
+                page.set_viewport_size({'width':1366,'height':initial_height})
+                expect(material.locator('.react-flow__node')).to_have_count(5)
+                expect(material.locator('[data-flow-status]')).to_have_text('')
+                page.evaluate('scrollTo(0,0);new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+                page.screenshot(path=str(root/'initial-desktop.png'))
+                assert material.locator('[data-flow-status]').inner_text()==''
+                (root/'initial-desktop-metrics.json').write_text(json.dumps({'head':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'nodeCount':5,'flowStatus':'','viewport':page.evaluate('({innerWidth,innerHeight,scrollY,documentHeight:document.documentElement.scrollHeight,deviceScale:devicePixelRatio})'),'method':'normal screenshot of actual full-content CSS viewport'},indent=2),encoding='utf-8')
+                page.set_viewport_size({'width':1366,'height':1000})
+                expect(material.locator('[data-flow-status]')).to_have_text('')
+                material.locator('.handoff-graph>summary').click()
+                material.locator('.handoff-track-details').scroll_into_view_if_needed()
+                page.screenshot(path=str(root/'timeline-primary-desktop.png'))
+                page.set_viewport_size({'width':390,'height':844})
+                material.locator('.handoff-track-details').scroll_into_view_if_needed()
+                page.screenshot(path=str(root/'timeline-primary-390.png'))
+                page.set_viewport_size({'width':1366,'height':1000})
+                material.locator('.handoff-graph>summary').click()
                 assert material.locator('[data-flow-slot]').evaluate('(slot)=>{const b=slot.getBoundingClientRect();return [...slot.querySelectorAll(".react-flow__node")].every(node=>{const r=node.getBoundingClientRect();return r.left>=b.left-2&&r.right<=b.right+2&&r.top>=b.top-2&&r.bottom<=b.bottom+2;});}'),'The short material lineage must fit by default on desktop'
                 material.locator('.actual-flow').scroll_into_view_if_needed()
                 page.screenshot(path=str(root/'lineage-default-desktop.png'))
@@ -105,7 +126,10 @@ def main():
                 graph=material.locator('.react-flow__node').filter(has_text='版本 1').filter(has_text='退回').first
                 graph.click()
                 expect(reading).to_contain_text('历史版 1 · 退回')
-                assert any('/static/vendor/visual/elk-worker.min.js' in url for url in workers),workers
+                groups=material.locator('.actual-flow').evaluate('e=>e._actualFlow.snapshot.groups')
+                assert [len(g['nodes']) for g in groups]==[2,2,1],groups
+                assert [g['nodes'][0] for g in groups]==['version:'+v['ref'] for v in versions]
+                assert material.locator('.react-flow__node button').count()==0,'Material nodes remain read-only'
                 return_current(material)
                 expect(reading).to_contain_text('原件与意见')
                 for number, decision, note in [(1, '退回', '请补充政策依据'), (2, '通过', '依据已核对，可接续')]:
@@ -124,7 +148,7 @@ def main():
                     expect(material.locator('[data-desk-preview]')).to_contain_text(f'SYNTHETIC ORIGINAL VERSION {number}')
                     material.get_by_role('button', name=f'查看版本 {number} 的{decision}审阅', exact=True).click()
                     expect(reading.locator('[data-reading-review].is-selected')).to_have_count(1)
-                    expect(material.locator('path.is-selected')).to_have_count(1)
+                    expect(material.locator('.handoff-lineage-row.is-selected .handoff-review-link[aria-pressed=true]')).to_have_count(1)
                 return_current(material)
                 expect(reading).to_contain_text('原件与意见')
                 expect(reading.locator('[data-reading-review]')).to_have_count(0)
@@ -132,7 +156,7 @@ def main():
                 second_material = page.locator(f'[data-material-ref="{second.json["material_ref"]}"]')
                 expect(second_material.locator('[data-handoff-reading]')).to_contain_text('第二材料说明')
                 page.locator('[data-desk-material="'+second.json['material_ref']+'"]').click()
-                second_material.get_by_text('版本与责任记录',exact=True).click()
+                second_material.locator('.handoff-track-details>summary').click()
                 page.locator('[data-desk-material="'+ref+'"]').click()
                 upload = material.locator('[data-form=handoff-upload]')
                 review_form = material.locator('[data-form=handoff-review][data-version="'+versions[2]['ref']+'"]')
@@ -224,9 +248,12 @@ def main():
                     material.get_by_role('button',name='定位所选节点',exact=True).click()
                     material.locator('.actual-flow').scroll_into_view_if_needed();page.wait_for_timeout(150)
                     graph_shot=root/f'lineage-flow-{width}-zoom{factor}.png'
-                    compositor=browser.new_cdp_session(page)
-                    graph_shot.write_bytes(base64.b64decode(compositor.send('Page.captureScreenshot',{'format':'png','fromSurface':True,'captureBeyondViewport':False})['data']))
-                    compositor.detach();captures.append(str(graph_shot))
+                    if factor==2:
+                        compositor=browser.new_cdp_session(page)
+                        graph_shot.write_bytes(base64.b64decode(compositor.send('Page.captureScreenshot',{'format':'png','fromSurface':True,'captureBeyondViewport':False})['data']))
+                        compositor.detach()
+                    else:page.screenshot(path=str(graph_shot))
+                    captures.append(str(graph_shot))
                     if width<700:
                         page.evaluate('scrollTo(0,0)')
                         full=root/f'lineage-{width}-fullpage.png';page.screenshot(path=str(full),full_page=True)
@@ -344,7 +371,7 @@ def main():
                 policy_violations=verify_policy(page)
                 assert not errors, errors
                 result={'head':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'ok': True, 'url': base, 'evidence': str(root), 'errors': errors, 'screenshots': captures, 'native_zoom':2,'original_and_review_bytes':True,'draft_files_and_nodes_retained':True,'concurrent_review_target_retained':True,'narrow_keyboard_location_preserves_selection_focus_and_drafts':True}
-                result.update(real_flow_worker=True,policy_violations=policy_violations)
+                result.update(material_layout='fixed-version-groups',actual_event_nodes=5,material_elk_worker=False,policy_violations=policy_violations)
                 (root/'result.json').write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
                 print(json.dumps(result, ensure_ascii=False))
             finally:
