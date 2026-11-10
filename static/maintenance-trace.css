@@ -76,7 +76,7 @@
 [data-trace-filter-status]{font-size:14px;color:#58697b;padding:0 12px;margin:6px 0}
 .trace-graph>summary{cursor:pointer;color:#174e9c;min-height:44px;padding:10px 0}
 .trace-locate{display:none}.trace-detail{scroll-margin-top:76px}
-@container(max-width:600px){.trace-locate{display:block;position:sticky;top:64px;z-index:2;min-height:44px;width:100%;background:#fff}}
+@container(max-width:600px){.trace-locate{display:block;min-height:44px;width:100%;background:#fff}}
 @media(max-width:700px){.trace-locate{display:block;min-height:44px;width:100%;background:#fff}}
 .trace-technical{font-size:14px;margin-top:8px}.trace-technical>summary{color:#174e9c}
 

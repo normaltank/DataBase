@@ -50,3 +50,6 @@
 .record-network-selection .record-explore-note:empty{display:none}
 .record-network-controls{gap:6px}.record-network-controls .button{padding-inline:9px}
 @media(max-width:700px){.record-explore[open]>.record-explore-content{inset:56px 0 0;width:100%;padding:12px 16px}.record-explore-content>.between{top:-12px}.record-network-viewport{height:260px}}
+
+/* Keep the centre label outside the links to neighbouring nodes. */
+.record-network-label-above { transform: translate(-50%, calc(-100% - 14px)); }

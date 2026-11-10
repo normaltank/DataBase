@@ -80,7 +80,7 @@ export function mount(container,{snapshot,onSelect=()=>{},onStatus=()=>{},mode='
     function update(data){clear();const nodes=new Map();
       data.nodes.forEach((n,i)=>{const p=position(i,data.nodes.length,3.4),object=track(new THREE.Mesh(n.key===data.center?new THREE.BoxGeometry(.4,.4,.4):new THREE.SphereGeometry(.22,16,12),new THREE.MeshBasicMaterial({color:n.key===data.selected?0xb47d00:n.type==='person'?0x795200:n.type==='source'?0x24634f:0x174e9c})));
         object.position.set(p.x,p.y,i===0?0:Math.sin(i*2.4)*1.3);object.userData.key=n.key;nodes.set(n.key,object);
-        const el=document.createElement('span');el.className='record-network-label';el.textContent=n.name;el.dataset.networkLabel=n.key;el.setAttribute('aria-hidden','true');container.append(el);labels.push({object,el});
+        const el=document.createElement('span');el.className='record-network-label'+(n.key===data.center?' record-network-label-above':'');el.textContent=n.name;el.dataset.networkLabel=n.key;el.setAttribute('aria-hidden','true');container.append(el);labels.push({object,el});
       });
       for(const e of data.edges){const a=nodes.get(e.from),b=nodes.get(e.to);if(!a||!b)continue;const direction=b.position.clone().sub(a.position),arrow=new THREE.ArrowHelper(direction.clone().normalize(),a.position,direction.length()-.25,0x718eac,.18,.1);track(arrow);for(const o of [arrow.line,arrow.cone]){o.geometry=o.geometry.clone();resources.add(o.geometry);resources.add(o.material);}}
       if(atHome)fit();requestDraw();

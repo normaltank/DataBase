@@ -2,6 +2,8 @@
 import argparse
 import json
 import logging
+from io import BytesIO
+from PIL import Image
 import re
 from pathlib import Path
 import shutil
@@ -41,6 +43,11 @@ def reader_checks(page, base, out, case, result):
         if case=='discovery':
             result[str(width)]={'first_title_y':row.bounding_box()['y']}
             capture(page,out,f'discovery-{width}')
+            find=page.get_by_role('button',name='查找',exact=True)
+            lines=find.evaluate('e=>{const r=document.createRange();r.selectNodeContents(e);return [...r.getClientRects()].map(b=>({y:b.y,height:b.height}));}')
+            result[str(width)]['find_text_lines']=lines
+            assert len(lines)==1,lines
+            assert find.bounding_box()['height']>=44
             assert row.bounding_box()['y']<430, result[str(width)]
             page.locator('.reading-more>summary').click()
             page.get_by_label('时间类型',exact=True).select_option('updated')
@@ -89,6 +96,21 @@ def reader_checks(page, base, out, case, result):
                 boxes=network_boxes(page);result[str(width)][mode]={'initial':initial,'reset':boxes}
                 relation.locator('[data-explore-locate]').click()
                 capture(page,out,f'reader-relations-{mode}-{width}')
+                if mode=='space':
+                    viewport=relation.locator('[data-network-viewport]')
+                    pixels=Image.open(BytesIO(viewport.screenshot())).convert('RGB')
+                    counts={'blue':0,'gold':0,'edge':0}
+                    label_boxes=network_boxes(page)
+                    assert len(label_boxes)==2,label_boxes
+                    for y in range(pixels.height):
+                      for x in range(pixels.width):
+                        if any(b['x']<=x<=b['right'] and b['y']<=y<=b['bottom'] for b in label_boxes):continue
+                        r,g,b=pixels.getpixel((x,y))
+                        if r<50 and 60<g<110 and 130<b<190:counts['blue']+=1
+                        if 140<r<210 and 90<g<160 and b<40:counts['gold']+=1
+                        if 90<r<145 and 110<g<170 and 140<b<200:counts['edge']+=1
+                    result[str(width)][mode]['visible_graph_pixels']=counts
+                    assert counts['blue']>=5 and counts['gold']>=5 and counts['edge']>=10,counts
                 assert len(boxes)==2,boxes;assert all(item['inside'] for item in boxes),boxes
                 assert all(a['right']<=b['x']+1 or b['right']<=a['x']+1 or a['bottom']<=b['y']+1 or b['bottom']<=a['y']+1 for i,a in enumerate(boxes) for b in boxes[i+1:]),boxes
                 viewport=relation.locator('[data-network-viewport]');viewport.scroll_into_view_if_needed();box=viewport.bounding_box()
@@ -106,6 +128,8 @@ def reader_checks(page, base, out, case, result):
                 page.set_viewport_size(dict(width=width,height=height));page.wait_for_timeout(100)
                 result[str(width)][mode]['visible_after_resize']=len(network_boxes(page))
                 assert result[str(width)][mode]['visible_after_resize']==2
+                restored=network_boxes(page)
+                assert all(abs(a['x']-b['x'])<1 and abs(a['y']-b['y'])<1 for a,b in zip(after,restored)),(after,restored)
                 if mode=='space':
                     relation.locator('[data-network-selection] [data-explore-target]').click();expect(page.locator('.source-page')).to_be_visible()
                     page.get_by_role('button',name='返回资料',exact=True).click()
@@ -114,6 +138,7 @@ def reader_checks(page, base, out, case, result):
                     page.wait_for_timeout(150)
                     returned=network_boxes(page);assert len(returned)==2,returned
                     result[str(width)][mode]['visible_after_profile_return']=len(returned)
+                    assert all(abs(a['x']-b['x'])<1 and abs(a['y']-b['y'])<1 for a,b in zip(restored,returned)),(restored,returned)
                     expect(relation.locator('[data-network-selection]')).to_contain_text('完全合成 · 研究机构')
             relation.get_by_role('button',name='关闭关联',exact=True).click()
     result['policy_violations']=verify_policy(page)
@@ -141,12 +166,16 @@ def maintenance_checks(playwright,out,result):
                 if width<700:action.click()
                 expect(page.locator('[data-trace-detail]')).to_contain_text('Alex Vale')
                 capture(page,out,f'maintenance-changes-{width}')
+                identity=page.locator('[data-trace-detail]>header')
+                visible=identity.evaluate('e=>[...e.querySelectorAll(".trace-step-meta,h4")].map(n=>{const r=n.getBoundingClientRect(),x=r.x+r.width/2;return {text:n.textContent,top:r.top,bottom:r.bottom,uncovered:[r.top+2,r.bottom-2].every(y=>n.contains(document.elementFromPoint(x,y)))};})')
+                result.setdefault(str(width),{})['detail_identity']=visible
+                assert len(visible)==2 and all(v['top']>=56 and v['uncovered'] for v in visible),visible
                 page.get_by_role('button',name='全部',exact=True).click()
             result['policy_violations']=verify_policy(page)
         finally:browser.close()
     finally:
-        if server:server.shutdown();server.server_close();thread.join(5)
-        fixture.doCleanups()
+        if server:server.shutdown();server.server_close();thread.join(5);result['server_closed']=not thread.is_alive()
+        fixture.doCleanups();result['fixture_cleaned']=True
 
 
 def fallback_checks(page,base,tid,ref,out,result):

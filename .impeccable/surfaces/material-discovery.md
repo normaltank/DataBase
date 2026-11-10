@@ -45,3 +45,5 @@ Standards/Spec reviews on the integrated commit. No raster assets introduced.
 #142 development evidence and final-review ownership: work/现代研究工作台142开发验证.md.
 Healthy graphs omit explanatory paragraphs and persistent retries. Scope/precision
 remain available on demand; errors reveal the local retry and text alternatives.
+
+第二轮R2保持手机查找主动作单行、最小64px且不收缩；更多筛选仍按需打开，结果首屏位置和查询行为保持。作者验证见既有#142开发验证记录。
