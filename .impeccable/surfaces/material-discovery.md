@@ -1,44 +1,36 @@
 # Material discovery
 
-Mode: Operate / Read. Issue [#146](https://github.com/normaltank/DataBase/issues/146),
-2026-11-10. User explicitly requested a minimal replacement of the cramped
-exploration/sidebar composition. The parent supplied the visual direction and
-authorized technical choices; this is a code-led build, without randomized
-concept selection, a new questionnaire, image assets or extra motion libraries.
+Mode: Operate / Read. Primary target: static/material-discovery.js. Related:
+static/library.js, static/desk.css. Issue #146, current rework 2026-11-10.
 
 ## Direction contract
 
-THESIS: Make country/time exploration the primary work surface. Selecting a
-record gives the saved text priority; returning restores the same exploration.
+THESIS: Supporting country/time exploration is a workface with candidates below;
+opening a record gives saved text a centered reading surface.
 
-OWN-WORLD: Light neutral navigation and surfaces, graphite text, 14px minimum
-interface text, one restrained blue accent. Existing business status colours
-retain their meaning. Ordinary controls, thin separators and no decorative motion.
+OWN-WORLD: Follow [DESIGN](../../DESIGN.md): cool white/pale indigo, dark graphite,
+15px UI and at least14px metadata. Real status words retain domain meanings.
 
-STORY: Start with the current authorized query, choose a country on the globe,
-flat map or text list, then read a candidate. Clear only the intended dimension.
-Applied query/URL and unapplied year inputs remain distinct. Slow and failed
-reads retain the previous content with local status and recovery.
+STORY: Apply country or time to the authorized query, select a candidate, read,
+and return to the same canvas, camera, filters and unapplied year draft.
 
-FIRST VIEWPORT: Desktop exploration/results use 3:2; textual country choices
-precede the large globe. Scope and map provenance are disclosed. Reading uses
-28:72 candidates/prose and hides, without detaching, exploration. A visible
-return action restores it. At 1280×720 the country controls remain in view.
-390/320 and native 200% use results-first responsive flow and explicit exploration.
+FIRST VIEWPORT: Desktop chart/map is above a bottom candidate tray. Search and
+extra filters are disclosed. Reading hides the attached exploration and results
+without destroying them; the article is centered. Mobile starts with results,
+opens exploration explicitly and keeps one task in a single-column flow.
 
-FORM: seed:none(user-directed,no roll). The signature interaction is continuous country-to-query updating with a
-stable canvas, camera and focus. Existing Three/ECharts engines update snapshots;
-no added runtime. Scene changes release the hidden engine and restore its view.
-Account/confirmed permission changes discard stale authorized content. Year brush
-and time lens set a pending range before application. Browser history preserves
-ordinary query semantics, and original archive/collection/favorite features remain.
+FORM: Code-led structural replacement under the user's direction; no new map
+library or raster assets. Existing Three/ECharts stable snapshots, text/flat map,
+brush and lens keep their real selection semantics. The global bounded object-
+to-workface transition is documented in the collaboration desk surface.
 
-FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance.
+FINISH: Developer evidence is not independent acceptance or deployment. Parent
+owns Standards/Spec/visual review. No shipping raster assets.
 
-## Developer evidence
+## Verification boundary
 
-Developer evidence is the isolated public HTTP/real Chromium script
-[scripts/check_minimal_research_browser.py](../../scripts/check_minimal_research_browser.py).
-All fixture records are synthetic, the worker is off and the port is random.
-The parent owns independent Standards/Spec and visual review. Developer checks
-are not deployment or independent acceptance. No shipping raster assets.
+[scripts/check_minimal_research_browser.py](../../scripts/check_minimal_research_browser.py)
+uses public HTTP, isolated synthetic records, real Chromium, random port and no
+worker/AI. It checks rapid countries, slow/late reads, retained DOM/camera/input,
+saved query/history, failure retry, batches, permission/account boundaries,
+320/390/1280/1440 and native200% browser zoom.

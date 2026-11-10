@@ -210,7 +210,7 @@ def main():
             session=page.request.get(result['base']+'/api/session').json()
             page.request.post(result['base']+'/api/login',data={'username':'colleague','password':'LocalDemo2026!'},headers={'X-CSRF-Token':session['csrf']})
             page.evaluate('window.dispatchEvent(new Event("focus"))')
-            expect(page.locator('.workbench-account')).to_contain_text('周')
+            expect(page.locator('.desk-account')).to_contain_text('周')
             expect(page.locator('.library-reader')).not_to_be_visible()
             result['checks'].append('account change revalidates and discards prior reader/graph state')
             for route,name in (('sources','sources'),('collaboration','collaboration')):

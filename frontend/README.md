@@ -6,7 +6,8 @@ Run `node build.mjs --entry timeline` to build one entry. No command clears the
 output directory or deletes a peer module. Full builds compile all existing named
 entries and reproducibly copy shared styles, the worker and license files.
 
-The five fixed entry names are `globe`, `timeline`, `network`, `flow`, `diff`.
+The fixed entry names are `globe`, `timeline`, `network`, `flow`, `diff`,
+and `desk-motion`.
 Their source is `frontend/<name>.js` and output is
 `static/vendor/visual/<name>.js`. Missing entries are skipped by the full build;
 a missing requested single entry is an error. Do not change the lock or loader
@@ -114,3 +115,17 @@ observation. This is not native OS visibility evidence. The single-year visual
 review scene can be recaptured with `python scripts/capture_time_review_browser.py
 --evidence-dir tests/artifacts/<new-directory>`; it writes new screenshots and
 metadata without modifying prior review evidence.
+
+`desk-motion` is a bounded interaction helper rather than a chart adapter. It
+exports `transition(target)` and `cancel()` using exact Anime.js 4.5.0. The
+application imports its same-origin revisioned bundle; its scope is reverted
+on another transition, route composition, document hiding or reduced-motion
+changes. Reduced motion takes the visible final state. No runtime CDN, Node
+service, inline stylesheet or CSP exception is needed. Native Popover provides
+top-layer menus, light dismissal and Escape/focus restoration; the public
+Chromium desk check exercises those behaviors. No duplicate write-form component
+is mounted: native form/File nodes stay owned by the existing handoff module.
+
+The build copies the Anime.js MIT notice into `static/vendor/visual/licenses/`.
+`npm ci --ignore-scripts --no-audit --no-fund` followed by `node build.mjs`
+reproduces the six same-origin bundles from the lockfile.
