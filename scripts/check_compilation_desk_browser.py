@@ -99,5 +99,3 @@ def main():
     finally:server.shutdown();server.server_close()
     print(json.dumps({'evidence':str(out),'checks':checks},ensure_ascii=False),flush=True)
 if __name__=='__main__':main()
-
-
