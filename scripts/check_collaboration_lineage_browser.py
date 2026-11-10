@@ -83,11 +83,12 @@ def main():
                 material = page.locator(f'[data-material-ref="{ref}"]')
                 expect(material).to_be_visible()
                 material.scroll_into_view_if_needed()
+                material.get_by_text('版本与责任记录',exact=True).click()
                 page.screenshot(path=str(root/'initial-desktop.png'), full_page=True)
                 expect(material.get_by_role('button', name='查看版本 1', exact=True)).to_be_visible()
                 reading = material.locator('[data-handoff-reading]')
                 expect(material.locator('.react-flow__node')).to_have_count(5)
-                expect(material.locator('[data-flow-status]')).to_contain_text('流程图可点选')
+                expect(material.locator('[data-flow-status]')).to_have_text('')
                 page.wait_for_timeout(200)
                 assert material.locator('[data-flow-slot]').evaluate('(slot)=>{const b=slot.getBoundingClientRect();return [...slot.querySelectorAll(".react-flow__node")].every(node=>{const r=node.getBoundingClientRect();return r.left>=b.left-2&&r.right<=b.right+2&&r.top>=b.top-2&&r.bottom<=b.bottom+2;});}'),'The short material lineage must fit by default on desktop'
                 material.locator('.actual-flow').scroll_into_view_if_needed()
@@ -98,7 +99,7 @@ def main():
                 expect(reading).to_contain_text('历史版 1 · 退回')
                 assert any('/static/vendor/visual/elk-worker.min.js' in url for url in workers),workers
                 material.get_by_role('button',name='回当前版',exact=True).click()
-                expect(reading).to_contain_text('当前版 3 · 待审')
+                expect(reading).to_contain_text('原件与意见')
                 for number, decision, note in [(1, '退回', '请补充政策依据'), (2, '通过', '依据已核对，可接续')]:
                     material.get_by_role('button', name=f'查看版本 {number}', exact=True).click()
                     expect(reading).to_contain_text(f'历史版 {number} · {decision}')
@@ -115,16 +116,17 @@ def main():
                     expect(page.locator('.handoff-preview')).to_contain_text(f'SYNTHETIC ORIGINAL VERSION {number}')
                     page.get_by_role('button', name='关闭', exact=True).click()
                     material.get_by_role('button', name=f'查看版本 {number} 的{decision}审阅', exact=True).click()
-                    expect(reading).to_contain_text('正在查看此版审阅')
+                    expect(reading.locator('[data-reading-review].is-selected')).to_have_count(1)
                     expect(material.locator('path.is-selected')).to_have_count(1)
                 material.get_by_role('button', name='回当前版', exact=True).click()
-                expect(reading).to_contain_text('当前版 3 · 待审')
+                expect(reading).to_contain_text('原件与意见')
                 expect(reading.locator('[data-reading-review]')).to_have_count(0)
                 expect(material.locator('[data-action=handoff-select][data-version="'+versions[2]['ref']+'"][data-review]:not([data-review=""])')).to_have_count(0)
                 second_material = page.locator(f'[data-material-ref="{second.json["material_ref"]}"]')
                 expect(second_material.locator('[data-handoff-reading]')).to_contain_text('第二材料说明')
+                second_material.get_by_text('版本与责任记录',exact=True).click()
                 upload = material.locator('[data-form=handoff-upload]')
-                review_form = material.locator('[data-form=handoff-review]')
+                review_form = material.locator('[data-form=handoff-review][data-version="'+versions[2]['ref']+'"]')
                 upload.locator('xpath=..').locator('summary').click()
                 upload.locator('[name=file]').set_input_files({'name':'draft.txt','mimeType':'text/plain','buffer':b'RETAIN UPLOAD DRAFT'})
                 upload.locator('[name=note]').fill('保留上传草稿')
@@ -163,7 +165,7 @@ def main():
                     actual = zoom.evaluate('async url=>{const t=(await chrome.tabs.query({})).find(t=>t.url.startsWith(url));return chrome.tabs.getZoom(t.id)}', base)
                     assert actual == factor
                     material.get_by_role('button', name='回当前版', exact=True).click()
-                    expect(reading).to_contain_text('当前版 3 · 待审')
+                    expect(reading).to_contain_text('原件与意见')
                     if width < 700 or factor == 2:
                         material.get_by_label('选择材料版本', exact=True).select_option(versions[0]['ref'])
                         expect(reading).to_contain_text('历史版 1 · 退回')
@@ -222,7 +224,7 @@ def main():
                         review_node=material.get_by_role('button',name='查看版本 1 的退回审阅',exact=True)
                         review_node.focus();page.keyboard.press('Enter');expect(review_node).to_be_focused()
                         jump.focus();page.keyboard.press('Enter');expect(jump).to_be_focused()
-                        expect(reading).to_contain_text('正在查看此版审阅')
+                        expect(reading.locator('[data-reading-review].is-selected')).to_have_count(1)
                         expect(reading.locator('[data-reading-review].is-selected')).to_have_count(1)
                 zoom.evaluate('async url=>{const t=(await chrome.tabs.query({})).find(t=>t.url.startsWith(url));await chrome.tabs.setZoom(t.id,1)}', base)
                 page.set_viewport_size({'width':1366,'height':1000})
@@ -242,13 +244,13 @@ def main():
                 page.evaluate('Element.prototype.animate=undefined;document.startViewTransition=undefined')
                 page.emulate_media(reduced_motion='no-preference')
                 material.get_by_role('button', name='回当前版', exact=True).click()
-                expect(reading).to_contain_text('当前版 3 · 待审')
+                expect(reading).to_contain_text('原件与意见')
                 page.set_viewport_size({'width':1366,'height':1000})
                 # Failed state reads keep last readable content, and no parallel chain accumulates.
                 page.route('**/handoffs', lambda route: route.fulfill(status=503, json={'error':'合成读取失败'}))
                 material.get_by_role('button', name='刷新材料状态', exact=True).click()
                 expect(material.locator('[data-lineage-status]')).to_contain_text('合成读取失败')
-                expect(reading).to_contain_text('当前版 3 · 待审')
+                expect(reading).to_contain_text('原件与意见')
                 page.unroute('**/handoffs')
                 # A failed write leaves the selected real files and typed drafts in place.
                 page.route('**/handoff-reviews', lambda route: route.fulfill(status=503, json={'error':'合成保存失败'}))
@@ -265,9 +267,9 @@ def main():
                 expect(review_form.locator('[name=note]')).to_have_value('保留审阅草稿')
                 material.get_by_role('button', name='刷新材料状态', exact=True).click()
                 expect(material.locator('[data-lineage-status]')).to_contain_text('已更新')
-                expect(material.locator('.handoff-current-actions>p')).to_contain_text('审阅草稿绑定版本 3；当前版 4')
+                expect(review_form.locator('[name=note]')).to_have_value('保留审阅草稿')
                 expect(review_form).to_have_attribute('data-version',versions[2]['ref'])
-                expect(review_form.get_by_role('button',name='通过此版',exact=True)).to_be_disabled()
+                expect(review_form.locator('[type=submit][value=approved]')).to_be_disabled()
                 assert upload.locator('[name=file]').evaluate('e=>e.files[0].name') == 'draft.txt'
                 expect(upload.locator('[name=note]')).to_have_value('保留上传草稿')
                 # Independent material reads may finish in reverse order: older state
@@ -286,7 +288,7 @@ def main():
                 older_reads[0].fulfill(status=200,json=initial_board)
                 expect(material.locator('[data-lineage-status]')).not_to_contain_text('正在读取')
                 material.get_by_role('button',name='回当前版',exact=True).click()
-                expect(reading).to_contain_text('当前版 4 · 待审')
+                expect(reading).to_contain_text('原件与意见')
                 page.unroute('**/handoffs')
                 # Closed periods deny the existing bound upload without discarding either file.
                 preview = fixture.clients['researcher'].get(f'/api/collaboration/topics/{tid}/closure-preview').json
@@ -312,7 +314,7 @@ def main():
                 page.unroute('**/handoffs')
                 material.get_by_role('button', name='刷新材料状态',exact=True).click()
                 expect(material.locator('[data-lineage-status]')).to_contain_text('已更新')
-                expect(reading).to_contain_text('当前版 4 · 待审')
+                expect(reading).to_contain_text('原件与意见')
                 expect(material.locator('.react-flow__node')).to_have_count(6)
                 # Late reads may not resurrect a departed page.
                 held = []

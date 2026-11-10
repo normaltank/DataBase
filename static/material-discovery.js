@@ -1,7 +1,7 @@
 'use strict';
 
 // Presentation state is deliberately absent from recordQuery and frozen queries.
-const materialDiscovery={account:null,open:true,view:'europe',role:'published',geometry:null,focus:null,lens:false,scene:'country',yearsOpen:false};
+const materialDiscovery={account:null,open:!matchMedia('(max-width:1199px)').matches,view:'europe',role:'published',geometry:null,focus:null,lens:false,scene:'country',yearsOpen:false};
 const materialDateNames={published:'发表时间',collected:'首次收录',updated:'最近修订'};
 function materialDiscoveryHTML(){
   return '<details class="material-discovery"><summary>国别地球与时间探索</summary><div data-material-distribution></div></details>';
@@ -64,22 +64,22 @@ function materialRender(panel){
   const legend=[['zero','0 条'],['low','1–'+low+' 条'],...(high>low?[['middle',(low+1)+'–'+high+' 条']]:[]),...(maximum>high?[['high',(high+1)+'–'+maximum+' 条']]:[])];
   const retainedInputs=Boolean(panel.querySelector('[data-material-from]'));
   const markup=
-    '<p class="material-scope" role="status">当前完整可见查询：<strong>'+data.total+' 条</strong>。多国资料在各国分别计数；数量表示库内资料，不表示研究热度或覆盖完整性。</p>'
+    '<p class="material-scope" role="status">匹配 <strong>'+data.total+' 条</strong></p>'
     +'<div class="material-controls material-scene-controls" role="group" aria-label="资料探索视图"><button type="button" class="button tiny" data-material-scene="country" aria-pressed="'+(materialDiscovery.scene==='country')+'">国别地球</button><button type="button" class="button tiny" data-material-scene="time" aria-pressed="'+(materialDiscovery.scene==='time')+'">时间探索</button><button type="button" class="button tiny" data-material-retry>刷新分布</button></div>'
     +'<section data-material-country-scene '+(materialDiscovery.scene!=='country'?'hidden':'')+' aria-label="研究对象国分布"><div class="material-heading"><h2>研究对象国</h2><div class="material-controls" role="group" aria-label="地图视角"><button type="button" class="button tiny" data-material-view="europe" aria-pressed="'+(materialDiscovery.view==='europe')+'">欧洲</button><button type="button" class="button tiny" data-material-view="world" aria-pressed="'+(materialDiscovery.view==='world')+'">全世界</button></div></div>'
-    +'<p class="material-context">地球及国别列表：保留其他条件、排除研究对象国条件，共 '+countryScope.total+' 条。代表点只用于选择研究对象国。</p>'
-    +'<div class="material-geography"><div class="material-stage"><div class="material-globe" data-material-globe></div><p data-material-globe-status role="status">正在加载地球…</p><div class="material-controls"><button type="button" class="button tiny" data-material-globe-retry>重试地球</button><button type="button" class="button tiny" data-material-flat aria-pressed="false">平面地图</button></div>'
+    +'<details class="material-context"><summary>统计口径 · '+countryScope.total+' 条</summary><p>国别分布保留其他条件、排除对象国条件。多国资料分别计数。</p></details>'
+    +'<div class="material-geography"><div class="material-stage"><div class="material-globe" data-material-globe></div><p data-material-globe-status role="status">正在加载地球…</p><div class="material-controls"><button type="button" class="button tiny" data-material-globe-retry hidden>重试地球</button><button type="button" class="button tiny" data-material-flat aria-pressed="false">平面地图</button></div>'
     +'<p class="material-map-hint" hidden data-material-map-hint aria-live="polite">点击国界或下方国别按钮筛选资料</p>'
     +'<svg class="material-map" hidden viewBox="'+(materialDiscovery.view==='europe'?'385 38 230 125':geometry.viewBox)+'" role="group" aria-label="'+(materialDiscovery.view==='europe'?'欧洲':'全世界')+'研究对象国地图">'+paths+'</svg>'
     +'<div class="material-map-footer"><div class="material-legend" aria-label="库内资料数量图例">'+legend.map(([value,text])=>'<span><i class="material-count-'+value+'"></i>'+text+'</span>').join('')+'</div><span>底图：<a href="https://www.naturalearthdata.com/about/terms-of-use/" target="_blank" rel="noopener noreferrer">Natural Earth · 公共领域</a></span></div>'
     +'</div><div class="material-country-column"><div class="material-heading"><h3>国别列表</h3><button type="button" class="button tiny" data-material-clear="country" '+(!selected.size?'disabled':'')+'>清除研究对象国条件</button></div>'
     +'<div class="material-country-list" role="group" aria-label="国别文字筛选">'+(countries.length?countries.map(item=>'<button type="button" class="button tiny" data-material-country="'+esc(item.value)+'" aria-pressed="'+selected.has(item.value)+'">'+esc(label(item))+' <strong>'+item.count+'</strong>'+(!mapped.has(item.value)?'<span class="material-unmapped"> · 无地图</span>':'')+'</button>').join(''):'<p>当前查询没有国别分布。可清除筛选后重新查找。</p>')+'</div></div></div></section>'
     +'<section class="material-time" '+(materialDiscovery.scene!=='time'?'hidden':'')+' aria-label="时间分布"><div class="material-heading"><h2>时间分布</h2><label>浏览口径 <select data-material-role aria-label="分布时间口径">'+Object.entries(materialDateNames).map(([value,text])=>'<option value="'+value+'" '+(materialDiscovery.role===value?'selected':'')+'>'+text+'</option>').join('')+'</select></label><button type="button" class="button tiny" data-material-clear="time" '+(!hasTime?'disabled':'')+'>清除时间条件</button></div>'
-    +'<p>'+materialDateNames[materialDiscovery.role]+'：仅年份 '+date.precision.year+' 条，精确到月 '+date.precision.month+' 条，精确到日 '+date.precision.day+' 条；未知 '+date.unknown+' 条。点击年份筛选，保留登记精度。</p>'
-    +'<p>年份概览：保留其他查询条件、排除时间条件，共 '+(data.time_context?.total??data.total)+' 条。刷选或缩放后点击“应用时间范围”。</p>'
-    +'<div class="material-time-range"><label>起始年 <input type="number" min="1" max="9999" step="1" data-material-from aria-label="起始年" value="'+esc((p.get('from')||'').slice(0,4))+'"></label><label>结束年 <input type="number" min="1" max="9999" step="1" data-material-to aria-label="结束年" value="'+esc((p.get('to')||'').slice(0,4))+'"></label><button type="button" class="button tiny" data-material-apply>应用时间范围</button><button type="button" class="button tiny" data-material-lens aria-pressed="'+materialDiscovery.lens+'">'+(materialDiscovery.lens?'关闭时间透镜':'打开时间透镜')+'</button><button type="button" class="button tiny" data-material-time-retry>重试时间图</button></div><p data-material-range-status role="status"></p>'
+    +'<details class="material-precision"><summary>日期精度 · 未知 '+date.unknown+' 条</summary><p>'+materialDateNames[materialDiscovery.role]+'：仅年份 '+date.precision.year+' 条，精确到月 '+date.precision.month+' 条，精确到日 '+date.precision.day+' 条；未知 '+date.unknown+' 条。</p></details>'
+    +'<p>年份概览 · '+(data.time_context?.total??data.total)+' 条</p>'
+    +'<div class="material-time-range"><label>起始年 <input type="number" min="1" max="9999" step="1" data-material-from aria-label="起始年" value="'+esc((p.get('from')||'').slice(0,4))+'"></label><label>结束年 <input type="number" min="1" max="9999" step="1" data-material-to aria-label="结束年" value="'+esc((p.get('to')||'').slice(0,4))+'"></label><button type="button" class="button tiny" data-material-apply>应用时间范围</button><button type="button" class="button tiny" data-material-lens aria-pressed="'+materialDiscovery.lens+'">'+(materialDiscovery.lens?'关闭时间透镜':'打开时间透镜')+'</button><button type="button" class="button tiny" data-material-time-retry hidden>重试时间图</button></div><p data-material-range-status role="status"></p>'
     +'<button type="button" class="button tiny" data-material-camera-reset '+(!materialDiscovery.lens?'hidden':'')+'>重置透镜视角</button><div data-material-timeline></div><p data-material-time-status role="status">正在加载年份概览…</p>'
-    +(data.timeline_window?'<p class="material-window-scope">当前查询窗口：已加载 '+data.timeline_window.loaded+' / 完整匹配 '+data.timeline_window.total+' 条；上限 '+data.timeline_window.limit+' 条'+(data.timeline_window.has_more?'，还有更多资料，请缩小查询。':'，已全部加载。')+'</p><details class="material-window"><summary>资料文字窗口（'+data.timeline_window.loaded+' 条，含未知日期）</summary><div class="material-window-list">'+data.timeline_window.items.map(item=>'<button type="button" class="button tiny" data-material-record="'+esc(item.id)+'">'+esc(item.title)+' · '+esc(item.date||'日期未知')+' · '+esc(item.kind)+'</button>').join('')+'</div></details>':'')
+    +(data.timeline_window?'<p class="material-window-scope">当前查询窗口：已加载 '+data.timeline_window.loaded+' / '+data.timeline_window.total+' 条'+(data.timeline_window.has_more?'，还有更多资料，请缩小查询。':'')+'</p><details class="material-window"><summary>资料文字窗口（'+data.timeline_window.loaded+' 条，含未知日期）</summary><div class="material-window-list">'+data.timeline_window.items.map(item=>'<button type="button" class="button tiny" data-material-record="'+esc(item.id)+'">'+esc(item.title)+' · '+esc(item.date||'日期未知')+' · '+esc(item.kind)+'</button>').join('')+'</div></details>':'')
     +'<details class="material-native-years" '+(materialDiscovery.yearsOpen?'open':'')+'><summary>按单年选择（文字入口）</summary><div class="material-years" role="group" aria-label="年份筛选">'+date.years.map(item=>{
       const active=(p.get('date_field')||'published')===materialDiscovery.role&&p.get('from')===item.year+'-01-01'&&p.get('to')===item.year+'-12-31';
       return '<button class="material-year" type="button" data-material-year="'+item.year+'" aria-pressed="'+active+'" aria-label="'+item.year+'年，'+item.count+'条，按'+materialDateNames[materialDiscovery.role]+'筛选"><span>'+item.year+'年</span><svg class="material-year-track" viewBox="0 0 100 12" preserveAspectRatio="none" aria-hidden="true"><rect width="'+Math.max(1,100*item.count/yearMax)+'" height="12"></rect></svg><strong>'+item.count+' 条</strong></button>';
@@ -129,8 +129,10 @@ function materialApply(change){
 }
 document.addEventListener('library:rendered',event=>{
   const root=event.detail.root;if(!root||root.querySelector('.material-discovery'))return;
-  if(materialDiscovery.account!==state.me?.id){Object.assign(materialDiscovery,{account:state.me?.id,open:true,view:'europe',role:recordQuery().get('date_field')||'published',focus:null,scene:'country',lens:false,yearsOpen:false});}
-  root.querySelector('.results-head').insertAdjacentHTML('beforebegin',materialDiscoveryHTML());
+  if(materialDiscovery.account!==state.me?.id){Object.assign(materialDiscovery,{account:state.me?.id,open:!matchMedia('(max-width:1199px)').matches,view:'europe',role:recordQuery().get('date_field')||'published',focus:null,scene:'country',lens:false,yearsOpen:false});}
+  const work=document.createElement('div');work.className='material-workspace';const results=document.createElement('div');results.className='library-results-area';
+  root.querySelector('.results-head').before(work);work.insertAdjacentHTML('afterbegin',materialDiscoveryHTML());work.append(results);
+  for(const selector of ['.results-head','.library-selection','.library-results-workspace','.pagination']){const item=root.querySelector(selector);if(item)results.append(item);}
   materialDiscovery.role=recordQuery().get('date_field')||'published';
   const panel=root.querySelector('.material-discovery');
   panel.addEventListener('toggle',event=>{if(event.target.matches('.material-native-years'))materialDiscovery.yearsOpen=event.target.open;},true);
@@ -182,8 +184,8 @@ async function materialMountGlobe(panel,scope,selected){
       onStatus:message=>{if(isCurrent())status.textContent=message;}
     },{isCurrent});
     if(!isCurrent()){instance?.dispose();return;}panel._globe=instance;
-    if(!panel._globeView)instance?.reset(materialDiscovery.view);status.textContent='拖动旋转，滚轮或双指缩放；点击国界或代表点筛选。也可使用下方文字国别。';
-  }catch(error){if(isCurrent()){status.textContent='地球暂不可用，可继续使用国别文字筛选或平面地图。';panel.querySelector('[data-material-globe]').hidden=true;}}
+    if(!panel._globeView)instance?.reset(materialDiscovery.view);status.textContent='';panel.querySelector('[data-material-globe-retry]').hidden=true;
+  }catch(error){if(isCurrent()){status.textContent='地球未加载，可使用国别或平面地图。';panel.querySelector('[data-material-globe-retry]').hidden=false;panel.querySelector('[data-material-globe]').hidden=true;}}
 }
 new MutationObserver(()=>{for(const panel of materialPanels)if(!panel.isConnected||state.me?.id!==materialDiscovery.account)materialDispose(panel);}).observe(document.getElementById('app'),{childList:true,subtree:true});
 
@@ -211,8 +213,8 @@ async function materialMountTimeline(panel){
       onSelect:id=>{if(isCurrent()&&panel._materialData.timeline_window.items.some(item=>item.id===id))libraryOpenReader(id,panel.querySelector('[data-material-lens]'));},
       onStatus:message=>{if(isCurrent())status.textContent=message;}
     },{isCurrent});
-    if(!isCurrent()){instance?.dispose();return;}panel._timeline=instance;if(!materialDiscovery.lens)status.textContent='拖动图中刷选工具或底部缩放条确定年份，再应用时间范围。';
-  }catch(error){if(isCurrent())status.textContent='时间图暂不可用，可继续使用起止年、年份按钮和资料文字窗口，或重试时间图。';}
+    if(!isCurrent()){instance?.dispose();return;}panel._timeline=instance;if(!materialDiscovery.lens)status.textContent='';panel.querySelector('[data-material-time-retry]').hidden=true;
+  }catch(error){if(isCurrent()){status.textContent='时间图未加载，可使用年份筛选。';panel.querySelector('[data-material-time-retry]').hidden=false;}}
 }
 function materialRefreshVisible(){if(document.hidden)return;for(const panel of materialPanels)if(panel.isConnected&&panel.open&&!panel._materialLoading)materialLoad(panel);}
 document.addEventListener('visibilitychange',()=>{

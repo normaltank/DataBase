@@ -4,7 +4,7 @@
 const libraryWorkspace={view:'list',items:[],page:1,total:0,size:20,readerId:null,readerRecord:null,readerEpoch:0,returnFocus:null,returnY:0,account:null,context:null,selected:new Set(),organizing:false,batch:null};
 const librarySelectionLimit=100;
 const libraryReaderMedia=matchMedia('(max-width:1199px)');
-window.librarySelection=Object.freeze({ids:()=>[...libraryWorkspace.selected],count:()=>libraryWorkspace.selected.size,clear:message=>libraryClearSelection(message),remove:id=>{libraryWorkspace.selected.delete(id);librarySelectionChanged();},limit:librarySelectionLimit});
+window.librarySelection=Object.freeze({ids:()=>[...libraryWorkspace.selected],count:()=>libraryWorkspace.selected.size,add:id=>{if(libraryWorkspace.selected.size>=librarySelectionLimit)return false;libraryWorkspace.selected.add(id);librarySelectionChanged();return true;},clear:message=>libraryClearSelection(message),remove:id=>{libraryWorkspace.selected.delete(id);librarySelectionChanged();},limit:librarySelectionLimit});
 document.addEventListener('records:favorite-change',event=>{
   const ids=new Set(event.detail.ids),saved=event.detail.saved;
   for(const record of libraryWorkspace.items)if(ids.has(record.id))record.favorite=saved;
@@ -76,7 +76,7 @@ function readingLibraryHTML(data){
     +'<form data-reading-filters><div class="reading-quick"><label class="reading-keyword"><span>资料关键词</span><input name="q" value="'+esc(p.get('q'))+'" placeholder="中文题名、摘要、作者或原文（按 / 聚焦）"></label>'+readingFacet(data,'country','研究对象国')+'<label class="reading-time-label"><span class="sr-only">时间类型</span><select name="date_field" aria-label="时间类型">'+selectOptions({published:'发表时间',collected:'首次收录',updated:'最近修订'},dateField,'选择时间')+'</select></label><button type="button" class="button tiny" data-action="reading-days" data-days="30">近30天</button><button type="submit" class="button primary">查找</button></div>'
     +'<details class="reading-more"><summary>时间与更多筛选'+(moreCount?' · 已选 '+moreCount+' 项':'')+'</summary><div class="reading-date-range"><label>起始日期<input type="date" name="from" value="'+esc(p.get('from'))+'"></label><label>截止日期<input type="date" name="to" value="'+esc(p.get('to'))+'"></label><label><input type="checkbox" name="date_unknown" value="1" '+(p.get('date_unknown')==='1'?'checked':'')+'>只看日期未知</label><button type="button" class="button tiny" data-action="reading-days" data-days="7">近7天</button><button type="button" class="button tiny" data-action="reading-days" data-days="90">近90天</button></div>'
     +'<p class="small muted">发表年份或年月按可能日期范围相交；研究对象按文章内容登记，与来源国别分开。</p><div class="reading-facets">'+(p.has('source')&&p.get('source_filter')!=='1'?'<p class="small">固定来源：'+esc(p.get('source').split('|').map(id=>sourceById(id)?.name||id).join('、'))+'</p>':readingFacet(data,'source','来源'))+readingFacet(data,'source_country','来源国别')+readingFacet(data,'source_group','来源类型',{institution:'机构',journal:'期刊',publication:'其他出版物'})+readingFacet(data,'kind','文章类型',kinds)+readingFacet(data,'topic','主题')+readingFacet(data,'language','原文语言',languages)+readingFacet(data,'availability','内容可用性',readingAvailability)+'</div><div class="row wrap"><button type="submit" class="button">应用筛选</button><button type="button" class="button light" data-action="reading-reset">重置筛选</button></div></details><div class="form-error" role="alert"></div></form>'
-    +(chips.length?'<div class="reading-current small">当前：'+esc(savedSearchSummary(Object.fromEntries(chips)))+' '+linkButton('重置筛选','reading-reset','','ux-read-link')+'</div>':'')
+    +(chips.length?'<div class="reading-current small" aria-label="当前查找条件">'+chips.map(([key,value])=>'<button type="button" class="button tiny reading-filter-chip" data-action="ux-clear-filter" data-key="'+esc(key)+'" aria-label="移除条件：'+esc(savedSearchSummary({[key]:value}))+'">'+esc(savedSearchSummary({[key]:value}))+' <span aria-hidden="true">×</span></button>').join('')+'</div>':'')
     +'<div class="results-head"><span>共 <strong>'+data.total+'</strong> 条'+(isNew?'待浏览新增':'资料')+'</span><select id="sort-select" aria-label="排序方式" '+(isNew?'disabled':'')+'>'+selectOptions(isNew?{collected:'按本批收录顺序'}:{collected:'按首次收录',date:'按发表时间',updated:'按最近修订',title:'按题名'},isNew?'collected':p.get('sort')||'collected')+'</select><details class="reading-tools"><summary>整理与导出</summary><div data-library-tools>'+tools+'</div></details></div><div class="record-list"></div>'
     +'<div class="pagination"><button class="button tiny" data-action="page" data-id="'+(data.page-1)+'" '+(data.page<=1?'disabled':'')+'>上一页</button><span>第 '+data.page+' / '+Math.max(1,Math.ceil(data.total/data.size))+' 页</span><button class="button tiny" data-action="page" data-id="'+(data.page+1)+'" '+(data.page*data.size>=data.total?'disabled':'')+'>下一页</button></div></div>';
 }
@@ -186,7 +186,7 @@ async function libraryWorkspacePage() {
   library.querySelector('.record-list').innerHTML=libraryResultsHTML();
   const workspace=document.createElement('div');workspace.className='library-results-workspace';
   const list=library.querySelector('.record-list');list.before(workspace);workspace.append(list);
-  workspace.insertAdjacentHTML('beforeend','<section class="library-reader" aria-label="连续阅读" hidden></section>');
+  workspace.insertAdjacentHTML('beforeend','<div class="library-divider" role="separator" aria-label="调整清单与阅读宽度" aria-orientation="vertical" aria-valuemin="22" aria-valuemax="45" aria-valuenow="28" tabindex="0"></div><section class="library-reader" aria-label="连续阅读" hidden></section>');
   return root.innerHTML;
 }
 function libraryCloseReader(restore=true) {
@@ -320,7 +320,7 @@ async function libraryOpenReader(id,origin=null,section='') {
     const body=panel.querySelector('.library-reader-body');await uxReadRecord(record,body);
     if(epoch!==libraryWorkspace.readerEpoch||account!==state.me?.id||!panel.isConnected){body.replaceChildren();return;}
     panel.scrollTop=0;body.scrollTop=0;
-    if(firstOpen&&!libraryReaderMedia.matches){const workspace=panel.closest('.library-results-workspace');window.scrollTo(0,Math.max(0,window.scrollY+workspace.getBoundingClientRect().top-16));}
+    if(firstOpen&&!libraryReaderMedia.matches)window.scrollTo(0,0);
     libraryWorkspace.readerRecord=record;if(typeof continuityRemember==='function')continuityRemember();
     const focus=section?body.querySelector(section):body.querySelector('.detail-title');
     if(focus){focus.tabIndex=-1;focus.focus({preventScroll:true});if(section)focus.scrollIntoView({block:'start'});}
@@ -374,4 +374,25 @@ document.addEventListener('change',event=>{
   if(input.checked){if(libraryWorkspace.selected.size>=librarySelectionLimit){input.checked=false;toast('最多选择 '+librarySelectionLimit+' 条，请先减少选择。');return;}libraryWorkspace.selected.add(input.dataset.librarySelect);}
   else libraryWorkspace.selected.delete(input.dataset.librarySelect);
   librarySelectionChanged();
+});
+
+// A pointer and keyboard equivalent share one bounded reading-width control.
+function libraryResizeDivider(divider,percent){
+  const value=Math.max(22,Math.min(45,Math.round(percent)));
+  divider.closest('.library-results-workspace').style.setProperty('--library-list-width',value+'%');
+  divider.setAttribute('aria-valuenow',String(value));
+}
+document.addEventListener('keydown',event=>{
+  const divider=event.target.closest('.library-divider');if(!divider)return;
+  const value=Number(divider.getAttribute('aria-valuenow'));
+  if(['ArrowLeft','ArrowRight','Home','End'].includes(event.key)){
+    event.preventDefault();libraryResizeDivider(divider,event.key==='Home'?22:event.key==='End'?45:value+(event.key==='ArrowLeft'?-2:2));
+  }
+});
+document.addEventListener('pointerdown',event=>{
+  const divider=event.target.closest('.library-divider');if(!divider)return;
+  event.preventDefault();divider.setPointerCapture(event.pointerId);
+  const move=e=>{const box=divider.parentElement.getBoundingClientRect();libraryResizeDivider(divider,(e.clientX-box.left)/box.width*100);};
+  const stop=()=>{divider.removeEventListener('pointermove',move);divider.removeEventListener('pointerup',stop);divider.removeEventListener('pointercancel',stop);};
+  divider.addEventListener('pointermove',move);divider.addEventListener('pointerup',stop);divider.addEventListener('pointercancel',stop);
 });

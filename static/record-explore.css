@@ -39,3 +39,14 @@
 @media (max-height: 600px) {
   .record-network-viewport { height: 240px; }
 }
+
+/* A local inspection panel leaves the article's reading position intact. */
+.record-explore[open]>.record-explore-content{position:fixed;inset:54px 0 0 auto;width:min(520px,calc(100vw - 180px));z-index:46;padding:16px 24px;background:#fff;overflow:auto;border-inline-start:1px solid #aebdce;box-shadow:-8px 0 24px #17395e1a;overscroll-behavior:contain}
+.record-explore-content>.between{position:sticky;top:-16px;background:#fff;z-index:2;padding-block:10px;border-bottom:1px solid #d6e0eb}
+.record-network-selection{padding:12px;background:#eaf1fb;border:0;margin:12px 0}
+.record-network-selection>strong{font-size:16px}
+.record-network-viewport{height:300px}
+.record-network-text>summary{min-height:44px;padding:10px 0;cursor:pointer;color:#174e9c}
+.record-network-selection .record-explore-note:empty{display:none}
+.record-network-controls{gap:6px}.record-network-controls .button{padding-inline:9px}
+@media(max-width:700px){.record-explore[open]>.record-explore-content{inset:56px 0 0;width:100%;padding:12px 16px}.record-explore-content>.between{top:-12px}.record-network-viewport{height:260px}}
