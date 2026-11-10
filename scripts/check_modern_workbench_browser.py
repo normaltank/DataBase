@@ -315,6 +315,8 @@ def main():
                 page.locator('[data-material-apply]').click()
                 expect(page.locator('.library-row')).to_have_count(3)
                 result['real_globe_and_time_filter']='passed'
+                # Applying the query replaces the distribution scene after rows arrive.
+                expect(page.locator('[data-material-timeline] canvas')).to_be_visible()
                 capture(page,evidence/'time-desktop.png')
                 row.click()
                 expect(page.locator('.library-reader [data-reading-title]')).to_be_visible()
