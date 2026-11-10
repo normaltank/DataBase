@@ -99,10 +99,10 @@ function uxReadingActions(record,compact=false) {
   if(access.unknownPlatform)html+=linkButton('查看平台附件','ux-files',record.id,'ux-read-link');
   return html;
 }
-function uxRecordCard(record) {
+function uxRecordCard(record,more='') {
   const metadata=[recordAuthorLabel(record),record.published_on,languageLabel(record.language)].filter(Boolean),sources=recordSourceLabels(record),text=record.search_snippet||record.abstract||record.coverage;
   const reading=uxReadingActions(record,true);
-  return '<article class="record-card ux-record-card"><div class="record-body"><div class="ux-card-top"><div class="row wrap">'+typeBadge(record.kind)+badge(record.status)+(record.visibility==='restricted'?'<span class="badge neutral">'+icon('lock')+'限授权成员</span>':'')+'</div><div class="card-actions"><button type="button" class="icon-button '+(record.favorite?'saved':'')+'" data-action="favorite" data-id="'+esc(record.id)+'" data-saved="'+!!record.favorite+'" aria-pressed="'+!!record.favorite+'" aria-label="'+(record.favorite?'取消收藏':'收藏')+'">'+icon('star')+'</button><button type="button" class="icon-button" data-action="add-to-collection" data-id="'+esc(record.id)+'" aria-label="加入资料夹">'+icon('folder')+'</button></div></div>'
+  return '<article class="record-card ux-record-card"><div class="record-body"><div class="ux-card-top"><div class="row wrap">'+typeBadge(record.kind)+badge(record.status)+(record.visibility==='restricted'?'<span class="badge neutral">'+icon('lock')+'限授权成员</span>':'')+'</div><div class="card-actions"><button type="button" class="icon-button '+(record.favorite?'saved':'')+'" data-action="favorite" data-id="'+esc(record.id)+'" data-saved="'+!!record.favorite+'" aria-pressed="'+!!record.favorite+'" aria-label="'+(record.favorite?'取消收藏':'收藏')+'">'+icon('star')+'</button><button type="button" class="icon-button" data-action="add-to-collection" data-id="'+esc(record.id)+'" aria-label="加入资料夹">'+icon('folder')+'</button>'+more+'</div></div>'
     +'<h2 class="record-title">'+linkButton(esc(record.display_title||record.title),'detail',record.id,'title-button')+'</h2><div class="record-meta">'+metadata.map(value=>'<span>'+esc(value)+'</span>').join('')+'</div>'
     +(text?'<p class="'+(record.search_snippet?'search-snippet':'abstract')+'">'+esc(text)+'</p>':'')
     +(typeof attachmentMatchSection==='function'?attachmentMatchSection(record):'')

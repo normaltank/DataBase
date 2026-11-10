@@ -59,6 +59,13 @@
       const slot=content.querySelector('[data-network-selection]');if(!slot)return;
       const node=model.nodes.find(n=>n.key===key),relations=model.edges.filter(e=>e.key===key);
       slot.dataset.objectKind=node.type;slot.dataset.objectId=node.id;slot.innerHTML=(node.type==='person'||node.type==='source'?objectActions.more('更多关联对象操作'):'')+'<strong>'+esc(node.name)+'</strong><span class="record-explore-note">'+esc(node.type==='person'?'人物':node.type==='source'?'来源档案':'资料／成果')+'</span>'+(relations.length?relations.map(e=>'<p>'+esc(e.direction==='out'?'本篇 → '+e.name:e.name+' → 本篇')+' · '+esc(e.role)+(e.provenance?' · '+esc(e.provenance):'')+'</p>'+basis(e.evidence)).join('')+targetLink(node,record.id):'<p class="record-explore-note">当前阅读的中心篇目。</p>')+disclosure('详细标识',node.id);
+      // The reader owns the work/continuity contract, including native new-tab
+      // links. The shared portal only presents this contextful profile action.
+      objectActions.attach(slot,()=>{
+        if(!current(epoch)||!details.open||!['person','source'].includes(node.type))return [];
+        const page=node.type==='person'?'people':'sources',params={id:node.id,work:record.id};
+        return [{id:'profile',label:node.type==='person'?'打开人物档案':'打开档案',href:'#'+page+'?'+new URLSearchParams(params),run:()=>go(page,params)}];
+      });
       content.querySelectorAll('[data-explore-select]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.exploreSelect===key)));
       visual?.update(snapshot());
     }

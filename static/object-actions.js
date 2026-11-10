@@ -20,7 +20,7 @@ window.objectActions=(()=>{
         {id:'compare-select',label:included?'移出比较选择':'选择用于比较',disabled:!included&&full,run:()=>{if(included)window.librarySelection.remove(id);else if(window.librarySelection.count()<3)window.librarySelection.add(id);libraryWorkspace.organizing=true;document.querySelector('.library-workspace')?.classList.add('library-organizing');}},
         ...(selected.length>=2&&selected.length<=3?[{id:'compare',label:'比较已选 '+selected.length+' 篇',run:()=>materialCompareOpen(origin.querySelector('[data-object-more]'))}]:[])];
     }
-    if(kind==='source')return [{id:'profile',label:'打开档案',href:sourceHref(id)},{id:'preview',label:'快速预览',run:()=>invoke(origin,'source-preview',id)},{id:'records',label:'查看来源资料',run:()=>invoke(origin,'source-records',id)}];
+    if(kind==='source')return [{id:'profile',label:'打开档案',href:sourceUrl(id)},{id:'preview',label:'快速预览',run:()=>invoke(origin,'source-preview',id)},{id:'records',label:'查看来源资料',run:()=>invoke(origin,'source-records',id)}];
     if(kind==='person')return [{id:'profile',label:'打开人物档案',href:'#people?id='+encodeURIComponent(id)}];
     if(kind==='work')return [{id:'open',label:'打开工作',run:()=>invoke(origin,'workbench-select',id,{business:origin.dataset.objectBusiness})}];
     if(kind==='material'){
@@ -46,7 +46,7 @@ window.objectActions=(()=>{
     actions.forEach(action=>{
       const button=document.createElement(action.href?'a':'button');if(action.href)button.href=action.href;else button.type='button';
       button.role='menuitem';button.tabIndex=-1;button.textContent=action.label;button.setAttribute('aria-disabled',String(!!action.disabled));
-      button.addEventListener('click',async event=>{if(!valid(item)||action.disabled){event.preventDefault();if(!valid(item))close();return;}close();if(!action.href){event.preventDefault();try{await action.run();}catch(error){toast(error.message);}}});menu.append(button);
+      button.addEventListener('click',async event=>{if(!valid(item)||action.disabled){event.preventDefault();if(!valid(item))close();return;}close();if(!action.href||(action.run&&event.button===0&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&!event.altKey)){event.preventDefault();try{await action.run();}catch(error){toast(error.message);}}});menu.append(button);
     });
     document.body.append(menu);origin.querySelector('[data-object-more]')?.setAttribute('aria-expanded','true');
     item.anchor=origin.querySelector('[data-object-more]')||focus;

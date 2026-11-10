@@ -35,5 +35,7 @@
 .trace-step-row>.object-more{margin-right:4px}
 .record-network-selection{position:relative;padding-right:44px}
 .record-network-selection>.object-more{position:absolute;right:0;top:8px}
+.client-update:has([data-client-continue]){flex-wrap:wrap;max-width:min(440px,calc(100vw - 16px))}
+.client-update-recovery{flex-basis:100%;line-height:1.5}
 @media(min-width:701px){.workbench-return-identity{display:none}}
 @media(max-width:700px){.object-more{width:44px;height:44px}.object-menu [role=menuitem]{min-height:44px}.workbench-person-row{grid-template-columns:42px minmax(0,1fr)}.workbench-person-actions{grid-column:2;margin-left:0;justify-content:flex-start}.workbench-source-main{grid-template-columns:24px minmax(0,1fr);gap:8px}.workbench-source-side{min-width:0}.client-update{right:8px;bottom:8px;max-width:calc(100vw - 16px)}}
