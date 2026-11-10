@@ -28,14 +28,14 @@
     for(const item of record.cited_by||[])edges.push(destination('record',item.id,item.display_title||item.title,item.kind==='research_note'?'引用本篇的研究笔记':'引用本篇的中心成果','in','','该研究内容明确登记引用本篇'));
     const center='record:'+record.id,nodes=new Map([[center,{key:center,type:'record',id:record.id,name:record.display_title||record.title}]]);
     for(const edge of edges)nodes.set(edge.key,{key:edge.key,type:edge.type,id:edge.id,name:edge.name});
-    return {record,edges,pending,center,nodes:[...nodes.values()],graphEdges:edges.map(e=>({key:e.relationId,from:e.direction==='out'?center:e.key,to:e.direction==='out'?e.key:center}))};
+    return {record,edges,pending,center,nodes:[...nodes.values()],graphEdges:edges.map(e=>({key:e.relationId,role:e.role,from:e.direction==='out'?center:e.key,to:e.direction==='out'?e.key:center}))};
   }
   function render(model,mode) {
     const {record,edges,pending}=model;
     const rows=edges.map(edge=>'<li class="record-explore-edge '+(edge.direction==='out'?'record-explore-out':'')+'"><span class="record-explore-relation">'+esc(edge.direction==='out'?'本篇引用的原始资料':edge.role)+'<svg class="record-explore-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12H4m6-5-6 5 6 5"/></svg></span><div class="record-explore-target">'+targetLink(edge,record.id)+'<button type="button" class="button tiny" data-explore-select="'+esc(edge.key)+'">选择'+esc(edge.name)+'</button>'+(edge.note?'<span class="record-explore-note">'+esc(edge.note)+'</span>':'')+(edge.provenance?'<span class="record-explore-note">'+esc(edge.provenance)+'</span>':'')+basis(edge.evidence)+'</div></li>').join('');
-    return '<div class="record-explore-center"><span>'+esc(isResearchContent(record.kind)?'本篇研究内容':'本篇资料')+'</span><strong>'+esc(record.display_title||record.title)+'</strong></div>'
-      +(edges.length?'<div class="record-network-controls" role="group" aria-label="关系图视图"><button class="button" type="button" data-explore-mode="plane" aria-pressed="'+(mode==='plane')+'">平面关系</button><button class="button" type="button" data-explore-mode="space" aria-pressed="'+(mode==='space')+'">空间关系</button><button class="button" type="button" data-explore-reset>重置视角</button><button class="button" type="button" data-explore-locate>查看所选关系</button><button class="button" type="button" data-explore-retry>重试图形</button></div><p class="record-explore-note">本篇有权的一跳关系 · 位置与线长仅用于排布。点击节点选择，下方查看方向、依据并打开档案。</p><p class="record-explore-note" data-network-status role="status"></p><div class="record-network-viewport" data-network-viewport></div><div class="record-network-selection" data-network-selection tabindex="-1" aria-live="polite"></div>':'')
-      +(rows?'<ul class="record-explore-edges" aria-label="本篇的一跳关系">'+rows+'</ul>':'<p class="record-explore-empty">尚未登记可查看的关联。</p>')
+    return '<div class="between"><h3>关联探索</h3><button type="button" class="button" data-explore-close>关闭关联</button></div>'
+      +(edges.length?'<div class="record-network-controls" role="group" aria-label="关系图视图"><button class="button" type="button" data-explore-mode="plane" aria-pressed="'+(mode==='plane')+'">平面关系</button><button class="button" type="button" data-explore-mode="space" aria-pressed="'+(mode==='space')+'">空间关系</button><button class="button" type="button" data-explore-reset>重置视角</button><button class="button" type="button" data-explore-locate>查看所选关系</button><button class="button" type="button" data-explore-retry hidden>重试图形</button></div><p class="record-explore-note" data-network-status role="status"></p><div class="record-network-selection" data-network-selection tabindex="-1" aria-live="polite"></div><div class="record-network-viewport" data-network-viewport></div>':'')
+      +(rows?'<details class="record-network-text"><summary>关系文字列表</summary><ul class="record-explore-edges" aria-label="本篇的一跳关系">'+rows+'</ul></details>':'<p class="record-explore-empty">尚未登记可查看的关联。</p>')
       +(pending.length?'<div class="record-explore-pending"><strong>原始署名 · 身份未确认</strong><p>'+pending.map(esc).join('；')+'</p></div>':'')
       +'<button type="button" class="button tiny" data-explore-refresh>刷新关联</button>';
   }
@@ -46,9 +46,11 @@
     const details=document.createElement('details');
     details.className='record-explore';details.dataset.recordExplore=record.id;
     details.innerHTML='<summary>关联探索</summary><div class="record-explore-content" aria-live="polite"></div>';
-    article.querySelector('.ux-reading-toolbar').after(details);
+    article.querySelector('.ux-reading-toolbar').append(details);
     const content=details.querySelector('.record-explore-content');
-    let epoch=0,visual=null,visualEpoch=0,model=null,mode='plane',selected=null,viewState=null;
+    const saved=history.state?.position?.recordExplore;
+    let epoch=0,visual=null,visualEpoch=0,model=null,mode=saved?.id===record.id?saved.mode:'plane',selected=saved?.id===record.id?saved.selected:null,viewState=saved?.id===record.id?saved.viewState:null;
+    details._explorePosition=()=>({id:record.id,mode,selected,viewState:visual?.getViewState()||viewState});
     const dispose=()=>{visualEpoch++;if(visual)viewState=visual.getViewState();visual?.dispose();visual=null;};
     const current=token=>token===epoch&&details.isConnected&&account===state.me?.id&&hash===location.hash&&loadId===state.loadId;
     function snapshot(){return {center:model.center,nodes:model.nodes,edges:model.graphEdges,selected:selected||model.center};}
@@ -64,7 +66,7 @@
       dispose();const token=visualEpoch,slot=content.querySelector('[data-network-viewport]');
       if(!slot||!model?.edges.length)return;
       const valid=()=>token===visualEpoch&&current(epoch)&&details.open&&!document.hidden;
-      const status=message=>{if(current(epoch)&&details.open){const target=content.querySelector('[data-network-status]');if(target)target.textContent=message;}};
+      const status=message=>{if(current(epoch)&&details.open){const target=content.querySelector('[data-network-status]');if(target)target.textContent=message;const failed=/未能|不可用|失败/.test(message);const retry=content.querySelector('[data-explore-retry]');if(retry)retry.hidden=!failed;if(failed){const text=content.querySelector('.record-network-text');if(text)text.open=true;}}};
       status('正在加载关系图…');
       try{const instance=await window.visualLoader.mount('network',slot,{snapshot:snapshot(),mode,viewState,onSelect:select,onStatus:status},{isCurrent:valid});if(valid()){visual=instance;status('');}else instance?.dispose();}
       catch(error){if(valid())status('图形未能加载，可继续使用下方文字关系，或重试图形。');}
@@ -110,8 +112,9 @@
         if(current(token)){content.removeAttribute('aria-busy');if(restoreFocus&&!focusAtStart.isConnected&&document.activeElement===document.body){const attr=['data-explore-mode','data-explore-select','data-explore-refresh','data-explore-target'].find(key=>focusAtStart.hasAttribute(key));const target=attr?content.querySelector('['+attr+'="'+CSS.escape(focusAtStart.getAttribute(attr))+'"]'):null;(target||content.querySelector('[data-explore-refresh]'))?.focus({preventScroll:true});}}
       }
     }
-    details.addEventListener('toggle',()=>{if(details.open)load();else{epoch++;dispose();viewState=null;model=null;content.replaceChildren();}});
+    details.addEventListener('toggle',()=>{if(details.open)load();else{epoch++;dispose();model=null;content.replaceChildren();}});
     details.addEventListener('click',event=>{
+      if(event.target.closest('[data-explore-close]')){details.open=false;details.querySelector('summary').focus({preventScroll:true});return;}
       if(event.target.closest('[data-explore-refresh]'))load();
       const choose=event.target.closest('[data-explore-select]');if(choose)select(choose.dataset.exploreSelect);
       const disclosureButton=event.target.closest('[data-explore-disclosure]');if(disclosureButton){const open=disclosureButton.getAttribute('aria-expanded')!=='true';disclosureButton.setAttribute('aria-expanded',String(open));disclosureButton.nextElementSibling.hidden=!open;}
