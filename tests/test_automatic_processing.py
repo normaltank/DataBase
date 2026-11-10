@@ -26,6 +26,11 @@ class AutomaticProcessingTests(unittest.TestCase):
         archive = self.call('/api/archive-jobs', {'source_ids': [sid], 'request_id': 'stop-after-translation'})
         self.assertEqual(archive.status_code, 201, archive.json)
         self.call('/api/admin/ai/config', {'cap': '1', 'currency': 'USD'}, user='admin')
+        from platform_app.maintenance_agent import run_pending as maintain_pending
+        maintain_pending(self.app.config['DATA_DIR'], limit=0)
+        maintenance_before = self.clients['researcher'].get('/api/maintenance/jobs').json['items']
+        articles = self.clients['researcher'].get('/api/records').json['items']
+        self.assertEqual({j['target_id'] for j in maintenance_before if j['target_type'] == 'record'}, {r['id'] for r in articles})
         stop = threading.Event()
         sent = []
         def respond(request, **kwargs):
@@ -52,7 +57,11 @@ class AutomaticProcessingTests(unittest.TestCase):
         self.assertEqual(len(state['attempts']), 1)
         self.assertEqual(state['attempts'][0]['status'], 'settled')
         self.assertEqual(state['held_units'], 0)
-        self.assertEqual(state['task_counts'], {'succeeded': 1, 'queued': 6})
+        self.assertEqual(state['task_counts'], {'succeeded': 1, 'queued': 4})
+        self.assertFalse(any(task['task'] == 'author_suggestions' for task in state['tasks']))
+        maintenance_after = self.clients['researcher'].get('/api/maintenance/jobs').json['items']
+        self.assertEqual([j['id'] for j in maintenance_after], [j['id'] for j in maintenance_before])
+        self.assertTrue(all(j['status'] == 'queued' and not j['steps'] for j in maintenance_after))
         jobs = self.clients['researcher'].get('/api/sources/'+sid+'/suggestions').json['jobs']
         self.assertEqual([job['status'] for job in jobs], ['queued'])
         # Missing credentials pause the remaining tasks without sending anything.
@@ -121,28 +130,41 @@ class AutomaticProcessingTests(unittest.TestCase):
     def test_real_worker_cli_respects_active_lease_then_recovers_expired_claim_without_sending(self):
         import subprocess,sys,os
         sid=self.source();self.call('/api/sources/'+sid+'/ingestion',{'enabled':True},user='admin',method='PUT');self.run_worker()
-        # This subprocess checks Chinese leases only. New-record author jobs
-        # are covered with fake transport in test_source_adapters; do not let
-        # the child perform an unmocked public article acquisition.
+        # Ordinary acquisition schedules modern maintenance, with no duplicate
+        # legacy author requests. Both queues must respect active leases.
         for row in self.clients['researcher'].get('/api/records').json['items']:
             for job in self.clients['admin'].get('/api/records/'+row['id']+'/suggestions').json['jobs']:
                 self.assertEqual(self.call('/api/archive-jobs/'+job['id']+'/cancel', user='admin').status_code, 200)
         from platform_app.automatic_processing import run_pending
+        from platform_app.maintenance_agent import run_pending as maintain_pending
         from platform_app.store import connect
         with patch.dict('os.environ',{'DEEPSEEK_API_KEY':''}):run_pending(self.app.config['DATA_DIR'],limit=0)
+        maintain_pending(self.app.config['DATA_DIR'], limit=0)
+        maintenance_before = self.clients['researcher'].get('/api/maintenance/jobs').json['items']
+        self.assertTrue(maintenance_before)
         db=connect(self.app.config['DATA_DIR']/'platform.sqlite3')
         with db:
             db.execute("UPDATE ingestion_sources SET next_run='2099-01-01T00:00:00+00:00'")
             db.execute("UPDATE automatic_tasks SET status='running',lease_token='synthetic-live-claim',lease_until='2099-01-01T00:00:00+00:00'")
+            db.execute("UPDATE maintenance_jobs SET status='running',lease_token='synthetic-live-claim',lease_until='2099-01-01T00:00:00+00:00'")
         command=[sys.executable,'-m','platform_app.ingestion','--data-dir',str(self.app.config['DATA_DIR']),'--once']
         first=subprocess.run(command,capture_output=True,text=True,env={**os.environ,'DEEPSEEK_API_KEY':''},timeout=20)
         self.assertEqual(first.returncode,0,first.stderr);self.assertEqual(json.loads(first.stdout)['chinese_processing']['tasks'],0)
-        with db:db.execute("UPDATE automatic_tasks SET lease_until='2020-01-01T00:00:00+00:00'")
+        self.assertEqual(json.loads(first.stdout)['maintenance']['tasks'], 0)
+        self.assertTrue(all(j['status'] == 'running' and not j['steps'] for j in self.clients['researcher'].get('/api/maintenance/jobs').json['items']))
+        with db:
+            db.execute("UPDATE automatic_tasks SET lease_until='2020-01-01T00:00:00+00:00'")
+            db.execute("UPDATE maintenance_jobs SET lease_until='2020-01-01T00:00:00+00:00'")
         db.close()
         second=subprocess.run(command,capture_output=True,text=True,env={**os.environ,'DEEPSEEK_API_KEY':''},timeout=20)
         self.assertEqual(second.returncode,0,second.stderr);self.assertEqual(json.loads(second.stdout)['chinese_processing']['tasks'],4)
         state=self.clients['admin'].get('/api/admin/ai').json
-        self.assertEqual(state['task_counts'],{'paused':4,'cancelled':2});self.assertEqual(state['attempts'],[])
+        self.assertEqual(state['task_counts'],{'paused':4});self.assertEqual(state['attempts'],[])
+        self.assertEqual(json.loads(second.stdout)['maintenance']['tasks'], 1)
+        maintenance_after = self.clients['researcher'].get('/api/maintenance/jobs').json['items']
+        self.assertEqual({j['id'] for j in maintenance_after}, {j['id'] for j in maintenance_before})
+        self.assertEqual(sum(j['status'] == 'paused' for j in maintenance_after), 1)
+        self.assertTrue(all(not j['steps'] for j in maintenance_after))
 
     def test_http_failure_categories_keep_unknown_cost_and_require_reconciliation_before_retry(self):
         from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
@@ -223,14 +245,23 @@ class AutomaticProcessingTests(unittest.TestCase):
         self.call('/api/sources/'+sid+'/ingestion',{'enabled':True},user='admin',method='PUT')
         self.run_worker()
         from platform_app.automatic_processing import run_pending
+        from platform_app.maintenance_agent import run_pending as maintain_pending
+        maintain_pending(self.app.config['DATA_DIR'], limit=0)
+        maintenance_before = self.clients['researcher'].get('/api/maintenance/jobs').json['items']
         with patch.dict('os.environ',{'DEEPSEEK_API_KEY':''}):
             for minute in range(4):
                 stamp=f'2026-10-28T12:0{minute}:00+00:00'
                 with patch('platform_app.store.now',return_value=stamp),patch('platform_app.ai_gateway.now',return_value=stamp):
                     run_pending(self.app.config['DATA_DIR'],limit=1,scan_limit=1)
         state=self.clients['admin'].get('/api/admin/ai').json
-        self.assertEqual(state['task_counts'],{'paused':4,'queued':2})
+        self.assertEqual(state['task_counts'],{'paused':4})
         self.assertEqual(state['attempts'],[])
+        self.assertEqual({task['task'] for task in state['tasks']}, {'translation', 'classification'})
+        maintain_pending(self.app.config['DATA_DIR'], limit=0)
+        maintenance_after = self.clients['researcher'].get('/api/maintenance/jobs').json['items']
+        self.assertEqual([j['id'] for j in maintenance_after], [j['id'] for j in maintenance_before])
+        self.assertTrue(maintenance_after)
+        self.assertTrue(all(j['status'] == 'queued' and not j['steps'] for j in maintenance_after))
 
     def test_supplier_deadline_releases_worker_and_after_reconciliation_tasks_continue(self):
         import threading, ssl, time

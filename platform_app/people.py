@@ -2,6 +2,7 @@
 import hashlib
 import io
 import json
+import re
 import sqlite3
 import uuid
 import warnings
@@ -71,14 +72,17 @@ def migrate(data_dir):
 
 def values(data, base=None):
     result = {}
-    for key in FIELDS:
-        value = data.get(key, base[key] if base else "")
+    for key in FIELDS + ["orcid"]:
+        value = data.get(key, dict(base).get(key, "") if base else "")
         limit = 500000 if key == "introduction_html" else 40000 if key in {"sources", "aliases"} else 2000
         if not isinstance(value, str) or len(value) > limit:
             abort(400, "人物字段格式不正确或内容过长。")
         result[key] = value.strip()
     if not result["name"] or not data.get("change_note", "").strip():
         abort(400, "请填写显示姓名及本次维护的依据或说明。")
+    result['orcid'] = re.sub(r'^https?://orcid\.org/', '', result['orcid']).rstrip('/')
+    if result['orcid'] and not re.fullmatch(r'\d{4}-\d{4}-\d{4}-\d{3}[\dX]', result['orcid']):
+        abort(400, 'ORCID格式不正确。')
     result["introduction_html"], result["introduction_text"] = workflow.clean_rich(result["introduction_html"])
     return result
 

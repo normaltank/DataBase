@@ -84,18 +84,31 @@ def cost(tokens, price=None):
     return int(tokens.to_integral_value(rounding=ROUND_CEILING))
 
 
+def bounded_web_unknown(attempt):
+    """An ended Search/Fetch request has its full maximum charge held already."""
+    if attempt['status']!='unknown' or not attempt['finished_at']:return False
+    try:
+        config=json.loads(attempt['config_json']);metering=config.get('metering')
+        return (isinstance(metering,dict) and set(metering)=={'kind','per_success_units'}
+                and metering['kind'] in {'deepseek-search','deepseek-fetch'} and metering['per_success_units']==5000
+                and attempt['currency']=='CNY' and attempt['reserved_units']==5000
+                and attempt['output_bound']==1 and config.get('max_tokens')==1)
+    except (ValueError,TypeError,AttributeError):return False
+
+
 def reserve(db, scope, task, payload, config):
     local_policy(db, config)
     price = config['pricing']
     serialized = json.dumps(payload, ensure_ascii=True).encode()
-    input_hash = hashlib.sha256(json.dumps({'messages':payload['messages'],'response_format':payload.get('response_format')},ensure_ascii=True,sort_keys=True).encode()).hexdigest()
+    hash_payload = payload if 'tools' in payload or 'tool' in payload else {'messages':payload['messages'],'response_format':payload.get('response_format')}
+    input_hash = hashlib.sha256(json.dumps(hash_payload,ensure_ascii=True,sort_keys=True).encode()).hexdigest()
     # Each UTF-8 byte can conservatively represent one token; include provider chat framing.
     bound = len(serialized) + 1024
     if bound + payload['max_tokens'] > 128000:
         raise ValueError('AI输入超过安全上界；原始材料仍可阅读。')
     output = payload['max_tokens']
     worst = max(Decimal(price['input_cache_hit_per_million']), Decimal(price['input_cache_miss_per_million']))
-    reserved = cost(Decimal(bound) * worst + Decimal(output) * Decimal(price['output_per_million']), price)
+    reserved = config['metering']['per_success_units'] if config.get('metering') else cost(Decimal(bound) * worst + Decimal(output) * Decimal(price['output_per_million']), price)
     if reserved <= 0:
         raise ValueError('AI价格必须支持非零保守预留。')
     month = now()[:7]  # UTC month; frozen on every attempt.
@@ -106,7 +119,8 @@ def reserve(db, scope, task, payload, config):
         legacy = db.execute("SELECT value FROM settings WHERE key='ai_legacy_unknown'").fetchone()
         if (pause and pause[0]=='1') or (legacy and int(legacy[0])>0):
             raise AIBlocked('paused','AI暂停：管理员暂停或旧调用费用待核对。')
-        if db.execute("SELECT 1 FROM ai_attempts WHERE status='unknown'").fetchone():
+        active=list(db.execute("SELECT * FROM ai_attempts WHERE status IN ('sent','unknown')"))
+        if any(row['status']=='unknown' and not bounded_web_unknown(row) for row in active):
             raise AIBlocked('unknown_cost','AI暂停：存在费用未知调用，请管理员核对。')
         rows = db.execute('SELECT * FROM ai_attempts WHERE scope=? AND task=? AND input_hash=? ORDER BY rowid', (scope,task,input_hash)).fetchall()
         if any(r['status'] in {'sent','unknown'} for r in rows):
@@ -121,7 +135,7 @@ def reserve(db, scope, task, payload, config):
             raise AIBlocked('retry_limit','该输入已达到三次供应商调用上限。')
         if round_count and datetime.fromisoformat(now()) < datetime.fromisoformat(rows[-1]['finished_at']) + timedelta(seconds=BACKOFF_SECONDS * 2**(round_count-1)):
             raise AIBlocked('backoff','该输入正在有界退避，请稍后处理。')
-        if db.execute("SELECT COUNT(*) FROM ai_attempts WHERE status IN ('sent','unknown')").fetchone()[0] >= MAX_CONCURRENT:
+        if sum(not bounded_web_unknown(row) for row in active) >= MAX_CONCURRENT:
             raise AIBlocked('capacity','AI全局并发或未知费用占用已满。')
         monthly = list(db.execute('SELECT * FROM ai_attempts WHERE month=?', (month,)).fetchall())
         monthly += [dict(json.loads(r[0]),status='settled',reserved_units=0) for r in db.execute("SELECT details_json FROM ai_events WHERE action='legacy_resolve'") if json.loads(r[0]).get('month')==month]
@@ -220,7 +234,7 @@ def runtime_configuration():
     return key, endpoint, model, config
 
 
-def request_json(db, *, scope, task, messages, validate, authorized, max_tokens=6000):
+def request_json(db, *, scope, task, messages, validate, authorized, max_tokens=6000, _tools=None):
     """Stable shared AI boundary for explicit and automatic processors.
 
     scope is a stable record/material identity, task includes the processing-rule version.
@@ -241,10 +255,16 @@ def request_json(db, *, scope, task, messages, validate, authorized, max_tokens=
     except ValueError as failure:
         raise AIBlocked('configuration',str(failure)) from None
     config={**config,'max_tokens':max_tokens}
-    if not isinstance(messages,list) or not messages or any(not isinstance(m,dict) or set(m)!={'role','content'} or m['role'] not in {'system','user','assistant'} or not isinstance(m['content'],str) for m in messages):
-        raise ValueError('AI输入格式无效。')
-    payload={'model':model,'thinking':config['thinking'],'temperature':0,'max_tokens':max_tokens,
-             'response_format':{'type':'json_object'},'messages':messages}
+    if _tools is None:
+        if not isinstance(messages,list) or not messages or any(not isinstance(m,dict) or set(m)!={'role','content'} or m['role'] not in {'system','user','assistant'} or not isinstance(m['content'],str) for m in messages):
+            raise ValueError('AI输入格式无效。')
+    else:
+        validate_tool_messages(messages, _tools)
+    payload={'model':model,'thinking':{'type':'disabled'},'temperature':0,'max_tokens':max_tokens,'messages':messages}
+    if _tools is None:
+        payload['response_format']={'type':'json_object'}
+    else:
+        payload.update(tools=_tools, tool_choice='auto')
     # Construct before reservation: construction failures are known not sent.
     request=urllib.request.Request(endpoint+'/chat/completions',data=json.dumps(payload,ensure_ascii=True).encode(),
         headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},method='POST')
@@ -296,12 +316,15 @@ def request_json(db, *, scope, task, messages, validate, authorized, max_tokens=
                 evidence['usage_state']='reported'
             choice=data['choices'][0]
             evidence['finish_reason']=label(choice.get('finish_reason'))
-            if choice.get('finish_reason')!='stop':
+            if choice.get('finish_reason') not in ({'stop','tool_calls'} if _tools is not None else {'stop'}):
                 raise ValueError()
-            content=choice['message']['content']
-            if not isinstance(content,str) or key in content:
-                raise ValueError()
-            output=validate(json.loads(content))
+            if _tools is not None:
+                output=validate_tool_response(choice['message'], _tools)
+            else:
+                content=choice['message']['content']
+                if not isinstance(content,str) or key in content:
+                    raise ValueError()
+                output=validate(json.loads(content))
             if not isinstance(output,dict) or not output or key in json.dumps(output,ensure_ascii=False):
                 raise ValueError()
     except urllib.error.HTTPError as failure:
@@ -351,7 +374,7 @@ def summary(db):
     if paused and paused[0]=='1': reasons.append('管理员已暂停')
     if not policy: reasons.append('尚未设置有效月额度及币种')
     if legacy and int(legacy[0]): reasons.append('升级前运行中的旧调用费用待核对')
-    if any(r['status']=='unknown' for r in rows): reasons.append('存在费用未知调用，保留占用并暂停新调用')
+    if any(r['status']=='unknown' and not bounded_web_unknown(r) for r in rows): reasons.append('存在费用未知调用，保留占用并暂停新调用')
     try:
         _,_,_,config=runtime_configuration()
         local_policy(db,config)
@@ -533,7 +556,8 @@ def validate_backup(db):
                 raise ValueError()
             rates=[Decimal(price[k]) for k in ['input_cache_hit_per_million','input_cache_miss_per_million','output_per_million']]
             if any(not value.is_finite() or value<0 for value in rates): raise ValueError()
-            expected=cost(Decimal(row['input_bound'])*max(rates[:2])+Decimal(row['output_bound'])*rates[2])
+            expected=config['metering']['per_success_units'] if config.get('metering') else cost(Decimal(row['input_bound'])*max(rates[:2])+Decimal(row['output_bound'])*rates[2])
+            if config.get('metering') and (set(config['metering'])!={'kind','per_success_units'} or config['metering']['per_success_units']!=5000 or config['metering']['kind'] not in {'deepseek-search','deepseek-fetch'} or row['currency']!='CNY'): raise ValueError()
             if row['reserved_units']!=expected: raise ValueError()
             if row['finished_at'] and datetime.fromisoformat(row['finished_at']).utcoffset()!=timedelta(0): raise ValueError()
             if row['status'] in {'unknown','sent','released'} and (row['charged_units'] or result): raise ValueError()
@@ -542,6 +566,106 @@ def validate_backup(db):
             if resolutions:
                 if row['status']!='settled' or json.loads(resolutions[0]['details_json'])['charged_units']!=row['charged_units'] or result: raise ValueError()
             elif row['charged_units']>row['reserved_units']: raise ValueError()
+            if config.get('metering') and row['status']=='settled' and not resolutions:
+                if type(evidence.get('successful')) is not bool or row['charged_units']!=(5000 if evidence['successful'] else 0):raise ValueError()
             if row['status']=='settled' and not row['finished_at']: raise ValueError()
     except (ValueError,KeyError,TypeError,InvalidOperation,sqlite3.DatabaseError):
         raise ValueError('AI费用账本、预留或操作历史无效。') from None
+
+
+def validate_tool_response(message, tools):
+    names={t['function']['name'] for t in tools}
+    if not isinstance(message,dict) or message.get('role','assistant')!='assistant' or message.get('content') is not None and not isinstance(message.get('content'),str):
+        raise ValueError('工具模型响应格式无效。')
+    calls=message.get('tool_calls',[])
+    if not isinstance(calls,list) or len(calls)>8:
+        raise ValueError('单轮工具调用过多。')
+    seen=set()
+    for call in calls:
+        if not isinstance(call,dict) or call.get('type')!='function' or not isinstance(call.get('id'),str) or not 1<=len(call['id'])<=200 or call['id'] in seen:
+            raise ValueError('工具调用编号无效。')
+        seen.add(call['id'])
+        function=call.get('function',{})
+        if function.get('name') not in names or not isinstance(function.get('arguments'),str) or not isinstance(json.loads(function['arguments']),dict):
+            raise ValueError('工具调用不在授权范围。')
+    return {'role':'assistant','content':message.get('content'),'tool_calls':calls}
+
+
+def validate_tool_messages(messages, tools):
+    if not isinstance(tools,list) or not tools or not isinstance(messages,list) or not messages:
+        raise ValueError('工具请求为空。')
+    pending=set()
+    for message in messages:
+        if not isinstance(message,dict): raise ValueError('工具消息无效。')
+        role=message.get('role')
+        if role=='tool':
+            if set(message)!={'role','tool_call_id','content'} or message['tool_call_id'] not in pending or not isinstance(message['content'],str):
+                raise ValueError('工具结果缺少对应请求。')
+            pending.remove(message['tool_call_id'])
+        elif role=='assistant':
+            if pending: raise ValueError('工具结果尚未返回。')
+            checked=validate_tool_response(message,tools)
+            pending={c['id'] for c in checked['tool_calls']}
+        elif role in {'system','user'} and isinstance(message.get('content'),str) and not pending:
+            pass
+        else: raise ValueError('工具消息角色无效。')
+    if pending: raise ValueError('工具结果尚未返回。')
+
+
+def request_tool_turn(db, *, scope, task, messages, tools, authorized, max_tokens=6000):
+    return request_json(db,scope=scope,task=task,messages=messages,validate=lambda x:x,authorized=authorized,max_tokens=max_tokens,_tools=tools)
+
+
+def request_paid_tool(db, *, scope, task, kind, arguments, authorized):
+    """One Search/Fetch request, charged per successful CNY request in the same ledger."""
+    if db.in_transaction: raise ValueError('付费工具不能在写事务内运行。')
+    if kind not in {'search','fetch'}: raise ValueError('未知付费工具。')
+    try:
+        key,endpoint,model,config=runtime_configuration()
+    except ValueError as failure:
+        raise AIBlocked('configuration',str(failure)) from None
+    if config['pricing'].get('currency')!='CNY':
+        raise AIBlocked('configuration','搜索和网页取得需配置人民币额度。')
+    config={**config,'max_tokens':1,'metering':{'kind':'deepseek-'+kind,'per_success_units':5000}}
+    payload={'messages':[],'max_tokens':1,'tool':kind,'arguments':arguments}
+    if not authorized(): raise AIBlocked('permission','权限已变化。')
+    # Normalise optional /v1 suffix to avoid /v1/v1/tools.
+    url=endpoint.removesuffix('/v1')+'/v1/tools/'+kind
+    request=urllib.request.Request(url,data=json.dumps(arguments).encode(),headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},method='POST')
+    attempt,cached=reserve(db,scope,task,payload,config)
+    if cached:
+        if not authorized():raise AIBlocked('permission','当前权限已变化。')
+        return json.loads(attempt['result_json']),json.loads(attempt['evidence_json'])
+    evidence={'attempt_id':attempt['id'],'kind':kind,'usage_state':'unknown'}
+    output={};known=False;charged=0
+    try:
+        if not authorized():
+            known=True
+            evidence.update(successful=False,usage_state='not_sent')
+            raise AIBlocked('permission','发送前权限已变化。')
+        with Deadline(MAX_SECONDS) as deadline, urllib.request.build_opener(NoRedirect(),*deadline.handlers()).open(request,timeout=min(20,deadline.remaining())) as response:
+            if response.geturl()!=url:raise ValueError()
+            raw=response.read(1024*1024+1);deadline.remaining()
+            if len(raw)>1024*1024:raise ValueError()
+            output=json.loads(raw)
+            if not isinstance(output,dict) or key in json.dumps(output):raise ValueError()
+            if kind=='search':
+                if not isinstance(output.get('results'),list):raise ValueError()
+                success=bool(output['results'])
+            else:
+                if not isinstance(output.get('content'),str):raise ValueError()
+                success=bool(output['content'].strip())
+            charged=5000 if success else 0;known=True
+            evidence.update(http_status=200,successful=success,usage_state='reported')
+    except urllib.error.HTTPError as failure:
+        evidence.update(http_status=failure.code,usage_state='reported',successful=False)
+        failure.close();known=True
+        output={'error':'网页服务返回错误','http_status':evidence['http_status']}
+    except Exception as failure:
+        evidence['error_class']=type(failure).__name__
+    with db:
+        db.execute("UPDATE ai_attempts SET status=?,charged_units=?,evidence_json=?,result_json=?,finished_at=? WHERE id=? AND status='sent'",
+                   ('released' if evidence['usage_state']=='not_sent' else 'settled' if known else 'unknown',charged,json.dumps(evidence),json.dumps(output if known else {}),now(),attempt['id']))
+    if not known:raise AIFailure('网页请求结果未知，保留预留并暂停。',evidence,'unknown_cost')
+    if not authorized():raise AIFailure('取得后权限已变化，结果未使用。',evidence,'permission')
+    return output,evidence

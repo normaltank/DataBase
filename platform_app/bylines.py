@@ -152,7 +152,10 @@ class Bylines:
         return {"type": kind, "id": row["id"], "name": row["name"]}
 
     def present(self, row):
-        return {**dict(row), "target": self.target(row["target_type"], row["target_id"])}
+        latest = self.db.execute("SELECT change_kind FROM byline_changes WHERE byline_id=? ORDER BY id DESC LIMIT 1", (row['id'],)).fetchone()
+        machine = bool(latest and latest[0] == 'ai_maintenance')
+        return {**dict(row), "target": self.target(row["target_type"], row["target_id"]),
+                "machine": machine, "human_checked": row['status'] == 'confirmed' and not machine}
 
     def version(self, rid):
         row = self.db.execute("SELECT version FROM record_byline_state WHERE record_id=?", (rid,)).fetchone()
@@ -251,7 +254,7 @@ class Bylines:
             self.update_in_transaction(rid, data)
         return self.detail(rid)
 
-    def update_in_transaction(self, rid, data):
+    def update_in_transaction(self, rid, data, *, machine=False):
         """Save validated bylines in the owning domain operation's transaction."""
         if not self.db.in_transaction:
             raise RuntimeError("Byline changes require an owning transaction.")
@@ -278,12 +281,12 @@ class Bylines:
                 values["selected_target_id"] = before["selected_target_id"]
             if not before or item.get("reconfirm") or any(values[key] != before[key] for key in FIELDS):
                 self.change(before, values, record=record, note=note,
-                            kind="manual_confirmation" if item.get("reconfirm") else "manual")
+                            kind="ai_maintenance" if machine else "manual_confirmation" if item.get("reconfirm") else "manual")
             if bid:
                 seen.add(bid)
         for bid, row in existing.items():
             if bid not in seen and not row["removed_at"]:
-                self.change(row, {"removed_at": now()}, note=note)
+                self.change(row, {"removed_at": now()}, note=note, kind="ai_maintenance" if machine else "manual")
         self.bump(rid)
 
     def initialize(self, rid, items, note):

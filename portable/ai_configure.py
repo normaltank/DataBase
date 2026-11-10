@@ -11,7 +11,7 @@ def prompt_configuration(settings, data, *, read=input, secret_reader=None):
     secret_reader = secret_reader or hidden_input
     print('本机 AI 设置（DeepSeek）：默认暂停。配置不会发送模型请求。', flush=True)
     print('密钥隐藏输入，不显示字符或星号；按回车继续，Ctrl+C取消。', flush=True)
-    print('仅处理已明确启用的来源与已排任务；机器建议仍需人工采用。', flush=True)
+    print('启用后自动维护新旧公共外部资料与档案，有据结果直接保存；采集仍限已启用来源。', flush=True)
     try:
         key = secret_reader('DeepSeek API密钥：')
         model = read('模型 [deepseek-flash]：').strip() or 'deepseek-flash'
@@ -56,8 +56,8 @@ def enable(settings, data, *, read=input):
     policy = json.loads(policy_row[0]) if policy_row else {}
     if policy.get('currency') != 'CNY' or Decimal(policy.get('cap', '0')) <= 0:
         raise ValueError('数据库当前预算无效或为0；请先设置正数CNY月预算。本机保存预算也为0时，须重新运行 ai-configure.bat。')
-    print(f"将启用本包既有采集／自动中文／档案队列，模型 {value['model']}，当前CNY月预算 {policy['cap']}。", flush=True)
-    print('只处理已启用来源和已排任务；所有AI调用使用统一预算网关。', flush=True)
+    print(f"将启用本包采集、自动中文与AI自主维护，模型 {value['model']}，当前CNY月预算 {policy['cap']}。", flush=True)
+    print('采集仅限已启用来源；AI自动维护新旧公共外部资料与档案，所有AI调用使用统一预算网关。', flush=True)
     try:
         if read('输入 ENABLE 明确允许联网及按预算付费；其他输入取消：').strip() != 'ENABLE':
             print('已取消启用。', flush=True)

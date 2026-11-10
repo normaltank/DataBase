@@ -10,7 +10,7 @@ import zipfile
 from build_portable import download, digest
 
 ROOT = Path(__file__).resolve().parents[1]
-DIRS = {'platform_app', 'static', 'templates', 'server', 'tests', 'portable'}
+DIRS = {'platform_app', 'static', 'templates', 'server', 'tests', 'portable', 'frontend'}
 FILES = {'app.py', 'requirements.txt', 'requirements-test.txt', 'PRODUCT.md', 'GLOSSARY.md', 'README.md',
          'docs/server-deployment.md', 'docs/portable-preview.md', 'docs/project-showcase.html',
          'portable/__init__.py', 'portable/demo_seed.py', 'portable/public_batch.py',

@@ -1,6 +1,6 @@
 # 项目文档目录
 
-整理日期：2026-11-08。本页按用途导航，不另建任务台账；待办与依赖以 [GitHub Issues](https://github.com/normaltank/DataBase/issues) 为准。文档职责与归档方法见 [写作约定](agents/documentation.md)。
+整理日期：2026-11-09。本页按用途导航，不另建任务台账；待办与依赖以 [GitHub Issues](https://github.com/normaltank/DataBase/issues) 为准。文档职责与归档方法见 [写作约定](agents/documentation.md)。
 
 ## 当前入口
 
@@ -20,6 +20,14 @@
 | 便携试用、校园网与服务器操作 | [便携说明](portable-preview.md) · [服务器说明](server-deployment.md) |
 | 用户决定及历史答复 | [需求讨论记录](需求讨论记录.md) |
 | 长期研究方向与分期建议 | [长期愿景](长期研究愿景与演进路线.md) |
+
+## 直观协作与维护工作台
+
+2026-11-09 [规格2.0](specs/直观协作与维护工作台.md)按用户“整合成果、完成适配”的授权冻结；2.0已实现，实际集成、检查与交付状态见[#134](https://github.com/normaltank/DataBase/issues/134)及[PR #135](https://github.com/normaltank/DataBase/pull/135)。当前实现把国别地球、时间刷选、主体关系、协作版本和维护轨迹接到同一本地应用及真实有权数据。任务唯一台账为[#134](https://github.com/normaltank/DataBase/issues/134)。[研究员交互调研](../work/研究员交互技术实例调研-2026-11-09.md)、[维护交互调研](../work/维护交互与支撑技术实例调研-2026-11-09.md)及[空间可视化接入核查](../work/空间可视化接入核查-2026-11-09.md)保留各自基线和实测边界；当前接入事实见[施工说明](施工说明.md#同一本地应用的空间探索与协作维护2026-11-0920分支实现)，操作与开发构建见[使用说明](../README.md#地图关联探索与资料比较)及[前端合同](../frontend/README.md)。规格1.0的局部交付保留历史身份。
+
+## 资料发现与关联阅读
+
+2026-11-08 本轮按[固定规格1.0](https://github.com/normaltank/DataBase/blob/13895ecdc755eaef937dc90c94e8a59a7eea3aee/docs/specs/资料发现与关联阅读.md)实现资料列表的地图与时间、阅读处的一跳关联、已选2–3篇比较；实际入口见[使用说明](../README.md#地图关联探索与资料比较)，实现边界见[施工说明](施工说明.md#资料发现与关联阅读2026-11-08本轮实现)。统一审查与交付状态以[父任务 #122](https://github.com/normaltank/DataBase/issues/122)／[PR #126](https://github.com/normaltank/DataBase/pull/126)为准；本轮尚未更新现用便携副本或真实资料库。
 
 ## 期刊成果归档与三刊公开采集
 
@@ -43,7 +51,7 @@
 
 ## 档案筛选与 AI 辅助维护
 
-[规格 1.0](specs/档案筛选与AI辅助维护.md)及 [R025](需求讨论记录.md#r025档案筛选与ai辅助维护)记录2026-11-02确认的国名／档案筛选、官网取证与来源建议、作者候选及人工采用。作者建议[#64](https://github.com/normaltank/DataBase/issues/64)、国家筛选[#92](https://github.com/normaltank/DataBase/issues/92)与来源建议[#93](https://github.com/normaltank/DataBase/issues/93)已由[PR #94](https://github.com/normaltank/DataBase/pull/94)交付；父任务[#46](https://github.com/normaltank/DataBase/issues/46)保留其他未完成范围。本轮收紧旧版明确依据自动正式关联许可，当前规则见 [PRODUCT](../PRODUCT.md#有据档案建议与人工采用2026-11-02-已确认)；旧规格及讨论保留历史身份；源码部署包已由[PR #99](https://github.com/normaltank/DataBase/pull/99)交付，实际服务器安装与运行结果按对应部署证据判断。
+[规格 1.0](specs/档案筛选与AI辅助维护.md)及 [R025](需求讨论记录.md#r025档案筛选与ai辅助维护)记录2026-11-02确认的国名／档案筛选、官网取证与来源建议、作者候选及人工采用。作者建议[#64](https://github.com/normaltank/DataBase/issues/64)、国家筛选[#92](https://github.com/normaltank/DataBase/issues/92)与来源建议[#93](https://github.com/normaltank/DataBase/issues/93)已由[PR #94](https://github.com/normaltank/DataBase/pull/94)交付；父任务[#46](https://github.com/normaltank/DataBase/issues/46)保留其他未完成范围。2026-11-02曾收紧旧版明确依据自动正式关联许可；该人工采用前置已于2026-11-09由 [PRODUCT 的自主维护规则](../PRODUCT.md#ai-自主维护与反馈纠错2026-11-09-已确认)替代。旧规格及讨论保留历史身份；源码部署包已由[PR #99](https://github.com/normaltank/DataBase/pull/99)交付，实际服务器安装与运行结果按对应部署证据判断。
 
 ## 研究资料质量与辅助整理
 

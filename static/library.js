@@ -4,7 +4,7 @@
 const libraryWorkspace={view:'list',items:[],page:1,total:0,size:20,readerId:null,readerRecord:null,readerEpoch:0,returnFocus:null,returnY:0,account:null,context:null,selected:new Set(),organizing:false,batch:null};
 const librarySelectionLimit=100;
 const libraryReaderMedia=matchMedia('(max-width:1199px)');
-window.librarySelection=Object.freeze({ids:()=>[...libraryWorkspace.selected],count:()=>libraryWorkspace.selected.size,clear:message=>libraryClearSelection(message),limit:librarySelectionLimit});
+window.librarySelection=Object.freeze({ids:()=>[...libraryWorkspace.selected],count:()=>libraryWorkspace.selected.size,clear:message=>libraryClearSelection(message),remove:id=>{libraryWorkspace.selected.delete(id);librarySelectionChanged();},limit:librarySelectionLimit});
 document.addEventListener('records:favorite-change',event=>{
   const ids=new Set(event.detail.ids),saved=event.detail.saved;
   for(const record of libraryWorkspace.items)if(ids.has(record.id))record.favorite=saved;
@@ -165,7 +165,7 @@ async function libraryWorkspacePage() {
   const query=recordQuery();if(!query.has('size'))query.set('size','20');
   const data=await api('/api/records?'+query);
   if(account!==state.me?.id||loadId!==state.loadId)throw new Error('资料查找已更新。');
-  Object.assign(libraryWorkspace,{items:data.items,page:data.page,total:data.total,size:data.size,readingConfirmation:data.reading_confirmation});
+  Object.assign(libraryWorkspace,{items:data.items,page:data.page,total:data.total,size:data.size,readingConfirmation:data.reading_confirmation,resultSignature:JSON.stringify(data)});
   const root=document.createElement('div');root.innerHTML=await uxLibraryPage(data);
   const library=root.firstElementChild;
   library.classList.add('library-workspace');library.dataset.view=libraryWorkspace.view;
@@ -204,6 +204,48 @@ function libraryAfterRender() {
   librarySelectionChanged();
   document.dispatchEvent(new CustomEvent('library:rendered',{detail:{root:document.querySelector('.library-workspace'),items:libraryWorkspace.items}}));
 }
+// Refresh the current authorized result representation without rebuilding its
+// filters, discovery scene or reader. Existing rows retain their native state.
+function libraryRefreshResults(root,data){
+  const list=root.querySelector('.record-list'),focus=document.activeElement,restoreFocus=list.contains(focus),scroll=list.scrollTop,y=window.scrollY;
+  const previous=new Map(libraryWorkspace.items.map(record=>[record.id,record]));
+  const rows=new Map([...list.children].filter(row=>row.dataset.libraryRecord).map(row=>[row.dataset.libraryRecord,row]));
+  Object.assign(libraryWorkspace,{items:data.items,page:data.page,total:data.total,size:data.size,readingConfirmation:data.reading_confirmation,resultSignature:JSON.stringify(data)});
+  const template=document.createElement('template');template.innerHTML=libraryResultsHTML();
+  const desired=[...template.content.children];
+  desired.forEach((next,index)=>{
+    const id=next.dataset.libraryRecord,old=rows.get(id),record=data.items[index];
+    const row=old&&JSON.stringify(previous.get(id))===JSON.stringify(record)?old:next;
+    if(list.children[index]!==row)list.insertBefore(row,list.children[index]||null);
+  });
+  while(list.children.length>desired.length)list.lastElementChild.remove();
+  const total=root.querySelector('.results-head > span strong');if(total)total.textContent=data.total;
+  const native=document.createElement('template');native.innerHTML=readingLibraryHTML(data);
+  const pager=root.querySelector('.pagination'),nextPager=native.content.querySelector('.pagination');
+  if(pager&&nextPager)for(let index=0;index<pager.children.length;index++){
+    const control=pager.children[index],next=nextPager.children[index];control.textContent=next.textContent;
+    if(control.tagName==='BUTTON'){control.disabled=next.disabled;control.dataset.id=next.dataset.id;}
+  }
+  const nextFacets=[...native.content.querySelectorAll('.reading-facet-options')];
+  for(const [index,options] of [...root.querySelectorAll('[data-reading-filters] .reading-facet-options')].entries()){
+    const nextOptions=nextFacets[index];
+    if(!nextOptions)continue;
+    const labels=new Map([...nextOptions.querySelectorAll('label')].map(label=>[label.querySelector('input').value,label]));
+    for(const label of options.querySelectorAll('label')){const value=label.querySelector('input').value,next=labels.get(value);label.querySelector('small').textContent=next?.querySelector('small').textContent||'0';labels.delete(value);}
+    if(labels.size)options.querySelector('p')?.remove();
+    for(const label of labels.values())options.append(label);
+  }
+  const reader=root.querySelector('.library-reader'),index=data.items.findIndex(record=>record.id===libraryWorkspace.readerId);
+  if(reader&&!reader.hidden){
+    const prev=reader.querySelector('[data-action="library-reader-prev"]'),next=reader.querySelector('[data-action="library-reader-next"]'),position=reader.querySelector('.library-reader-head > p');
+    if(prev)prev.disabled=index<=0;if(next)next.disabled=index<0||index>=data.items.length-1;
+    if(position)position.textContent=index<0?'当前资料不在本页结果中':'本页第 '+(index+1)+' / '+data.items.length+' 条';
+    for(const row of list.querySelectorAll('[data-library-record]'))row.classList.toggle('library-current',row.dataset.libraryRecord===libraryWorkspace.readerId);
+  }
+  librarySelectionChanged();list.scrollTop=scroll;
+  if(restoreFocus&&!focus.isConnected){const id=focus.dataset.id||focus.dataset.librarySelect;const target=[...list.querySelectorAll('[data-action],[data-library-select]')].find(control=>(control.dataset.id||control.dataset.librarySelect)===id&&control.dataset.action===focus.dataset.action);target?.focus({preventScroll:true});}
+  window.scrollTo(0,y);
+}
 let libraryPermissionCheck=false;
 function libraryReaderBackground(blocked){
   const sidebar=document.querySelector('.sidebar');
@@ -216,29 +258,37 @@ function libraryReaderBackground(blocked){
 async function libraryCheckPermissions() {
   if(libraryPermissionCheck||!state.me||!document.querySelector('.library-workspace')||document.querySelector('#modal-root .overlay'))return;
   libraryPermissionCheck=true;
-  const account=state.me.id,hash=location.hash,readerId=libraryWorkspace.readerId;
+  const account=state.me.id,hash=location.hash,readerId=libraryWorkspace.readerId,loadId=state.loadId,root=document.querySelector('.library-workspace');
+  const current=()=>account===state.me?.id&&hash===location.hash&&loadId===state.loadId&&root.isConnected;
   try{
     const session=await api('/api/session');
-    if(session.user?.id!==account){libraryResetAccount();state.me=session.user;state.csrf=session.csrf;closeModal();if(state.me)await loadLookups();await route();return;}
+    if(!current())return;
+    if(session.user?.id!==account){libraryResetAccount();root.remove();state.me=session.user;state.csrf=session.csrf;closeModal();if(state.me)await loadLookups();await route();return;}
     const ids=[...new Set([...libraryWorkspace.selected,...(readerId?[readerId]:[])])];
     let removed=false,readerAllowed=true;
     for(const id of ids){
       try{await api('/api/records/'+encodeURIComponent(id));}
-      catch(error){if(error.status!==404&&error.status!==403)throw error;removed=libraryWorkspace.selected.delete(id)||removed;if(id===readerId)readerAllowed=false;}
-      if(account!==state.me?.id||hash!==location.hash)return;
-    }
-    const data=await api('/api/records?'+recordQuery());
-    if(account!==state.me?.id||hash!==location.hash)return;
-    const changed=data.items.length!==libraryWorkspace.items.length||data.items.some((record,index)=>record.id!==libraryWorkspace.items[index]?.id||record.version!==libraryWorkspace.items[index]?.version);
-    if(changed||!readerAllowed){
-      await route();
-      if(readerId&&readerAllowed&&libraryWorkspace.items.some(record=>record.id===readerId)){
-        const origin=[...document.querySelectorAll('.record-title [data-action="detail"]')].find(button=>button.dataset.id===readerId);
-        await libraryOpenReader(readerId,origin);
+      catch(error){
+        if(!current())return;
+        if(error.status!==404&&error.status!==403)throw error;
+        removed=libraryWorkspace.selected.delete(id)||removed;
+        // A confirmed denial takes effect even if the following collection read fails.
+        if(id===readerId)readerAllowed=false;
+        if(libraryWorkspace.readerId===id)libraryCloseReader(false);
+        libraryWorkspace.items=libraryWorkspace.items.filter(record=>record.id!==id);
+        for(const row of root.querySelectorAll('[data-library-record]'))if(row.dataset.libraryRecord===id)row.remove();
+        librarySelectionChanged();
       }
+      if(!current())return;
     }
+    const query=recordQuery();if(!query.has('size'))query.set('size',String(libraryWorkspace.size));
+    const data=await api('/api/records?'+query);
+    if(!current())return;
+    const changed=JSON.stringify(data)!==libraryWorkspace.resultSignature;
+    if(!readerAllowed&&libraryWorkspace.readerId===readerId)libraryCloseReader(false);
+    if(changed)libraryRefreshResults(root,data);
     if(removed){librarySelectionChanged();toast('资料访问范围已更新，已清空选择中的失效条目。');}
-  }catch(error){if(account===state.me?.id&&hash===location.hash){libraryCloseReader(false);libraryClearSelection();toast(error.message);}}
+  }catch(error){if(current()){if([401,403,404].includes(error.status)){libraryCloseReader(false);libraryClearSelection();await route();}toast(error.message);}}
   finally{libraryPermissionCheck=false;}
 }
 window.addEventListener('focus',()=>{libraryCheckPermissions().catch(error=>toast(error.message));});

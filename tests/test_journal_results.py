@@ -208,13 +208,16 @@ class JournalResultsTests(unittest.TestCase):
         before = self.clients['researcher'].get(path).json
         with closing(connect(self.data_dir/'platform.sqlite3')) as db,db:
             old_records = [tuple(r) for r in db.execute('SELECT * FROM records ORDER BY id')]
+            for table in ['maintenance_evidence','maintenance_steps','maintenance_jobs']:
+                db.execute('DROP TABLE '+table)
+            db.execute('ALTER TABLE people DROP COLUMN orcid')
             for table in ['journal_result_requests','journal_result_events','journal_result_versions','journal_result_series','journal_results']:
                 db.execute('DROP TABLE '+table)
             db.execute("UPDATE settings SET value='27' WHERE key='schema_version'")
         app = create_app(self.data_dir,testing=True,embedded_worker=False)
         reader = self.login('researcher',app)
         colleague = self.login('colleague',app)
-        self.assertEqual(reader.get('/health').json['schema'],28)
+        self.assertEqual(reader.get('/health').json['schema'],29)
         self.assertEqual(reader.get(path).json,before)
         self.assertEqual(colleague.get(path).status_code,404)
         with closing(connect(self.data_dir/'platform.sqlite3')) as db:

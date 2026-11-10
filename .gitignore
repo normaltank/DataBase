@@ -38,6 +38,7 @@ Thumbs.db
 
 # Generated acceptance data, exports, screenshots and rendered documents
 tests/artifacts/
+.impeccable/review/
 docs/*.png
 docs/*.jpg
 docs/*.jpeg

@@ -8,6 +8,23 @@ permissions:
   contents: read
 
 jobs:
+  visual_assets:
+    name: Reproducible local visual assets
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Install exact visual dependencies
+        working-directory: frontend
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Verify full and single-entry generated assets
+        run: |
+          node frontend/build.mjs
+          git diff --exit-code -- static/vendor/visual
+          node frontend/build.mjs --entry globe
+          git diff --exit-code -- static/vendor/visual
   native_release:
     name: Source ZIP / Python 3.14 / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -77,7 +94,7 @@ jobs:
         run: python scripts/check.py
 
   windows_one:
-    name: Python 3.12 / windows-latest / shard 1 of 2
+    name: Python 3.12 / windows-latest / shard 1 of 3
     runs-on: windows-latest
     timeout-minutes: 40
     outputs:
@@ -92,11 +109,11 @@ jobs:
           python-version: "3.12"
       - name: Install application dependencies
         run: python -m pip install -r requirements-test.txt
-      - name: Verify complete discovery and both shard memberships
+      - name: Verify complete discovery and all three shard memberships
         id: plan
         shell: pwsh
         run: |
-          $raw = python scripts/check.py --shard-count 2 --plan
+          $raw = python scripts/check.py --shard-count 3 --plan
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $plan = $raw | ConvertFrom-Json
           "plan_digest=$($plan.plan_digest)" >> $env:GITHUB_OUTPUT
@@ -104,10 +121,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           "checked_sha=$sha" >> $env:GITHUB_OUTPUT
       - name: Check syntax and synthetic shard 1
-        run: python scripts/check.py --shard-index 1 --shard-count 2 --expected-plan-digest '${{ steps.plan.outputs.plan_digest }}'
+        run: python scripts/check.py --shard-index 1 --shard-count 3 --expected-plan-digest '${{ steps.plan.outputs.plan_digest }}'
 
   windows_two:
-    name: Python 3.12 / windows-latest / shard 2 of 2
+    name: Python 3.12 / windows-latest / shard 2 of 3
     runs-on: windows-latest
     timeout-minutes: 40
     outputs:
@@ -122,11 +139,11 @@ jobs:
           python-version: "3.12"
       - name: Install application dependencies
         run: python -m pip install -r requirements-test.txt
-      - name: Verify complete discovery and both shard memberships
+      - name: Verify complete discovery and all three shard memberships
         id: plan
         shell: pwsh
         run: |
-          $raw = python scripts/check.py --shard-count 2 --plan
+          $raw = python scripts/check.py --shard-count 3 --plan
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $plan = $raw | ConvertFrom-Json
           "plan_digest=$($plan.plan_digest)" >> $env:GITHUB_OUTPUT
@@ -134,32 +151,66 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           "checked_sha=$sha" >> $env:GITHUB_OUTPUT
       - name: Check syntax and synthetic shard 2
-        run: python scripts/check.py --shard-index 2 --shard-count 2 --expected-plan-digest '${{ steps.plan.outputs.plan_digest }}'
+        run: python scripts/check.py --shard-index 2 --shard-count 3 --expected-plan-digest '${{ steps.plan.outputs.plan_digest }}'
+
+  windows_three:
+    name: Python 3.12 / windows-latest / shard 3 of 3
+    runs-on: windows-latest
+    timeout-minutes: 40
+    outputs:
+      plan_digest: ${{ steps.plan.outputs.plan_digest }}
+      checked_sha: ${{ steps.plan.outputs.checked_sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Install application dependencies
+        run: python -m pip install -r requirements-test.txt
+      - name: Verify complete discovery and all three shard memberships
+        id: plan
+        shell: pwsh
+        run: |
+          $raw = python scripts/check.py --shard-count 3 --plan
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $plan = $raw | ConvertFrom-Json
+          "plan_digest=$($plan.plan_digest)" >> $env:GITHUB_OUTPUT
+          $sha = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "checked_sha=$sha" >> $env:GITHUB_OUTPUT
+      - name: Check syntax and synthetic shard 3
+        run: python scripts/check.py --shard-index 3 --shard-count 3 --expected-plan-digest '${{ steps.plan.outputs.plan_digest }}'
 
   windows_gate:
     name: Python 3.12 / windows-latest
     runs-on: ubuntu-latest
     timeout-minutes: 2
-    needs: [windows_one, windows_two]
+    needs: [windows_one, windows_two, windows_three]
     if: ${{ always() }}
     steps:
-      - name: Require both shards and the same complete coverage plan
+      - name: Require all three shards and the same complete coverage plan
         shell: python
         env:
           SHARD_ONE_RESULT: ${{ needs.windows_one.result }}
           SHARD_TWO_RESULT: ${{ needs.windows_two.result }}
+          SHARD_THREE_RESULT: ${{ needs.windows_three.result }}
           PLAN_ONE: ${{ needs.windows_one.outputs.plan_digest }}
           PLAN_TWO: ${{ needs.windows_two.outputs.plan_digest }}
+          PLAN_THREE: ${{ needs.windows_three.outputs.plan_digest }}
           SHA_ONE: ${{ needs.windows_one.outputs.checked_sha }}
           SHA_TWO: ${{ needs.windows_two.outputs.checked_sha }}
+          SHA_THREE: ${{ needs.windows_three.outputs.checked_sha }}
           EXPECTED_SHA: ${{ github.sha }}
         run: |
           import os
-          results = [os.environ['SHARD_ONE_RESULT'], os.environ['SHARD_TWO_RESULT']]
-          first, second = os.environ['PLAN_ONE'], os.environ['PLAN_TWO']
+          results = [os.environ[f'SHARD_{index}_RESULT'] for index in ('ONE', 'TWO', 'THREE')]
+          plans = [os.environ[f'PLAN_{index}'] for index in ('ONE', 'TWO', 'THREE')]
+          same_plan = bool(plans[0]) and len(set(plans)) == 1
           expected = os.environ['EXPECTED_SHA']
-          same_head = bool(expected) and os.environ['SHA_ONE'] == os.environ['SHA_TWO'] == expected
-          allowed = results == ['success', 'success'] and bool(first) and first == second and same_head
-          print(f"Windows shards: {results}; identical nonempty coverage plans: {bool(first) and first == second}")
-          print(f"Both checked the expected commit: {same_head}")
+          same_head = bool(expected) and all(os.environ[f'SHA_{index}'] == expected for index in ('ONE', 'TWO', 'THREE'))
+          allowed = results == ['success'] * 3 and same_plan and same_head
+          print(f"Windows shards: {results}; identical nonempty coverage plans: {same_plan}")
+          print(f"All three checked the expected commit: {same_head}")
           raise SystemExit(0 if allowed else 1)

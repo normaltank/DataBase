@@ -29,6 +29,16 @@ class ReviewRegressionTests(unittest.TestCase):
         fetch = patch('platform_app.intake.fetch_document', side_effect=lambda url, *a, **k:
             {'url': url, 'content_type': 'text/html', 'bytes': page.encode(), 'text': page})
         def reply(db, **kw):
+            if kw.get('_tools'):
+                goal = json.loads(kw['messages'][1]['content'])['goal']
+                kind = 'record' if 'bylines' in goal else 'person' if 'employments' in goal else 'source'
+                name, args = ('finish', {'reason': '暂无补充资料。'}) if any(m['role']=='tool' for m in kw['messages']) else ('read', {'target_type': kind, 'id': goal['id']})
+                message = {'role': 'assistant', 'content': None, 'tool_calls': [{'id': 'synthetic-' + name,
+                    'type': 'function', 'function': {'name': name, 'arguments': json.dumps(args)}}]}
+                # Native turns use the provider protocol rather than the old
+                # candidate-only JSON response consumed below.
+                from platform_app.ai_gateway import validate_tool_response
+                return validate_tool_response(message, kw['_tools']), {'synthetic': True}
             value = json.loads(kw['messages'][-1]['content'])
             return kw['validate']({'suggestions': suggestions(value)}), {'synthetic': True}
         gateway = patch('platform_app.ai_gateway.request_json', side_effect=reply)
@@ -122,7 +132,10 @@ class ReviewRegressionTests(unittest.TestCase):
         self.assertFalse(worker.status()['public_collection']['enabled'])
         states = [self.get('/api/people/'+pid+'/profile-suggestions') for pid in ids]
         self.assertEqual([s['jobs'][0]['status'] for s in states], ['empty', 'empty'])
-        self.assertEqual(gateway.call_count, 2)
+        self.assertEqual(sum(not call.kwargs.get('_tools') for call in gateway.call_args_list), 2)
+        maintenance = self.get('/api/maintenance/jobs')['items']
+        self.assertEqual(sum(job['status'] == 'completed' for job in maintenance), 1)
+        self.assertTrue(all(not job['steps'] for job in maintenance if job['status'] == 'queued'))
         self.assertTrue(all('complete synthetic career' in s['materials'][0]['biography'] for s in states))
 
     def test_profile_comparison_includes_manual_employment_and_stale_current_value(self):
