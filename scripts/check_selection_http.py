@@ -81,7 +81,7 @@ def main():
                     break
                 current_headers = {'X-CSRF-Token': client.get('/api/session').json['csrf']}
                 response = client.open(request['url'], method=request['method'], json=request.get('body'), headers=request.get('headers', current_headers))
-                child.stdin.write(json.dumps({'id': request['id'], 'status': response.status_code, 'body': response.json}) + '\n')
+                child.stdin.write(json.dumps({'id': request['id'], 'status': response.status_code, 'body': response.json, 'headers': dict(response.headers)}) + '\n')
                 child.stdin.flush()
             child.wait(timeout=10)
             assert child.returncode == 0 and summary, child.stderr.read()

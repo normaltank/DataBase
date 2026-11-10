@@ -1,6 +1,7 @@
 'use strict';
 // Driven by check_selection_http.py: DOM events → real authenticated Flask HTTP.
 const {JSDOM}=require('jsdom'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),assert=require('node:assert/strict'),readline=require('node:readline');
+const {jsonResponse}=require('./dom_page_contract');
 const dom=new JSDOM('<div id="modal-root"><div class="drawer-body"></div></div>',{runScripts:'outside-only',url:'http://synthetic.local'}),w=dom.window;
 let sequence=0,pending=new Map(),loseNext=false,requests=[];
 readline.createInterface({input:process.stdin}).on('line',line=>{const response=JSON.parse(line),resolve=pending.get(response.id);pending.delete(response.id);resolve(response);});
@@ -65,7 +66,7 @@ async function queueAndRetry(form){loseNext=true;const before=requests.length;su
       writeCalls.push({url,headers:options.headers});
       if(hold){hold();await new Promise(resolve=>release=resolve);}
     }
-    return {ok:response.status<400,status:response.status,json:async()=>response.body};
+    return jsonResponse(response.body,response.status,response.headers);
   };
   async function batchLogin(username){
     if(username!=='admin'){const out=await http('/api/logout',{method:'POST'});assert.equal(out.status,200);}

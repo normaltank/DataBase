@@ -35,6 +35,9 @@ def create_app(data_dir=None, testing=False, *, initialization_mode='demo', embe
     if portable_trial and initialization_mode == 'production':
         raise ValueError('Portable trial admission is unavailable in production mode.')
     app = Flask(__name__, template_folder=str(ROOT / "templates"), static_folder=str(ROOT / "static"))
+    from .assets import revision
+    client_assets = revision(ROOT)
+    app.jinja_env.globals['asset'] = lambda path: '/static/' + path + '?v=' + g.client_revision
     data_dir = Path(data_dir or os.environ.get("RESEARCH_DATA_DIR", ROOT / "data"))
     initialize(data_dir, mode=initialization_mode)
     key_path = data_dir / ".session-key"
@@ -86,6 +89,10 @@ def create_app(data_dir=None, testing=False, *, initialization_mode='demo', embe
 
     @app.before_request
     def protect_request():
+        g.client_revision = client_assets.current(force=request.path in ['/', '/api/client-revision'],
+                                                 filename=(request.view_args or {}).get('filename') if request.endpoint == 'static' else None)
+        if request.path.startswith('/static/') and request.args.get('v', g.client_revision) != g.client_revision:
+            abort(409, '页面版本已更新，请重新打开页面。')
         if portable_trial and any(k.startswith('HTTP_X_FORWARDED_') or k == 'HTTP_FORWARDED' for k in request.environ):
             abort(400, 'Untrusted forwarding headers')
         if request.path.startswith("/api/"):
@@ -108,9 +115,12 @@ def create_app(data_dir=None, testing=False, *, initialization_mode='demo', embe
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "same-origin"
         response.headers["X-Frame-Options"] = "DENY"
+        response.headers['X-Client-Revision'] = getattr(g, 'client_revision', client_assets.current())
         response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
         if request.path.startswith("/api/"):
             response.headers["Cache-Control"] = "no-store"
+        elif request.path == '/' or request.path.startswith('/static/'):
+            response.headers['Cache-Control'] = 'no-cache'
         return response
 
     @app.errorhandler(HTTPException)
@@ -123,7 +133,11 @@ def create_app(data_dir=None, testing=False, *, initialization_mode='demo', embe
 
     @app.get("/")
     def index():
-        return render_template("index.html")
+        return render_template("index.html", client_revision=g.client_revision)
+
+    @app.get('/api/client-revision')
+    def get_client_revision():
+        return jsonify(revision=g.client_revision)
 
     @app.get("/health")
     def health():
@@ -143,7 +157,8 @@ def create_app(data_dir=None, testing=False, *, initialization_mode='demo', embe
             row = db().execute("SELECT id,username,name,role,credential_version FROM users WHERE id=? AND active=1", (session["uid"],)).fetchone()
             account = user() if row and row["credential_version"] == session.get("credential_version", 0) else None
         return jsonify(user=account, csrf=session["csrf"], demo_login=app.config['DEMO_LOGIN'],
-                       portable_trial=portable_trial, host_available=portable_trial and trial.local_request())
+                       portable_trial=portable_trial, host_available=portable_trial and trial.local_request(),
+                       research_return_available=bool(portable_trial and account and trial.return_identity(db()) is not None))
 
     if portable_trial:
         @app.put('/api/trial/nickname')
@@ -160,7 +175,12 @@ def create_app(data_dir=None, testing=False, *, initialization_mode='demo', embe
         @app.post('/api/trial/host')
         def trial_host():
             trial.host_sign_in(db())
-            return jsonify(user=user(), csrf=session['csrf'])
+            return jsonify(user=user(), csrf=session['csrf'], research_return_available=trial.return_identity(db()) is not None)
+
+        @app.post('/api/trial/return')
+        def trial_return():
+            trial.return_to_research(db())
+            return jsonify(user=user(), csrf=session['csrf'], research_return_available=False)
 
         @app.post('/api/trial/enter')
         def trial_enter():

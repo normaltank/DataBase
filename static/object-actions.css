@@ -1,0 +1,43 @@
+/* Object controls extend the existing blue/white workbench, not reading prose. */
+.object-more{display:inline-flex;align-items:center;justify-content:center;flex:none;width:36px;height:36px;padding:6px;border:1px solid transparent;border-radius:4px;color:var(--text);background:transparent;cursor:pointer}
+.object-more svg{width:22px;height:22px;fill:currentColor}
+.object-more:hover,.object-more[aria-expanded=true]{background:var(--surface-selected);border-color:var(--control-border)}
+.object-menu{position:fixed;z-index:1600;display:flex;flex-direction:column;gap:2px;max-width:calc(100vw - 16px);max-height:calc(100dvh - 16px);overflow:auto;padding:6px;background:var(--surface);border:1px solid var(--control-border);border-radius:4px;box-shadow:0 6px 18px #17395e26;min-width:176px;font-size:14px}
+.object-menu [role=menuitem]{display:block;padding:8px 12px;min-height:36px;text-align:left;color:var(--text);background:transparent;border:0;border-radius:3px;text-decoration:none;cursor:pointer;font:inherit}
+.object-menu [role=menuitem]:hover,.object-menu [role=menuitem]:focus{background:var(--surface-selected)}
+.object-menu [aria-disabled=true]{color:var(--text-muted);opacity:.7;cursor:default}
+.object-kind-mark{display:inline-flex;flex:none;align-items:center;justify-content:center;color:var(--text-muted);width:28px;height:28px}
+.workbench-source-row,.workbench-person-row,.workbench-row{position:relative}
+.workbench-source-row:hover,.workbench-person-row:hover,.workbench-row:hover{background:var(--surface-muted)}
+.workbench-source-row:focus-within,.workbench-person-row:focus-within{background:var(--surface-selected)}
+.workbench-source-main{display:grid;grid-template-columns:28px minmax(0,1fr);gap:12px}
+.workbench-source-copy{min-width:0}
+.workbench-source-row h2 .title-button,.workbench-person-row h2 a{color:var(--text);text-decoration:none;font-size:15px;font-weight:600}
+.workbench-source-row h2 .title-button:hover,.workbench-person-row h2 a:hover{text-decoration:underline}
+.workbench-source-row p,.workbench-person-row p{margin:4px 0}
+.workbench-source-side .row{justify-content:flex-end}
+.workbench-person-actions{display:flex;align-items:center;gap:8px;margin-left:auto;flex-wrap:wrap}
+.workbench-person-row{grid-template-columns:52px minmax(0,1fr) 200px}
+.workbench-person-actions{justify-content:flex-end}
+.workbench-person-version{font-size:14px}
+.workbench-row-top .object-kind-mark{margin-right:4px}
+.workbench-row-title{min-width:0;flex:1}
+.workbench-row-title .title-button{color:var(--text);text-decoration:none;font-weight:600}
+.workbench-row-title .title-button:hover,.workbench-row-title .title-button:focus-visible{text-decoration:underline}
+.object-open{font-size:14px;white-space:nowrap}
+.library-row-status{gap:6px}
+.reading-library .record-list{align-content:start}
+.reading-library .library-card-item .record-title .title-button{color:var(--text);text-decoration:none}
+.reading-library .library-card-item .record-title .title-button:hover,.reading-library .library-card-item .record-title .title-button:focus-visible{text-decoration:underline}
+.client-update{position:fixed;right:16px;bottom:16px;z-index:1500;display:flex;align-items:center;gap:12px;padding:8px 12px;background:var(--surface);border:1px solid var(--control-border);border-radius:4px;box-shadow:0 4px 16px #17395e26;font-size:14px}
+.flow-node-object{height:100%}.flow-node-object>.object-more{position:absolute;top:2px;right:2px}
+.flow-node-object>span{display:block;padding-right:26px}
+.workbench-row.workbench-selected{background:var(--surface-selected)}
+.trace-step-row{display:flex;align-items:center}.trace-step-row>.trace-step{flex:1;min-width:0}
+.trace-step-row>.object-more{margin-right:4px}
+.record-network-selection{position:relative;padding-right:44px}
+.record-network-selection>.object-more{position:absolute;right:0;top:8px}
+.client-update:has([data-client-continue]){flex-wrap:wrap;max-width:min(440px,calc(100vw - 16px))}
+.client-update-recovery{flex-basis:100%;line-height:1.5}
+@media(min-width:701px){.workbench-return-identity{display:none}}
+@media(max-width:700px){.object-more{width:44px;height:44px}.object-menu [role=menuitem]{min-height:44px}.workbench-person-row{grid-template-columns:42px minmax(0,1fr)}.workbench-person-actions{grid-column:2;margin-left:0;justify-content:flex-start}.workbench-source-main{grid-template-columns:24px minmax(0,1fr);gap:8px}.workbench-source-side{min-width:0}.client-update{right:8px;bottom:8px;max-width:calc(100vw - 16px)}}

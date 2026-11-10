@@ -21,7 +21,7 @@ w.api=async(url,options={})=>{
 // Match the real page's shared-adapter dependencies before the handoff consumer.
 // jsdom has no layout/WebGL; this seam still executes the actual adapter and
 // reading events. Normal browser checks exercise ESM, ELK and graphical picking.
-for(const file of ['maintenance-trace.js','visual-loader.js','collaboration.js','topic-review.js','topic-finals.js','topic-closure.js','workbench.js','topic-handoffs.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../static',file),'utf8'),dom.getInternalVMContext());
+for(const file of ['object-actions.js','maintenance-trace.js','visual-loader.js','collaboration.js','topic-review.js','topic-finals.js','topic-closure.js','workbench.js','topic-handoffs.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../static',file),'utf8'),dom.getInternalVMContext());
 const tick=()=>new Promise(r=>setTimeout(r,5));async function until(fn){for(let i=0;i<1500;i++){if(fn())return;await tick();}throw new Error('DOM operation timed out: '+w.document.body.textContent.slice(-500));}
 w.route=async()=>{w.document.querySelector('#content').innerHTML=await w.workbenchTopic(tid);};
 w.go=async(page,params)=>{w.eval('state').params=new w.URLSearchParams(params);await w.route();};
@@ -54,7 +54,7 @@ async function review(value,unknown=false){await login('researcher');await w.rou
  await upload('compilation');await review('approved');
  // An open form captured under another account cannot write as the new one.
  await login('colleague');await w.route();const retained=w.document.querySelector('[data-form=handoff-upload][data-material=""]');file(retained);await login('admin');const count=writes.length;submit(retained);await tick();assert.equal(writes.length,count);assert.match(retained.querySelector('.form-error').textContent,/账号已切换/);
- await login('researcher');await w.route();w.document.querySelector('[data-action=topic-closure-end]').click();await until(()=>w.document.querySelector('[data-form=topic-closure]'));const end=w.document.querySelector('[data-form=topic-closure]');submit(end);await until(()=>/已结束/.test(w.document.querySelector('.workbench-detail-meta').textContent));assert.match(w.document.querySelector('.workbench-detail-meta').textContent,/已结束 · 负责人/);assert.equal(w.document.querySelectorAll('[data-form=handoff-upload]').length,0);
+ await login('researcher');await w.route();w.document.querySelector('[data-action=topic-closure-end]').click();await until(()=>w.document.querySelector('[data-form=topic-closure]'));const end=w.document.querySelector('[data-form=topic-closure]');submit(end);await until(()=>/已结束/.test(w.document.querySelector('.workbench-detail-meta').textContent));assert.equal(w.document.querySelector('.workbench-detail-meta').textContent,'已结束 · 当前身份：负责人 · 负责人：研究员 · 林');assert.equal(w.document.querySelectorAll('[data-form=handoff-upload]').length,0);
  w.document.querySelector('[data-action=topic-closure-reopen]').click();await until(()=>w.document.querySelector('[data-form=topic-closure]'));const reopen=w.document.querySelector('[data-form=topic-closure]');submit(reopen);await until(()=>!reopen.isConnected);assert.equal((await w.api(`/api/collaboration/topics/${tid}/handoffs`)).stage,'compilation');
  // A qualifying old final uses the unchanged legacy HTTP chain, then the new
  // workbench's secondary entry must still permit first/new optional summaries.

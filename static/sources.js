@@ -63,11 +63,12 @@ function relationDetails(s){
   const incoming=(s.related_from||[]).map(r=>({label:inverseRelationLabels[r.type],id:r.source_id,evidence:r.evidence,checked_on:r.checked_on,owner:r.source_id}));
   return `<section class="detail-section"><h3>机构关系</h3>${[...outgoing,...incoming].map(r=>`<div class="relation-detail"><strong>${esc(r.label)}</strong><div>${sourceName(r.id)}</div>${evidenceHtml(r.evidence)}<div class="between small muted"><span>依据核查日期：${esc(r.checked_on||'未登记')}</span>${linkButton('编辑关系起点','edit-source',r.owner,'link-button')}</div></div>`).join('')||'<p class="small muted">尚未关联</p>'}</section>`;
 }
-function sourceHref(id){
+function sourceUrl(id){
   const page=state.page==='maintenance-sources'?'maintenance-sources':'sources';
   const params=['sources','maintenance-sources'].includes(state.page)?parameters({id}):new URLSearchParams({id});
-  return '#'+page+'?'+esc(params.toString());
+  return '#'+page+'?'+params.toString();
 }
+function sourceHref(id){return esc(sourceUrl(id));}
 async function openSource(id,preview=false){
   const known=state.sources.find(source=>source.id===id);
   if(!preview&&(known?.kind!=='portal'||state.page==='maintenance-sources')){
