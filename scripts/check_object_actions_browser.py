@@ -26,6 +26,7 @@ def main():
     data = evidence / 'synthetic-data'
     captures, errors, checks, positions = [], [], {}, []
     def capture(page,name):
+        expect(page.locator('#toast')).to_have_css('opacity','0',timeout=7000)
         page.screenshot(path=str(evidence/name))
         positions.append({'path':name,'viewport':page.viewport_size,'position':page.evaluate('({x:scrollX,y:scrollY,readerY:document.querySelector(".library-reader")?.scrollTop||0})'),'focus':page.locator(':focus').evaluate_all('els=>els.map(e=>e.getAttribute("aria-label")||e.textContent)')})
     logging.getLogger('werkzeug').setLevel(logging.ERROR)
@@ -107,12 +108,23 @@ def main():
                     expect(cards.first.locator('.record-title [data-action=detail]')).to_be_visible()
                     for width,height in [(1280,720),(515,791),(320,844)]:
                         page.set_viewport_size({'width':width,'height':height})
+                        title=cards.first.locator('.record-title [data-action=detail]')
+                        card_more.focus();page.mouse.move(0,0)
+                        expect(title).to_have_attribute('type','button')
+                        styles=title.evaluate('e=>{const s=getComputedStyle(e);return {color:s.color,decoration:s.textDecorationLine}}')
+                        assert styles['color']=='rgb(36, 51, 71)' and styles['decoration']=='none', styles
+                        title.hover();expect(title).to_have_css('text-decoration-line','underline')
+                        page.mouse.move(0,0);title.focus()
+                        expect(title).to_have_css('text-decoration-line','underline')
+                        expect(title).to_have_css('outline-style','solid')
+                        card_more.focus()
                         card_more.tap();expect(menu).to_be_visible()
                         assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+2')
                         name=f'card-more-open-{width}x{height}.png';capture(page,name);captures.append(name)
                         page.keyboard.press('Escape');expect(card_more).to_be_focused()
                         name=f'card-more-closed-focus-{width}x{height}.png';capture(page,name);captures.append(name)
                     checks['card_visible_keyboard_more'] = True
+                    checks['card_neutral_title_hover_focus_three_sizes'] = True
                     page.goto(base + '/#sources?q=合成')
                     for width in [1366, 1280, 515, 390, 320]:
                         page.set_viewport_size({'width': width, 'height': 900 if width > 700 else 844})
