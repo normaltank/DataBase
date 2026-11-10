@@ -69,3 +69,15 @@
 [data-trace-diff] .d2h-code-line-ctn{flex:1;min-width:0;width:auto;white-space:pre-wrap;overflow-wrap:anywhere;vertical-align:top}
 [data-trace-diff] .d2h-file-header{display:none}
 @media(max-width:700px){.actual-flow-slot{height:320px}.actual-flow-tools button{min-height:44px}.actual-flow-tools{display:flex;flex-wrap:wrap}}
+
+.trace-filters{display:flex;flex-wrap:wrap;gap:4px;padding:0 10px}
+.trace-filters .button{padding-inline:8px;min-height:44px}
+.trace-filters [aria-pressed=true]{background:#eaf1fb;color:#174e9c;border-color:#174e9c}
+[data-trace-filter-status]{font-size:14px;color:#58697b;padding:0 12px;margin:6px 0}
+.trace-graph>summary{cursor:pointer;color:#174e9c;min-height:44px;padding:10px 0}
+.trace-locate{display:none}.trace-detail{scroll-margin-top:76px}
+@container(max-width:600px){.trace-locate{display:block;min-height:44px;width:100%;background:#fff}}
+@media(max-width:700px){.trace-locate{display:block;min-height:44px;width:100%;background:#fff}}
+.trace-technical{font-size:14px;margin-top:8px}.trace-technical>summary{color:#174e9c}
+
+.actual-flow [data-flow-status]:empty,.actual-flow [data-flow-legend]:empty{display:none}

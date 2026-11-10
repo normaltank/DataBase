@@ -19,7 +19,16 @@ export function mount(container,{snapshot,onSelect=()=>{},onStatus=()=>{},mode='
         {selector:'edge',style:{'width':1.5,'line-color':'#718eac','target-arrow-color':'#718eac','target-arrow-shape':'triangle','curve-style':'bezier'}}]});
     cy.on('tap','node',e=>onSelect(e.target.id()));
     cy.on('dragpan scrollzoom pinchzoom',()=>{atHome=false;});
-    function placeLabels(){for(const {key,el} of labels){const p=cy.getElementById(key).renderedPosition(),half=Math.min(65,container.clientWidth*.2);el.style.left=Math.max(half,Math.min(container.clientWidth-half,p.x))+'px';el.style.top=p.y+'px';}}
+    function placeLabels(){for(const {key,el} of labels){const p=cy.getElementById(key).renderedPosition();el.style.left=p.x+'px';el.style.top=p.y+'px';}}
+    function fit(){
+      if(!labels.length||!container.clientWidth||!container.clientHeight)return;
+      // Labels keep their readable DOM font size while geometry zooms.
+      const items=labels.map(({key,el})=>{const rect=el.getBoundingClientRect(),transform=new DOMMatrixReadOnly(getComputedStyle(el).transform);return {p:cy.getElementById(key).position(),width:rect.width,height:rect.height,x:transform.e,y:transform.f};});
+      const bounds=zoom=>({left:Math.min(...items.map(i=>i.p.x*zoom+Math.min(-16*zoom,i.x))),right:Math.max(...items.map(i=>i.p.x*zoom+Math.max(16*zoom,i.x+i.width))),top:Math.min(...items.map(i=>i.p.y*zoom+Math.min(-16*zoom,i.y))),bottom:Math.max(...items.map(i=>i.p.y*zoom+Math.max(16*zoom,i.y+i.height)))});
+      let low=cy.minZoom(),high=cy.maxZoom();
+      for(let i=0;i<24;i++){const mid=(low+high)/2,b=bounds(mid);if(b.right-b.left<=container.clientWidth-16&&b.bottom-b.top<=container.clientHeight-16)low=mid;else high=mid;}
+      const b=bounds(low);cy.zoom(low);cy.pan({x:(container.clientWidth-b.right-b.left)/2,y:(container.clientHeight-b.bottom-b.top)/2});placeLabels();
+    }
     cy.on('pan zoom resize render',placeLabels);
     function update(data){
       const previous=cy.nodes().length>0,pan=cy.pan(),zoom=cy.zoom();
@@ -29,10 +38,10 @@ export function mount(container,{snapshot,onSelect=()=>{},onStatus=()=>{},mode='
         ...data.edges.map(e=>({data:{id:e.key,source:e.from,target:e.to}}))]);
       cy.getElementById(data.selected).select();
       for(const node of data.nodes){const el=document.createElement('span');el.className='record-network-label';el.textContent=node.name;el.setAttribute('aria-hidden','true');container.append(el);labels.push({key:node.key,el});}
-      if(previous){cy.zoom(zoom);cy.pan(pan);}else if(cameras.plane){cy.zoom(cameras.plane.zoom);cy.pan(cameras.plane.pan);}else cy.fit(undefined,60);
+      if(previous){cy.zoom(zoom);cy.pan(pan);if(atHome)fit();}else if(cameras.plane&&!atHome){cy.zoom(cameras.plane.zoom);cy.pan(cameras.plane.pan);}else fit();
       placeLabels();
     }
-    return {update,getViewState(){return {zoom:cy.zoom(),pan:cy.pan(),atHome};},resize(){cy.resize();if(atHome)cy.fit(undefined,40);placeLabels();},reset(){atHome=true;cy.fit(undefined,40);},dispose(){cameras.plane={zoom:cy.zoom(),pan:cy.pan(),atHome};cy.destroy();labels.splice(0).forEach(l=>l.el.remove());}};
+    return {update,getViewState(){return {zoom:cy.zoom(),pan:cy.pan(),atHome};},resize(){cy.resize();if(atHome)fit();placeLabels();},reset(){atHome=true;fit();},dispose(){cameras.plane={zoom:cy.zoom(),pan:cy.pan(),atHome};cy.destroy();labels.splice(0).forEach(l=>l.el.remove());}};
   }
   function createSpace(){
     const renderer=new THREE.WebGLRenderer({antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,1.7));renderer.setClearColor(0xf0f4f9);container.append(renderer.domElement);
@@ -42,18 +51,39 @@ export function mount(container,{snapshot,onSelect=()=>{},onStatus=()=>{},mode='
     const resources=new Set(),objects=[],labels=[];let frame=0,down=null,closed=false,atHome=cameras.space?.atHome!==false;
     const track=o=>{scene.add(o);objects.push(o);if(o.geometry)resources.add(o.geometry);if(o.material)resources.add(o.material);return o;};
     function clear(){for(const o of objects)scene.remove(o);objects.length=0;resources.forEach(r=>r.dispose());resources.clear();labels.splice(0).forEach(l=>l.el.remove());}
-    function draw(){frame=0;if(closed||document.hidden||!container.isConnected||!container.clientWidth)return;renderer.render(scene,camera);
-      for(const {object,el} of labels){const p=object.position.clone().project(camera),half=Math.min(65,container.clientWidth*.2);el.hidden=Math.abs(p.z)>1;el.style.left=Math.max(half,Math.min(container.clientWidth-half,(p.x+1)*container.clientWidth/2))+'px';el.style.top=((-p.y+1)*container.clientHeight/2)+'px';}
+    function draw(){frame=0;if(closed||document.hidden||!container.isConnected||!container.clientWidth)return;if(atHome)fit();renderer.render(scene,camera);
+      for(const {object,el} of labels){const p=object.position.clone().project(camera);el.hidden=Math.abs(p.z)>1;el.style.left=((p.x+1)*container.clientWidth/2)+'px';el.style.top=((-p.y+1)*container.clientHeight/2)+'px';}
     }
     const requestDraw=()=>{if(!closed&&!document.hidden&&!frame)frame=requestAnimationFrame(draw);};
-    function reset(){atHome=true;camera.position.set(0,1,Math.max(14,10/camera.aspect));controls.target.set(0,0,0);controls.update();requestDraw();}
+    function fit(){
+      const width=container.clientWidth,height=container.clientHeight;if(!width||!height||!labels.length)return;
+      // Fit the combined projected nodes and real DOM text, including its
+      // asymmetric offset below each node, then centre that complete extent.
+      const direction=camera.position.clone().sub(controls.target).normalize();
+      for(let i=0;i<12;i++){
+        camera.updateMatrixWorld();
+        const boxes=labels.map(({object,el})=>{el.hidden=false;const p=object.position.clone().project(camera),rect=el.getBoundingClientRect(),transform=new DOMMatrixReadOnly(getComputedStyle(el).transform),x=(p.x+1)*width/2,y=(-p.y+1)*height/2;
+          const radius=.4*height/(2*Math.tan(THREE.MathUtils.degToRad(camera.fov/2))*camera.position.distanceTo(object.position));
+          return {label:{left:x+transform.e,right:x+transform.e+rect.width,top:y+transform.f,bottom:y+transform.f+rect.height},left:x+Math.min(-radius,transform.e),right:x+Math.max(radius,transform.e+rect.width),top:y+Math.min(-radius,transform.f),bottom:y+Math.max(radius,transform.f+rect.height)};});
+        const left=Math.min(...boxes.map(b=>b.left)),right=Math.max(...boxes.map(b=>b.right)),top=Math.min(...boxes.map(b=>b.top)),bottom=Math.max(...boxes.map(b=>b.bottom));
+        const scale=Math.max((right-left)/(width-16),(bottom-top)/(height-16));
+        if(scale>1){const distance=camera.position.distanceTo(controls.target)*scale*1.02;camera.position.copy(controls.target).addScaledVector(direction,distance);continue;}
+        const collides=boxes.some((box,index)=>boxes.slice(index+1).some(other=>box.label.left<other.label.right+6&&box.label.right+6>other.label.left&&box.label.top<other.label.bottom+6&&box.label.bottom+6>other.label.top));
+        if(collides){const distance=camera.position.distanceTo(controls.target)*.9;camera.position.copy(controls.target).addScaledVector(direction,distance);continue;}
+        const dx=(left+right-width)/2,dy=(top+bottom-height)/2;if(Math.abs(dx)<.1&&Math.abs(dy)<.1)break;
+        const units=2*Math.tan(THREE.MathUtils.degToRad(camera.fov/2))*camera.position.distanceTo(controls.target)/height;
+        const shift=new THREE.Vector3(1,0,0).applyQuaternion(camera.quaternion).multiplyScalar(dx*units).addScaledVector(new THREE.Vector3(0,1,0).applyQuaternion(camera.quaternion),-dy*units);
+        camera.position.add(shift);controls.target.add(shift);
+      }
+    }
+    function reset(){atHome=true;camera.position.set(0,1,Math.max(14,10/camera.aspect));controls.target.set(0,0,0);controls.update();fit();requestDraw();}
     function update(data){clear();const nodes=new Map();
       data.nodes.forEach((n,i)=>{const p=position(i,data.nodes.length,3.4),object=track(new THREE.Mesh(n.key===data.center?new THREE.BoxGeometry(.4,.4,.4):new THREE.SphereGeometry(.22,16,12),new THREE.MeshBasicMaterial({color:n.key===data.selected?0xb47d00:n.type==='person'?0x795200:n.type==='source'?0x24634f:0x174e9c})));
         object.position.set(p.x,p.y,i===0?0:Math.sin(i*2.4)*1.3);object.userData.key=n.key;nodes.set(n.key,object);
-        const el=document.createElement('span');el.className='record-network-label';el.textContent=n.name;el.dataset.networkLabel=n.key;el.setAttribute('aria-hidden','true');container.append(el);labels.push({object,el});
+        const el=document.createElement('span');el.className='record-network-label'+(n.key===data.center?' record-network-label-above':'');el.textContent=n.name;el.dataset.networkLabel=n.key;el.setAttribute('aria-hidden','true');container.append(el);labels.push({object,el});
       });
       for(const e of data.edges){const a=nodes.get(e.from),b=nodes.get(e.to);if(!a||!b)continue;const direction=b.position.clone().sub(a.position),arrow=new THREE.ArrowHelper(direction.clone().normalize(),a.position,direction.length()-.25,0x718eac,.18,.1);track(arrow);for(const o of [arrow.line,arrow.cone]){o.geometry=o.geometry.clone();resources.add(o.geometry);resources.add(o.material);}}
-      requestDraw();
+      if(atHome)fit();requestDraw();
     }
     function resize(){if(closed||!container.clientWidth||!container.clientHeight)return;renderer.setSize(container.clientWidth,container.clientHeight,false);camera.aspect=container.clientWidth/container.clientHeight;camera.updateProjectionMatrix();if(atHome)reset();requestDraw();}
     const raycaster=new THREE.Raycaster(),pointer=new THREE.Vector2();

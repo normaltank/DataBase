@@ -73,10 +73,10 @@ the semantic relationship direction, basis, AI/human provenance and real profile
 destinations in ordinary text. The local Cytoscape stylesheet compatibility rule
 above is part of this exact locked version, including the external stylesheet ID.
 
-Flow options: `{snapshot:{nodes:[{id,label}],edges:[{id,source,target,label,description?}],
-selected:[id],layout?:'lineage',legend?:string},viewport?,onSelect(id),onStatus(message)}`. IDs and labelled edges
+Flow options: `{snapshot:{nodes:[{id,label,actions?:[{id,label,primary?,disabled?}]}],edges:[{id,source,target,label,description?}],
+selected:[id],layout?:'lineage',legend?:string},viewport?,onSelect(id),onAction(id, action),onStatus(message)}`. IDs and labelled edges
 must come from the authorized version/review or step/evidence projection. The
-module performs only ELK layout and reading selection. `update` preserves the
+module performs ELK layout, reading selection and dispatches adapter-provided node actions. The adapter alone checks permissions and owns HTTP requests, forms, tokens, request identity and File objects; these remain outside the React root. `update` preserves the
 viewport; `zoomIn()`, `zoomOut()`, `fit()`, `focusSelected()` and `getViewport()`
 support the caller's explicit controls and visibility lifecycle. Initial maintenance view
 centres the first node at zoom 1; short material graphs use the compact lineage

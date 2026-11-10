@@ -4,28 +4,34 @@
 const maintenanceTracePending=new Map();
 const maintenanceTraceRoots=new Set();
 const visualFlowHosts=new Set(),visualDiffHosts=new Set();
-function visualFlowHtml(){return '<div class="actual-flow"><div class="row wrap actual-flow-tools"><strong>流程图</strong><button type="button" class="button" data-flow-command="in">放大</button><button type="button" class="button" data-flow-command="out">缩小</button><button type="button" class="button" data-flow-command="selected">定位所选节点</button><button type="button" class="button" data-flow-command="fit">显示全图</button><button type="button" class="button" data-flow-command="retry">重试流程图</button></div><p class="muted" data-flow-status role="status">正在读取流程图…</p><p class="muted actual-flow-legend" data-flow-legend></p><div class="actual-flow-slot" data-flow-slot aria-label="实际记录流程图"></div></div>';}
-function visualFlowUpdate(host,snapshot,onSelect){
+function visualFlowHtml(){return '<div class="actual-flow"><div class="row wrap actual-flow-tools"><strong>流程图</strong><button type="button" class="button" data-flow-command="in">放大</button><button type="button" class="button" data-flow-command="out">缩小</button><button type="button" class="button" data-flow-command="selected">定位所选节点</button><button type="button" class="button" data-flow-command="fit">显示全图</button><button type="button" class="button" data-flow-command="retry" hidden>重试流程图</button></div><p class="muted" data-flow-status role="status">正在读取流程图…</p><p class="muted actual-flow-legend" data-flow-legend></p><div class="actual-flow-slot" data-flow-slot aria-label="实际记录流程图"></div></div>';}
+function visualFlowUpdate(host,snapshot,onSelect,onAction){
   let model=host._actualFlow;
   if(!model){
     model={actor:state.me?.id,page:state.loadId,snapshot,onSelect,instance:null,loading:false};host._actualFlow=model;visualFlowHosts.add(host);
     if(typeof ResizeObserver==='function'){model.resize=new ResizeObserver(()=>{if(host.getBoundingClientRect().width<=0)return;if(model.instance)model.instance.resize();else visualFlowMount(host);});model.resize.observe(host);}
-    host.addEventListener('click',event=>{const command=event.target.closest('[data-flow-command]')?.dataset.flowCommand;if(!command)return;if(command==='retry'){model.instance?.dispose();model.instance=null;visualFlowMount(host);}else if(command==='in')model.instance?.zoomIn();else if(command==='out')model.instance?.zoomOut();else if(command==='selected')model.instance?.focusSelected();else model.instance?.fit();});
+    host.addEventListener('click',event=>{const command=event.target.closest('[data-flow-command]')?.dataset.flowCommand;if(!command)return;if(command==='retry'){model.instance?.dispose();model.instance=null;model.failed=false;host.querySelector('[data-flow-slot]').hidden=false;visualFlowMount(host);}else if(command==='in')model.instance?.zoomIn();else if(command==='out')model.instance?.zoomOut();else if(command==='selected')model.instance?.focusSelected();else model.instance?.fit();});
   }
-  model.snapshot=snapshot;model.onSelect=onSelect;const legend=host.querySelector('[data-flow-legend]');if(legend.textContent!==(snapshot.legend||''))legend.textContent=snapshot.legend||'';
-  const empty=!snapshot.nodes.length;host.querySelector('[data-flow-slot]').hidden=empty;
+  model.snapshot=snapshot;model.onSelect=onSelect;model.onAction=onAction;const legend=host.querySelector('[data-flow-legend]');if(legend.textContent!==(snapshot.legend||''))legend.textContent=snapshot.legend||'';
+  const empty=!snapshot.nodes.length;host.querySelector('[data-flow-slot]').hidden=empty||!!model.failed;
   host.querySelectorAll('[data-flow-command]').forEach(button=>{button.disabled=empty;});
   if(empty){model.instance?.dispose();model.instance=null;host.querySelector('[data-flow-status]').textContent='尚无图节点；实际步骤出现后再显示流程图。';return;}
   if(model.instance)model.instance.update(snapshot);else visualFlowMount(host);
 }
-function visualFlowCurrent(host,model){return host.isConnected&&host._actualFlow===model&&state.me?.id===model.actor&&state.loadId===model.page&&!document.hidden&&model.snapshot.nodes.length>0;}
+function visualFlowStatus(host,model,message){
+  model.failed=/失败|未能|暂不可用/.test(message);host.querySelector('[data-flow-status]').textContent=message;
+  host.querySelector('[data-flow-slot]').hidden=model.failed||!model.snapshot.nodes.length;
+  host.querySelectorAll('[data-flow-command]').forEach(button=>{button.hidden=button.dataset.flowCommand==='retry'?!model.failed:model.failed;});
+  if(model.failed){const text=host.closest('.handoff-lineage')?.querySelector('.handoff-track-details');if(text)text.open=true;}
+}
+function visualFlowCurrent(host,model){return host.isConnected&&host._actualFlow===model&&state.me?.id===model.actor&&state.loadId===model.page&&!document.hidden&&(!host.closest('.trace-graph,.handoff-graph')||host.closest('.trace-graph,.handoff-graph').open)&&model.snapshot.nodes.length>0;}
 async function visualFlowMount(host){
-  const model=host._actualFlow;if(!model||model.loading||model.instance||!visualFlowCurrent(host,model)||host.getBoundingClientRect().width<=0||host.querySelector('[data-flow-slot]').getBoundingClientRect().height<=0)return;
+  const model=host._actualFlow;if(!model||model.failed||model.loading||model.instance||!visualFlowCurrent(host,model)||host.getBoundingClientRect().width<=0||host.querySelector('[data-flow-slot]').getBoundingClientRect().height<=0)return;
   model.loading=true;
   try{
-    model.instance=await window.visualLoader.mount('flow',host.querySelector('[data-flow-slot]'),{snapshot:model.snapshot,viewport:model.viewport,onSelect:id=>{if(visualFlowCurrent(host,model))model.onSelect(id);},onStatus:message=>{if(visualFlowCurrent(host,model))host.querySelector('[data-flow-status]').textContent=message;}},{isCurrent:()=>visualFlowCurrent(host,model)});
-    if(model.instance)model.instance.update(model.snapshot);
-  }catch(error){if(visualFlowCurrent(host,model))host.querySelector('[data-flow-status]').textContent='流程图未能加载；下方文字入口仍可阅读，可重试流程图。';}
+    model.instance=await window.visualLoader.mount('flow',host.querySelector('[data-flow-slot]'),{snapshot:model.snapshot,viewport:model.viewport,onSelect:id=>{if(visualFlowCurrent(host,model))model.onSelect(id);},onAction:(id,action)=>{if(visualFlowCurrent(host,model))model.onAction?.(id,action);},onStatus:message=>{if(visualFlowCurrent(host,model)){visualFlowStatus(host,model,message);}}},{isCurrent:()=>visualFlowCurrent(host,model)});
+    if(model.instance){model.instance.update(model.snapshot);if(model.focusOnMount){model.instance.focusSelected();model.focusOnMount=false;}}
+  }catch(error){if(visualFlowCurrent(host,model)){visualFlowStatus(host,model,'流程图未能加载，可继续查看文字记录。');}}
   finally{model.loading=false;}
 }
 function visualDiffMount(host){
@@ -50,23 +56,27 @@ function maintenanceTraceText(value){
   if(typeof value!=='string')return String(value);
   const text=document.createElement('div');text.innerHTML=readRich(value);return text.textContent||'未填写';
 }
-function maintenanceTraceValue(value,depth=0,field='',historicalTarget=null){
+function maintenanceTraceValue(value,depth=0,field='',historicalTarget=null,technical=false){
   if(depth>7)return '<span>内容层级较深，请查看对象档案。</span>';
   if(typeof value==='string'&&['relationships','institution_types','byline_snapshot_json','original_byline_json'].includes(field)){try{const parsed=JSON.parse(value);if(parsed&&typeof parsed==='object')return maintenanceTraceValue(parsed,depth+1,field);}catch(failure){/* Preserve the actual unparsed historical value. */}}
-  if(Array.isArray(value))return value.length?`<ul>${value.map((v,i)=>`<li data-key="value-${i}">${maintenanceTraceValue(v,depth+1,field)}</li>`).join('')}</ul>`:'<span>无条目</span>';
+  if(Array.isArray(value))return value.length?`<ul>${value.map((v,i)=>`<li data-key="value-${i}">${maintenanceTraceValue(v,depth+1,field,null,technical)}</li>`).join('')}</ul>`:'<span>'+({bylines:'无作者归属',affiliations:'无署名单位',employments:'无任职关系'}[field]||'无条目')+'</span>';
   if(value&&typeof value==='object'){
     if(Array.isArray(value.items)){
-      const context=Object.fromEntries(Object.entries(value).filter(([key])=>key!=='items'&&!maintenanceRelationBookkeeping.has(key)));
-      return maintenanceTraceValue(value.items,depth+1)+`${Object.keys(context).length?`<details class="trace-long"><summary>关系原始身份与引用</summary>${maintenanceTraceValue(context,depth+1)}</details>`:''}`;
+      const context=Object.fromEntries(Object.entries(value).filter(([key])=>key!=='items'));
+      return maintenanceTraceValue(value.items,depth+1,field,null,technical)+`${Object.keys(context).length?`<details class="trace-long"><summary>关系原始身份与引用</summary>${maintenanceTraceValue(context,depth+1,field,null,true)}</details>`:''}`;
     }
     const target=value.target||value.institution;
-    const entries=Object.entries(value).filter(([k])=>!['target','institution','created_at','updated_at'].includes(k));
-    return `${target?maintenanceObjectLink(target.type==='person'?'person':'source',target.id,target.name):''}<dl class="trace-values">${entries.map(([k,v])=>`<div data-key="field-${esc(k)}"><dt>${esc(maintenanceTraceFields[k]||k)}</dt><dd>${maintenanceTraceValue(v,depth+1,k,k==='institution_id'?value.institution:null)}</dd></div>`).join('')}</dl>`;
+    const all=Object.entries(value).filter(([key])=>!['target','institution'].includes(key));
+    const relation=['bylines','affiliations','employments','relationships'].includes(field)||!!target;
+    const incidental=key=>maintenanceRelationBookkeeping.has(key)||key==='id'||key.endsWith('_id')||key.endsWith('_json')||key.endsWith('_version')||['byline','person','original_target_type','selected_target_type','position','maintenance_job'].includes(key);
+    const entries=all.filter(([key,item])=>technical||!relation||!incidental(key)&&item!==null&&item!==''&&!(key==='original_authors'&&item===value.raw_name));
+    const extra=!technical&&relation?all.filter(([key])=>incidental(key)):[];
+    return `${target?maintenanceObjectLink(target.type==='person'?'person':'source',target.id,target.name):''}<dl class="trace-values">${entries.map(([k,v])=>`<div data-key="field-${esc(k)}"><dt>${esc(maintenanceTraceFields[k]||k)}</dt><dd>${maintenanceTraceValue(!technical&&k==='evidence'&&typeof v==='string'?v.replace(/\nAI维护：[^\n]+$/,''):v,depth+1,k,k==='institution_id'?value.institution:null,technical)}</dd></div>`).join('')}</dl>${extra.length?`<details class="trace-long trace-technical"><summary>完整关系记录</summary>${maintenanceTraceValue(Object.fromEntries(all),depth+1,field,null,true)}</details>`:''}`;
   }
   if(typeof value==='string'&&value&&['institution_id','serial_id','source_id','host_id','publisher_id'].includes(field))return value.split('|').map(raw=>{
     const id=raw.trim(),source=(state.sources||[]).find(item=>item.id===id);
-    if(historicalTarget?.id===id&&historicalTarget.name)return `${maintenanceObjectLink('source',id,historicalTarget.name)} <span class="muted">历史记录名称 · 编号 ${esc(id)}</span>`;
-    return `${maintenanceObjectLink('source',id,source?.name||id)} <span class="muted">${source?.name?'当前名称 · 编号 '+esc(id):'当前名称未读取'}；历史名称未记录。</span>`;
+    if(historicalTarget?.id===id&&historicalTarget.name)return `${maintenanceObjectLink('source',id,historicalTarget.name)} <span class="muted">历史记录名称</span><details class="trace-long"><summary>对象编号</summary>${esc(id)}</details>`;
+    return `${source?.name?maintenanceObjectLink('source',id,source.name):''} <span class="muted">${source?.name?'当前名称':'当前名称未读取'}；历史名称未记录。</span><details class="trace-long"><summary>对象编号</summary>${esc(id)}</details>`;
   }).join(' · ');
   const labels={person:'人物',institution:'机构',think_tank:'智库',journal:'期刊',serial:'其他出版物',record:'资料',part_of:'隶属',established_by:'共同设立',cooperates_with:'合作',funded_by:'资助',university:'大学',research_institute:'研究机构',faculty:'院系',confirmed:'已确认',pending:'待核对',unknown:'未知'};
   const text=['kind','type','target_type','institution_types','status','human_status'].includes(field)&&labels[value]?labels[value]:maintenanceTraceText(value);
@@ -90,9 +100,16 @@ function maintenanceTraceChanged(field,change){
     // Preserve all recorded business fields, including basis, confirmation,
     // original identities and removal. Only revision bookkeeping is incidental.
     const substantive=value=>Array.isArray(value)?value.map(substantive):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).filter(key=>!maintenanceRelationBookkeeping.has(key)).sort().map(key=>[key,substantive(value[key])])):value;
-    return JSON.stringify(substantive(change.before))!==JSON.stringify(substantive(change.after));
+    const relationValue=value=>field==='affiliations'&&Array.isArray(value?.items)?Object.fromEntries(Object.entries(value).filter(([key])=>key!=='bylines')):value;
+    return JSON.stringify(substantive(relationValue(change.before)))!==JSON.stringify(substantive(relationValue(change.after)));
   }
   return JSON.stringify(change.before)!==JSON.stringify(change.after);
+}
+function maintenanceTraceIdentityChange(field,change){
+  const collect=value=>Array.isArray(value)?value.flatMap(collect):value&&typeof value==='object'?Object.entries(value).flatMap(([key,item])=>['target_id','institution_id','host_id','publisher_id'].includes(key)&&item?[key+':'+item]:key==='items'?collect(item):[]):[];
+  const before=['serial_id','source_id','host_id','publisher_id'].includes(field)?[change.before].filter(Boolean):collect(change.before);
+  const after=['serial_id','source_id','host_id','publisher_id'].includes(field)?[change.after].filter(Boolean):collect(change.after);
+  return before.length&&after.length&&JSON.stringify(before)!==JSON.stringify(after)?'<p class="trace-identity-change">关联对象已更换 · 完整身份可展开核对</p>':'';
 }
 function maintenanceTraceDetail(job,step,selectedEvidence){
   if(!step)return `<div class="trace-empty"><h4>尚无执行步骤</h4><p>${job.status==='queued'?'任务正在等待后台处理。实际执行后会在这里出现步骤。':'此任务没有保存步骤记录。'}</p></div>`;
@@ -100,7 +117,7 @@ function maintenanceTraceDetail(job,step,selectedEvidence){
   const evidence=maintenanceTraceEvidence(job,step);
   return `<header data-key="identity"><p class="trace-step-meta">步骤 ${esc(step.position)} · ${esc(maintenanceStepStatus(step))}</p><h4>${esc(maintenanceTools[step.name]||step.name)}</h4><p class="muted">${dateTime(step.created_at)}${step.finished_at?' · 执行结束 '+dateTime(step.finished_at):''}</p></header>
     <section data-key="action" class="trace-section"><h5>当时的动作与结果</h5>${result.error?`<p class="form-error" role="status">${esc(result.error)}</p>`:''}${step.status==='pending'?'<p>此步等待执行，尚无执行结果。</p>':''}${args.query?`<p>查找：${esc(args.query)}</p>`:''}${args.url?`<p>${externalLink(args.url,'当时读取的网页')}</p>`:''}${args.field?`<p>读取字段：${esc(maintenanceTraceFields[args.field]||args.field)}</p>`:''}${result.reason||args.reason?`<p>${esc(result.reason||args.reason)}</p>`:''}${result.changed_target?`<p>${maintenanceObjectLink(...result.changed_target,result.object?.name||result.object?.title||'打开当前对象')} <span class="muted">当前档案${result.object?.version?'；当时保存为版本 '+esc(result.object.version):''}</span></p>`:''}${!result.changed_target&&!result.error&&step.status==='completed'?`<p>${step.name==='finish'?'此步记录处理结束；缺项以实际说明为准。':'此步已执行，未记录正式修改。'}</p>`:''}${result.results?maintenanceSearchLinks(result.results):''}</section>
-    <section data-key="changes" class="trace-section"><h5>实际修改前后</h5>${changes.length?changes.map(([field,change])=>`<article class="trace-change" data-key="change-${esc(field)}"><h6>${esc(maintenanceTraceFields[field]||field)}</h6>${typeof change.before==='string'&&typeof change.after==='string'&&Math.max(change.before.length,change.after.length)>500?`<details class="trace-long-diff" data-key="long-diff-${esc(field)}"><summary>逐行阅读文本差异</summary><div data-trace-diff data-diff-before="${esc(change.before)}" data-diff-after="${esc(change.after)}"></div></details>`:''}<div class="trace-diff"><div><strong>原值</strong>${maintenanceTraceValue(change.before,0,field)}</div><div><strong>新值</strong>${maintenanceTraceValue(change.after,0,field)}</div></div></article>`).join(''):'<p class="muted">此步没有记录字段或关系改动。</p>'}</section>
+    <section data-key="changes" class="trace-section"><h5>实际修改前后</h5>${changes.length?changes.map(([field,change])=>`<article class="trace-change" data-key="change-${esc(field)}"><h6>${esc(maintenanceTraceFields[field]||field)}</h6>${maintenanceTraceIdentityChange(field,change)}${typeof change.before==='string'&&typeof change.after==='string'&&Math.max(change.before.length,change.after.length)>500?`<details class="trace-long-diff" data-key="long-diff-${esc(field)}"><summary>逐行阅读文本差异</summary><div data-trace-diff data-diff-before="${esc(change.before)}" data-diff-after="${esc(change.after)}"></div></details>`:''}<div class="trace-diff"><div><strong>原值</strong>${maintenanceTraceValue(change.before,0,field)}</div><div><strong>新值</strong>${maintenanceTraceValue(change.after,0,field)}</div></div></article>`).join(''):'<p class="muted">此步没有记录字段或关系改动。</p>'}</section>
     <section data-key="evidence" class="trace-section"><h5>实际取得的材料 <span class="muted">${evidence.length} 份</span></h5>${args.quote?`<blockquote>${esc(args.quote)}</blockquote>`:''}${evidence.length?evidence.map(e=>`<details class="trace-evidence" data-key="evidence-${esc(e.id)}" data-evidence-id="${esc(e.id)}" ${selectedEvidence===e.id?'open':''}><summary>${e.method==='deepseek-search-json'?'搜索取得的材料':'网页取得的材料'} · ${dateTime(e.fetched_at)}</summary>${maintenanceTraceSource(job,e)}<p class="muted">材料编号 ${esc(e.id)} · ${esc(e.method)}</p><div class="trace-evidence-text" tabindex="0">${esc(e.text||'未保存材料正文。')}</div></details>`).join(''):'<p class="muted">此步没有显式关联已取得的材料。</p>'}</section>
     ${result.object&&!result.changed_target?`<details data-key="observation" class="trace-section"><summary>当时读取的档案</summary>${maintenanceTraceValue(result.object)}</details>`:''}`;
 }
@@ -148,10 +165,12 @@ function maintenanceTraceHtml(job){
 function maintenanceTraceUpdate(root,job){
   let model=root._maintenanceTrace;
   if(!model||model.job.id!==job.id){
-    root.innerHTML='<div class="trace-summary" data-trace-summary></div>'+visualFlowHtml()+'<div class="trace-layout"><div class="trace-rail"><h4>实际步骤</h4><div class="trace-steps" data-trace-steps></div><details class="trace-material-index"><summary>按材料定位步骤</summary><div data-trace-materials></div></details></div><div class="trace-detail" data-trace-detail tabindex="-1"></div><svg class="trace-connector" aria-hidden="true"><path></path></svg></div>';
-    model={job,step:job.steps?.[0]?.id||'',evidence:'',signature:''};root._maintenanceTrace=model;
+    root.innerHTML='<button type="button" class="button trace-locate" data-trace-locate>查看修改与依据</button><div class="trace-summary" data-trace-summary></div><details class="trace-graph"><summary>步骤与材料关系图</summary>'+visualFlowHtml()+'</details><div class="trace-layout"><div class="trace-rail"><h4>实际步骤</h4><div class="trace-filters" role="group" aria-label="步骤筛选"><button type="button" class="button tiny" data-trace-filter="all">全部</button><button type="button" class="button tiny" data-trace-filter="changed">有改动</button><button type="button" class="button tiny" data-trace-filter="error">执行问题</button></div><p data-trace-filter-status role="status"></p><div class="trace-steps" data-trace-steps></div><details class="trace-material-index"><summary>按材料定位步骤</summary><div data-trace-materials></div></details><div data-trace-task-info></div></div><div class="trace-detail" data-trace-detail tabindex="-1"></div><svg class="trace-connector" aria-hidden="true"><path></path></svg></div>';
+    model={job,step:job.steps?.[0]?.id||'',evidence:'',filter:'all',signature:''};root._maintenanceTrace=model;
     maintenanceTraceRoots.add(root);
     root.addEventListener('click',event=>{
+      const filter=event.target.closest('[data-trace-filter]');if(filter){model.filter=filter.dataset.traceFilter;maintenanceTraceUpdate(root,model.job);return;}
+      if(event.target.closest('[data-trace-locate]')){const detail=root.querySelector('[data-trace-detail]');detail.scrollIntoView({block:'start'});window.scrollBy(0,detail.getBoundingClientRect().top-76);detail.focus({preventScroll:true});return;}
       const button=event.target.closest('[data-trace-step],[data-trace-evidence]');if(!button)return;
       const old=model.step;
       if(button.dataset.traceEvidence){
@@ -169,16 +188,22 @@ function maintenanceTraceUpdate(root,job){
   }
   model.job=job;
   if(!job.steps.some(s=>s.id===model.step))model.step=job.steps[0]?.id||'';
-  const signature=JSON.stringify([job,model.step,model.evidence]);if(signature===model.signature)return;
+  const listed=!!root.closest('.maintenance-selected')&&[...root.closest('.maintenance-agent').querySelectorAll('[data-maintenance-select]')].some(button=>button.dataset.maintenanceSelect===job.id);
+  const signature=JSON.stringify([job,model.step,model.evidence,model.filter,listed]);if(signature===model.signature)return;
   model.signature=signature;
-  maintenancePatch(root.querySelector('[data-trace-summary]'),`<strong>${esc(maintenanceStatuses[job.status]||job.status)}</strong> · ${esc(job.title||job.target_id)}${job.reason?`<p>${esc(job.reason)}</p>`:''}${job.feedback?`<p>问题说明：${esc(job.feedback)}</p>`:''}<p class="muted">已记录 ${job.steps.length} 个实际步骤 · ${job.evidence.length} 份材料</p>`);
-  maintenancePatch(root.querySelector('[data-trace-steps]'),job.steps.length?job.steps.map(step=>`<button type="button" class="trace-step" data-key="step-${esc(step.id)}" data-trace-step="${esc(step.id)}" aria-pressed="${step.id===model.step}"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 0v24"/><circle cx="12" cy="12" r="5"/></svg><span><strong>${esc(step.position)} · ${esc(maintenanceTools[step.name]||step.name)}</strong><span>${esc(maintenanceStepStatus(step))}</span></span></button>`).join(''):'<p class="muted">尚无步骤</p>');
+  maintenancePatch(root.querySelector('[data-trace-summary]'),`${listed?'':`<strong>${esc(maintenanceStatuses[job.status]||job.status)}</strong> · ${esc(job.title||job.target_id)}${job.reason?`<p>${esc(job.reason)}</p>`:''}`}${job.feedback?`<p>问题说明：${esc(job.feedback)}</p>`:''}<p class="muted">${job.steps.length} 个实际步骤 · ${job.evidence.length} 份材料</p>`);
+  maintenancePatch(root.querySelector('[data-trace-task-info]'),`<details class="trace-task-info"><summary>任务时间与状态</summary><p>${esc(maintenanceStatuses[job.status]||job.status)} · ${dateTime(job.created_at)}</p>${job.last_step?`<p>末步：${esc(maintenanceTools[job.last_step.name]||job.last_step.name)}</p>`:''}</details>`);
+  const visible=job.steps.filter(step=>model.filter==='all'||model.filter==='error'?(model.filter==='all'||!!step.result?.error||step.status==='failed'):Object.entries(step.result?.changes||{}).some(([field,change])=>maintenanceTraceChanged(field,change)));
+  root.querySelectorAll('[data-trace-filter]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.traceFilter===model.filter)));
+  root.querySelector('[data-trace-filter-status]').textContent=visible.length+' / '+job.steps.length+' 步'+(visible.some(step=>step.id===model.step)?'':' · 当前步骤在筛选外');
+  root.querySelector('[data-trace-locate]').title='步骤 '+(job.steps.find(step=>step.id===model.step)?.position||'')+' · '+(maintenanceTools[job.steps.find(step=>step.id===model.step)?.name]||'');
+  maintenancePatch(root.querySelector('[data-trace-steps]'),visible.length?visible.map(step=>`<button type="button" class="trace-step" data-key="step-${esc(step.id)}" data-trace-step="${esc(step.id)}" aria-pressed="${step.id===model.step}"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 0v24"/><circle cx="12" cy="12" r="5"/></svg><span><strong>${esc(step.position)} · ${esc(maintenanceTools[step.name]||step.name)}</strong><span>${esc(maintenanceStepStatus(step))}</span></span></button>`).join(''):'<p class="muted">尚无步骤</p>');
   maintenancePatch(root.querySelector('[data-trace-materials]'),job.evidence.length?job.evidence.map((e,i)=>`<button type="button" class="trace-material" data-key="material-${esc(e.id)}" data-trace-evidence="${esc(e.id)}">材料 ${i+1} · ${esc(e.method==='deepseek-search-json'?'搜索结果':'网页内容')}</button>`).join(''):'<p class="muted">尚无材料</p>');
   maintenancePatch(root.querySelector('[data-trace-detail]'),maintenanceTraceDetail(job,job.steps.find(s=>s.id===model.step),model.evidence));
   const nodes=job.steps.map(step=>({id:'step:'+step.id,label:`${step.position} · ${maintenanceTools[step.name]||step.name}\n${maintenanceStepStatus(step)}`}));
   const edges=job.steps.slice(1).map((step,i)=>({id:'order:'+step.id,source:'step:'+job.steps[i].id,target:'step:'+step.id,label:'顺序',description:'已记录步骤顺序'}));
-  for(const evidence of job.evidence){nodes.push({id:'evidence:'+evidence.id,label:'已存材料\n'+evidence.id});for(const step of job.steps)if(maintenanceTraceEvidence(job,step).some(item=>item.id===evidence.id))edges.push({id:step.id+':'+evidence.id,source:'step:'+step.id,target:'evidence:'+evidence.id,label:'材料',description:evidence.step_id===step.id?'实际取得的材料':'显式材料引用'});}
-  visualFlowUpdate(root.querySelector('.actual-flow'),{nodes,edges,legend:'顺序：已记录步骤的先后；材料：实际取得或显式引用，具体出处在步骤详情。只标注所选节点相邻边。',selected:['step:'+model.step,...(model.evidence?['evidence:'+model.evidence]:[])]},id=>{const prefix=id.startsWith('evidence:')?'evidence':'step',value=id.slice(prefix.length+1),button=[...root.querySelectorAll(prefix==='step'?'[data-trace-step]':'[data-trace-evidence]')].find(button=>button.dataset[prefix==='step'?'traceStep':'traceEvidence']===value);button?.click();});
+  for(const [index,evidence] of job.evidence.entries()){nodes.push({id:'evidence:'+evidence.id,label:'材料 '+(index+1)+'\n'+(evidence.method==='deepseek-search-json'?'搜索结果':'网页内容')});for(const step of job.steps)if(maintenanceTraceEvidence(job,step).some(item=>item.id===evidence.id))edges.push({id:step.id+':'+evidence.id,source:'step:'+step.id,target:'evidence:'+evidence.id,label:'材料',description:evidence.step_id===step.id?'实际取得的材料':'显式材料引用'});}
+  visualFlowUpdate(root.querySelector('.actual-flow'),{nodes,edges,legend:'',selected:['step:'+model.step,...(model.evidence?['evidence:'+model.evidence]:[])]},id=>{const prefix=id.startsWith('evidence:')?'evidence':'step',value=id.slice(prefix.length+1),button=[...root.querySelectorAll(prefix==='step'?'[data-trace-step]':'[data-trace-evidence]')].find(button=>button.dataset[prefix==='step'?'traceStep':'traceEvidence']===value);button?.click();});
   root.querySelectorAll('[data-trace-diff]').forEach(visualDiffMount);
   requestAnimationFrame(()=>maintenanceTraceConnect(root));
 }
@@ -203,3 +228,9 @@ const maintenanceTraceObserver=new MutationObserver(()=>{
   });
 });
 maintenanceTraceObserver.observe(document.documentElement,{childList:true,subtree:true});
+
+document.addEventListener('toggle',event=>{
+  if(!event.target.matches('.trace-graph,.handoff-graph'))return;
+  const host=event.target.querySelector('.actual-flow'),model=host?._actualFlow;if(!model)return;
+  if(event.target.open)visualFlowMount(host);else{model.viewport=model.instance?.getViewport();model.instance?.dispose();model.instance=null;}
+},true);

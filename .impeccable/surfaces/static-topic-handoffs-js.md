@@ -9,24 +9,22 @@ mode: Operate
 
 # 材料沿革
 
-范围为 #141、固定规格2.0的协作流程；保留 #136 已实现的当前／历史阅读。研究员在同一份材料中核对真实版本、原件与该版负责人意见，继续当前提交或审阅。沿用并列工作台，不改变权限、阶段、旧流程身份及原件。
+范围为 #142 v1 的现代研究工作台，保留 #136／#141 当前与历史材料语义。用户已选择“动作清楚、图文联动，兼顾效率和视觉”；继承蓝白Operate世界，无新品牌、seed或栅格资产。
 
 ## Direction contract
 
-THESIS: 以版本为锚的双责任轨道，让提交与审阅的实际对应直接可点；每份材料保持独立阅读和写入目标。
+THESIS: 当前有权待审节点直接完成决定；历史、原件与草稿均保留具体版本身份。
 
-OWN-WORLD: 继承现行蓝白灰工作台、金色焦点与原生控件。选中节点、细连线和阅读身份共同表达选择，完整中文状态不依赖颜色。
+OWN-WORLD: 蓝白灰、14px无衬线、金色焦点与原生控件。中文状态不只靠颜色。
 
-STORY: 先见当前版待审，再点历史版本或真实审阅，原件与意见同步替换；回当前版后接续现有表单，输入和文件不被阅读切换重建。
+STORY: 查看当前版，直接通过或退回；意见/附件接续同一原生form。选择历史只换阅读，旧版不获得新审批。保存一份材料不重建其他材料文件。
 
-FIRST VIEWPORT: 左侧既有工作清单；右侧材料题名和当前状态下直接展示“成员提交／负责人审阅”两列及逐版实际连线，单一阅读区紧随其后，当前动作在其下。手机改为文字顺序入口、版本选择和回当前版；邻近版本选择的显式定位按钮随所选版本更新，滚动时保持可达，只有点击才定位原件与意见，不抢选择焦点。
+FIRST VIEWPORT: 桌面材料题名与短图相邻，当前待审节点有通过、退回和意见/附件；完整文字责任记录按需展开。手机先显示当前原生操作，流程图有明确折叠入口；回当前版显式打开并定位最新节点，原件与意见也可独立定位。关闭图释放实例。
 
-FORM: 本轮作为既有 Operate 界面扩展，沿用现有项目与原型，未执行新的 visual-world / seed 流程。签名交互是节点—责任线—原件与意见同时选中；可用 WAAPI 时仅阅读区短反馈，减少动态或不支持时直接切换。
+FORM: 局部React Flow根与同源ELK classic Worker只负责呈现及排列。adapter传入动作并处理权限与HTTP，原生textarea/file始终在React根外；按钮键盘事件不被节点选择吞掉。短图按真实包围框收紧，版本顺序与真实审阅仍各自连接；放大、缩小、定位、全图保留。模块或布局失败折叠不可用画布，展开文字责任记录并连续提供同一原生form；显式重试恢复图形，不重建textarea/file，重试只在失败时出现。React Flow署名保留。
 
-图形使用局部 React Flow 根及同源 ELK classic Worker。版本登记顺序与此版真实审阅分别标明；布局不推断审阅导致后续提交。材料使用150×80紧凑节点和短角色／状态标签，短沿革在桌面默认近1倍完整呈现，提供放大、缩小、定位所选节点和显式全图。图选择与文字选择共用版本阅读；上传及审阅表单始终在 React 根以外。手机保留图入口及原生版本选择、44px定位按钮；模块或布局失败保留文字阅读并可重试。刷新保留视口，失权立即移除图与历史，恢复后重新核权读取。
+STATE: 单次在途、防双击；未知结果只能用原决定、原request_id和原body重试。409、401及403保留本机草稿，移除失效阅读或动作。草稿的内存键含账号、期次与具体版本；新版本另建空白表单，不把旧稿改投。离页返回重新核权，重新载入浏览器不承诺保留File。
 
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
 
-独立审查和统一detector由父集成任务执行。本组件保留初版与两轮以内实际渲染截图；无新raster。既有PRODUCT/设计sidecar陈旧提示不在本轮修复。
-
-公开HTTP及实际浏览器检查入口为 `tests/test_topic_handoffs.py` 与 `scripts/check_collaboration_lineage_browser.py --evidence <隔离输出目录>`；后者核对真实图节点、Worker、逐版原件／审阅附件字节、草稿、闭期、失权恢复与原生200%。`--baseline-flow` 仅用于固定旧版界面的失败对照。
+公开HTTP与浏览器验证入口：tests/test_topic_handoffs.py、scripts/check_handoffs_http.py、scripts/check_collaboration_lineage_browser.py、scripts/check_modern_workbench_browser.py。当次证据见 work/现代研究工作台142开发验证.md；独立merger、双轴、统一detector及视觉复核由父任务执行，开发自测不替代放行。既有PRODUCT/设计sidecar陈旧提示未在本轮修复。

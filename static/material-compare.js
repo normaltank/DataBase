@@ -1,12 +1,12 @@
 'use strict';
 
 // Compare only explicitly selected stable IDs. Bodies live in this view, never history.
-const materialCompare={mode:null,ids:[],entries:new Map(),epoch:0,account:null,hash:null,load:null,root:null,focus:null,y:0,listY:0};
+const materialCompare={mode:null,ids:[],entries:new Map(),epoch:0,account:null,hash:null,load:null,root:null,focus:null,y:0,listY:0,originReader:null};
 function materialCompareCurrent(epoch){
   return epoch===materialCompare.epoch&&materialCompare.account===state.me?.id&&materialCompare.hash===location.hash&&materialCompare.load===state.loadId&&materialCompare.root?.isConnected;
 }
 function materialCompareReset(restore=false){
-  const previous=materialCompare.root;
+  const previous=materialCompare.root,origin=materialCompare.originReader,account=materialCompare.account,hash=materialCompare.hash;materialCompare.originReader=null;
   materialCompare.epoch++;materialCompare.mode=null;materialCompare.ids=[];materialCompare.entries.clear();
   previous?.classList.remove('material-comparing','material-comparison-reading');
   previous?.querySelector('.material-compare')?.remove();
@@ -17,8 +17,18 @@ function materialCompareReset(restore=false){
     window.scrollTo(0,materialCompare.y);
   }
   materialCompare.root=null;materialCompare.account=null;
+  if(restore&&origin&&previous?.isConnected&&account===state.me?.id&&hash===location.hash){
+    const load=state.loadId,pending=libraryOpenReader(origin.id),epoch=libraryWorkspace.readerEpoch;
+    pending.then(()=>{
+      if(account!==state.me?.id||hash!==location.hash||load!==state.loadId||epoch!==libraryWorkspace.readerEpoch||libraryWorkspace.readerId!==origin.id||libraryWorkspace.readerRecord?.id!==origin.id||!previous.isConnected)return;
+      const reader=previous.querySelector('.library-reader'),article=reader.querySelector('.ux-reading-article');if(!article)return;
+      readingChooseLanguage(article,libraryWorkspace.readerRecord,origin.language==='original');
+      reader.querySelectorAll('details').forEach((item,index)=>item.open=origin.details.includes(index));reader.scrollTop=origin.y;
+    }).catch(error=>toast(error.message));
+  }
 }
 function materialCompareStatus(){
+  materialCompareReadingActions();
   const count=window.librarySelection?.count()||0;
   document.querySelectorAll('[data-material-compare="open"]').forEach(button=>{button.disabled=count<2||count>3;});
   document.querySelectorAll('[data-material-selection-status]').forEach(node=>{
@@ -110,8 +120,9 @@ async function materialCompareRead(ids=materialCompare.ids){
 }
 function materialCompareOpen(button){
   const ids=window.librarySelection.ids();if(ids.length<2||ids.length>3){materialCompareStatus();return;}
-  materialCompareReset();
-  Object.assign(materialCompare,{mode:'compare',ids,account:state.me?.id,hash:location.hash,load:state.loadId,root:button.closest('.library-workspace'),focus:button,y:window.scrollY,listY:document.querySelector('.record-list')?.scrollTop||0});
+  const reader=libraryWorkspace.readerId?{id:libraryWorkspace.readerId,language:button.closest('.library-workspace').querySelector('.ux-reading-article')?.dataset.readingLanguage||'chinese',y:button.closest('.library-workspace').querySelector('.library-reader').scrollTop,details:[...button.closest('.library-workspace').querySelectorAll('.library-reader details')].flatMap((item,index)=>item.open?[index]:[])}:null;
+  continuityRemember();materialCompareReset();
+  Object.assign(materialCompare,{originReader:reader,mode:'compare',ids,account:state.me?.id,hash:location.hash,load:state.loadId,root:button.closest('.library-workspace'),focus:button,y:window.scrollY,listY:document.querySelector('.record-list')?.scrollTop||0});
   libraryCloseReader(false);materialCompare.root.classList.add('material-comparing');
   materialCompareRender(true);window.scrollTo(0,0);materialCompareRead();
 }
@@ -128,9 +139,14 @@ function materialCompareReaderControls(){
   const position=head.querySelector('p');if(position)position.textContent='比较中的资料';
 }
 document.addEventListener('click',event=>{
-  const button=event.target.closest('[data-material-compare],[data-material-retry],[data-material-remove],[data-material-read]');
+  const button=event.target.closest('[data-material-add],[data-material-compare],[data-material-retry],[data-material-remove],[data-material-read]');
   if(!button)return;
-  if(button.dataset.materialCompare==='select'){
+  if(button.hasAttribute('data-material-add')){
+    const id=libraryWorkspace.readerId;if(!id)return;
+    if(window.librarySelection.ids().includes(id))window.librarySelection.remove(id);
+    else if(window.librarySelection.count()>=3)toast('比较最多 3 篇，请先移除一篇。');
+    else window.librarySelection.add(id);
+  }else if(button.dataset.materialCompare==='select'){
     const root=button.closest('.library-workspace');if(!root.classList.contains('library-organizing'))root.querySelector('[data-action="reading-organize"]')?.click();
     root.querySelector('.reading-tools').open=false;root.querySelector('[data-library-select]')?.focus();
   }else if(button.dataset.materialCompare==='open')materialCompareOpen(button);
@@ -162,7 +178,15 @@ document.addEventListener('keydown',event=>{
   event.preventDefault();event.stopImmediatePropagation();
   if(materialCompare.mode==='reader')materialCompareReturn();else materialCompareReset(true);
 },true);
+function materialCompareReadingActions(){
+  const head=document.querySelector('.library-reader:not([hidden]) .ux-reading-toolbar');if(!head)return;
+  let actions=head.querySelector('[data-reading-compare]');if(!actions){actions=document.createElement('div');actions.className='row wrap reading-compare-actions';actions.dataset.readingCompare='';head.append(actions);}
+  const count=window.librarySelection.count(),included=window.librarySelection.ids().includes(libraryWorkspace.readerId);
+  actions.innerHTML='<button type="button" class="button tiny" data-material-add aria-pressed="'+included+'">'+(included?'移出比较':'加入比较')+'</button><button type="button" class="button tiny" data-material-compare="open" '+(count<2||count>3?'disabled':'')+'>比较 '+count+' 篇</button>';
+}
+
 document.addEventListener('library:reader-rendered',event=>{
+  materialCompareReadingActions();
   if(materialCompare.mode!=='reader'||materialCompare.root!==event.detail.root.closest('.library-workspace'))return;
   materialCompareReaderControls();
 });

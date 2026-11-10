@@ -59,3 +59,96 @@ html{font-size:16px}body{font-family:"Noto Sans CJK SC","Microsoft YaHei","Segoe
 
 .handoff-lineage-jump{display:none}.handoff-lineage-reading{scroll-margin-top:128px}
 @media(max-width:700px){.handoff-lineage-jump{display:block;position:sticky;top:64px;z-index:2;min-height:44px;max-width:100%;margin:8px 0;background:var(--surface);white-space:normal;text-align:left}.handoff-lineage-reading{scroll-margin-top:140px}}
+
+/* #142: stable exploration, candidates and reading share the available viewport. */
+.library-divider{display:none}
+.material-workspace,.library-results-area{min-width:0;min-height:0}
+.material-discovery>summary{min-height:44px}
+@media(min-width:1200px){
+  .content:has(>.reading-library){height:calc(100dvh - 54px);padding:16px 24px;overflow:hidden}
+  .reading-library{height:100%;display:flex;flex-direction:column;min-height:0}
+  .reading-library>.page-heading{flex:none;margin-bottom:6px}
+  .reading-library form[data-reading-filters]{flex:none;padding:8px 0;margin-bottom:8px}
+  .material-workspace{display:grid;grid-template-columns:320px minmax(0,1fr);gap:20px;flex:1;overflow:hidden}
+  .material-workspace>.material-discovery{margin:0;border:0;border-inline-end:1px solid var(--border);padding-right:16px;overflow:auto;scrollbar-gutter:stable}
+  .material-workspace:has(>.material-discovery:not([open])){grid-template-columns:180px minmax(0,1fr)}
+  .library-results-area{display:flex;flex-direction:column;overflow:hidden}
+  .library-results-area>.results-head,.library-results-area>.library-selection,.library-results-area>.pagination{flex:none}
+  .library-results-area>.library-results-workspace{min-height:0;flex:1;overflow:hidden;display:flex;flex-direction:column}
+  .reading-library .record-list{min-height:0;max-height:none;flex:1;overflow:auto;overscroll-behavior:contain}
+  .reading-library .library-row-main{display:block}
+  .reading-library .library-row-dates{display:flex;gap:12px}
+  .reading-column-labels{display:none}
+  .library-reading .material-workspace{grid-template-columns:240px minmax(0,1fr);gap:12px}
+  .library-reading .library-results-workspace{display:grid;grid-template-columns:minmax(190px,var(--library-list-width,28%)) 8px minmax(0,1fr);gap:0;align-items:stretch}
+  .library-reading .library-divider{display:block;cursor:col-resize;touch-action:none;background:var(--surface);border-inline:1px solid var(--border)}
+  .library-divider:hover,.library-divider:focus-visible{background:var(--surface-selected);outline:2px solid var(--primary);outline-offset:-2px}
+  .library-reading .record-list{padding-right:10px}
+  .library-reading .library-reader{position:relative;top:0;max-height:none;height:100%;overflow:auto;border-inline-start:0;overscroll-behavior:contain}
+  .library-reader-head{top:0;min-height:54px}
+  .library-results-area>.pagination{padding:8px 0;margin:0}
+  .has-selection .library-selection{position:static;box-shadow:none;border:0;padding:4px 0;background:var(--surface-selected)}
+}
+.material-workspace .material-geography{display:block}
+.material-workspace .material-globe{height:240px}
+.material-workspace .material-country-column{margin-top:12px}
+.material-workspace .material-country-column .material-country-list{max-height:170px}
+.material-workspace .material-map-footer{font-size:14px;gap:4px}
+.material-workspace .material-legend{gap:6px}
+.material-workspace .material-controls{flex-wrap:wrap}
+.material-workspace .material-time-chart{height:170px}
+.material-workspace .material-time-lens{height:240px}
+.material-discovery [data-material-globe-status]:empty,.material-discovery [data-material-time-status]:empty{display:none}
+@media(max-width:1199px){.material-workspace{display:flex;flex-direction:column}.material-workspace>.material-discovery{order:0}.library-results-area{order:1}.material-workspace>.material-discovery:not([open]){margin:0 0 8px}.material-workspace>.material-discovery[open]{max-height:70dvh;overflow:auto}.material-workspace>.material-discovery>summary{position:sticky;top:0;background:var(--surface);z-index:2}.library-reading .material-workspace{display:block}}
+.flow-node-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;white-space:normal}
+.actual-flow-slot .flow-node-actions .button{font:14px/1.4 "Microsoft YaHei","Segoe UI",sans-serif;min-height:34px;padding:5px 10px}
+.handoff-lineage .actual-flow{margin:8px 0;padding:8px 0}
+.handoff-lineage .actual-flow-legend:empty{display:none}
+.handoff-track-details>summary{color:var(--primary);min-height:44px;padding:8px 0;cursor:pointer}
+.handoff-lineage .actual-flow-tools{gap:6px}.handoff-lineage .actual-flow-tools .button{padding-inline:8px}
+.handoff-lineage-reading p:empty{display:none}
+@media(max-width:700px){.actual-flow-slot .flow-node-actions .button{min-height:44px}.handoff-lineage-toolbar{margin-bottom:6px}.handoff-lineage-jump{position:static}.handoff-lineage .actual-flow-slot{height:240px}}
+
+.reading-current{display:flex;flex-wrap:wrap;gap:6px;background:transparent;border:0;padding:0;margin:0 0 8px}
+.reading-filter-chip{background:var(--surface-selected);border:0;color:var(--primary);min-height:32px;max-width:100%;white-space:normal;text-align:left}
+.library-row .title-button{color:var(--text);text-decoration:none;font-weight:600;text-align:left;width:100%;padding:0;min-height:32px}
+.library-row:hover .title-button,.library-row.library-current .title-button{color:var(--primary)}
+.library-row .title-button:focus-visible{text-decoration:underline}
+.library-reader-head>p{flex-basis:auto;margin:0}
+.library-reader .ux-reading-toolbar{gap:6px 12px;margin:10px 0!important;align-items:center!important}
+.library-reader .ux-reading-toolbar>.record-explore{margin:0;border:0}
+.record-explore[open]>summary{margin-bottom:0}
+.reading-compare-actions{gap:6px}.reading-compare-actions .button{min-height:44px}
+.library-reader .detail-section{margin-top:16px;padding-top:12px}
+.library-reader .ux-main-body>h3{margin-top:0}
+@media(min-width:1200px){.library-reading .library-results-area>.pagination{width:28%;min-width:198px;gap:6px;font-size:14px;justify-content:center}.library-reading .library-results-area>.pagination .button{padding-inline:6px}}
+
+.handoff-graph>summary{display:none}.handoff-retained-draft>summary{min-height:44px;padding:8px 0;color:var(--primary);cursor:pointer}
+@media(max-width:700px){
+  .handoff-graph>summary{display:list-item;min-height:44px;padding:10px 0;color:var(--primary);cursor:pointer}
+  .handoff-material{display:flex;flex-direction:column}.handoff-material>.between{order:0}.handoff-material>.handoff-owner{order:1}.handoff-material>.handoff-current-actions{order:2}.handoff-material>.handoff-lineage{order:3}.handoff-material>details{order:4}
+  .handoff-current-actions>h3{display:none}.handoff-review h4{font-size:14px;margin:8px 0}.handoff-review form{gap:8px}.handoff-review form .form-error:empty,.handoff-review [data-handoff-conflict]:empty{display:none}
+}
+
+.handoff-material>.between{scroll-margin-top:72px}.handoff-material> .between>h2{scroll-margin-top:72px}
+
+@media(min-width:1200px){.material-comparing>.material-compare{min-height:0;flex:1;overflow:auto}}
+
+.handoff-graph:not([open])>summary{display:list-item}
+
+/* Narrow discovery keeps the query and candidate list in the first viewport. */
+@media(max-width:700px){
+  .reading-library>.page-heading{margin-bottom:8px;gap:4px}
+  .reading-library>.page-heading .reading-tabs{gap:16px}
+  .reading-library form[data-reading-filters]{padding:4px 0;margin-bottom:4px}
+  .reading-library .reading-quick{flex-wrap:nowrap;gap:8px}
+  .reading-library .reading-quick>.reading-keyword{flex:1;flex-basis:auto;min-width:0}
+  .reading-library .reading-quick>.button{flex-shrink:0;min-width:64px;white-space:nowrap}
+  .reading-library .reading-keyword>span{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+  .reading-library .reading-keyword input{min-height:44px}
+  .reading-library .reading-more>summary{padding:8px 0}
+  .reading-library .reading-current{margin-bottom:4px}
+  .reading-library .results-head{margin:4px 0;min-height:44px}
+  .material-workspace>.material-discovery:not([open]){margin-bottom:0}
+  .reading-library .reading-filter-chip{min-height:44px}
+}

@@ -7,8 +7,8 @@ year distribution while preserving a visible, complete and authorized query.
 
 ## Direction contract
 
-THESIS: Present one compact discovery scene above the existing result rows.
-Country and time views change the same query, with native text alternatives.
+THESIS: Keep live country/time exploration beside visible candidate rows on desktop;
+phone readers reach results first and explicitly open the exploration scene.
 
 OWN-WORLD: Use the existing 14px interface type, 4px buttons, white surfaces,
 blue selection and gold focus. Colour encodes counts, never research importance.
@@ -17,12 +17,12 @@ STORY: See the current query distribution, choose a country or
 year and return to the same filtered list. Explicit clear controls restore each
 dimension. Europe is the first view; the world remains one button away.
 
-FIRST VIEWPORT: The globe is initially visible between filters and result
-controls. Desktop places its country controls alongside it; narrow screens stack
-the globe and text controls. The time view replaces this scene on explicit
-selection, mounting a Canvas ECharts overview and optional Three lens. Its year
-inputs and collapsed native year list remain usable without either library.
-A member can fold the whole exploration area to return to the compact list.
+FIRST VIEWPORT: The existing blue/white Operate workbench now follows #142 v1.
+Desktop places the real globe and time scene in an independent scrolling side
+area; candidates begin in the same viewport. Reading, list and exploration keep
+stable boundaries. A pointer/keyboard divider allocates list and prose width.
+Phone exploration starts folded with a clear entry; current conditions are short
+removable chips. Keyword and find stay first; date, country and sort controls remain in the existing more-filters disclosure. Map, years, unknown dates and unmapped countries remain usable.
 
 FORM: 本轮作为既有 Operate 界面扩展，沿用现有项目与 Three 原型，未执行新的 visual-world / seed 流程。 The signature interaction is the boundary-to-list filter,
 duplicated by textual controls. The local Three globe rotates only on user input;
@@ -41,3 +41,9 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 Verification: HTTP complete-query contracts and isolated synthetic browser
 checks. Parent coordinator runs the final mechanical detector and independent
 Standards/Spec reviews on the integrated commit. No raster assets introduced.
+
+#142 development evidence and final-review ownership: work/现代研究工作台142开发验证.md.
+Healthy graphs omit explanatory paragraphs and persistent retries. Scope/precision
+remain available on demand; errors reveal the local retry and text alternatives.
+
+第二轮R2保持手机查找主动作单行、最小64px且不收缩；更多筛选仍按需打开，结果首屏位置和查询行为保持。作者验证见既有#142开发验证记录。
