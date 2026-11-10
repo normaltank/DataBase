@@ -36,12 +36,21 @@ function clientGuardTransition(){if(!clientHasDraft())return true;toast('有未�
 (() => {
   const revision=document.querySelector('meta[name="client-revision"]')?.content;
   let available=false,checking=false;
+  function reconcileRecovery(){
+    const bar=document.querySelector('.client-update');
+    if(!bar||clientDraftState().otherAccount)return;
+    // Identity can change while this update offer and the native drafts survive.
+    bar.querySelector('.client-update-recovery')?.remove();
+    bar.querySelector('[data-client-continue]')?.remove();
+  }
   function offer(next){
+    reconcileRecovery();
     if(!next||next===revision||available)return;
     available=true;window.objectActions?.close(false);
     const bar=document.createElement('aside');bar.className='client-update';bar.setAttribute('aria-label','页面更新');
     bar.innerHTML='<span>有新版本</span><button type="button" class="button primary" data-client-update>更新页面</button>';
     bar.querySelector('button').addEventListener('click',()=>{
+      reconcileRecovery();
       if(!clientDraftState().otherAccount){if(clientGuardTransition())location.reload();return;}
       // A same-origin native new-page link keeps this page's File/unknown
       // requests alive. The new page authenticates normally as the current user.
@@ -56,6 +65,7 @@ function clientGuardTransition(){if(!clientHasDraft())return true;toast('有未�
     });document.body.append(bar);
   }
   async function check(){
+    reconcileRecovery();
     if(checking||!state.me||document.hidden)return;checking=true;
     try{const response=await fetch('/api/client-revision',{cache:'no-store'});if(response.ok)offer((await response.json()).revision);}catch{/* Retry on the next focus or interval. */}finally{checking=false;}
   }

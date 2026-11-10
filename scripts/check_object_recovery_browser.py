@@ -25,6 +25,7 @@ def main():
     checks={};captures=[];errors=[];attempts=[]
     logging.getLogger('werkzeug').setLevel(logging.ERROR)
     def capture(page,name):
+        expect(page.locator('#toast')).to_have_css('opacity','0',timeout=7000)
         page.screenshot(path=str(evidence/name))
         captures.append({'path':name, 'viewport':page.viewport_size,
                          'position':page.evaluate('({x:scrollX,y:scrollY,readerY:document.querySelector(".library-reader")?.scrollTop||0})'),
@@ -100,6 +101,7 @@ def main():
                     expect(fresh.locator('input[type=file]')).to_have_count(0)
                     fresh.goto(base+'/#library?feed=all')
                     expect(fresh.locator('.library-workspace')).to_be_visible()
+                    expect(fresh.get_by_role('status').filter(has_text='正在读取当前查询的分布')).to_have_count(0)
                     assert not fresh.evaluate('clientHasDraft()')
                     checks['fresh_page_policy']=verify_policy(fresh)
                     capture(fresh,'updated-account-b-1280x720.png')
@@ -111,6 +113,16 @@ def main():
                     expect(form.locator('[name=note]')).to_have_value('账号 A 留在原版本的意见')
                     assert form.locator('[name=file]').evaluate('e=>e.files[0].name')=='account-a.txt'
                     expect(form.locator('.form-error')).to_contain_text('重试')
+                    restored_notice=page.get_by_role('complementary',name='页面更新')
+                    expect(restored_notice).not_to_contain_text('其他账号的草稿')
+                    expect(restored_notice.locator('[data-client-continue]')).to_have_count(0)
+                    expect(update).to_be_visible()
+                    update.click()
+                    expect(page.locator('#toast')).to_contain_text('未提交')
+                    expect(form.locator('[name=note]')).to_have_value('账号 A 留在原版本的意见')
+                    assert form.locator('[name=file]').evaluate('e=>e.files[0].name')=='account-a.txt'
+                    checks['restored_a_update_notice_matches_current_identity']=True
+                    form.scroll_into_view_if_needed()
                     capture(page,'account-a-restored-original-draft.png')
                     form.get_by_role('button',name='退回',exact=True).click()
                     expect(card.locator(':scope>.between>.badge')).to_have_text('当前版 1 · 退回')
