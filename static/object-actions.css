@@ -27,6 +27,8 @@
 .object-open{font-size:14px;white-space:nowrap}
 .library-row-status{gap:6px}
 .reading-library .record-list{align-content:start}
+.reading-library .library-card-item .record-title .title-button{color:var(--text);text-decoration:none}
+.reading-library .library-card-item .record-title .title-button:hover,.reading-library .library-card-item .record-title .title-button:focus-visible{text-decoration:underline}
 .client-update{position:fixed;right:16px;bottom:16px;z-index:1500;display:flex;align-items:center;gap:12px;padding:8px 12px;background:var(--surface);border:1px solid var(--control-border);border-radius:4px;box-shadow:0 4px 16px #17395e26;font-size:14px}
 .flow-node-object{height:100%}.flow-node-object>.object-more{position:absolute;top:2px;right:2px}
 .flow-node-object>span{display:block;padding-right:26px}
