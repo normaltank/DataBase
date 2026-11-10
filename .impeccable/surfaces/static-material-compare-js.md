@@ -19,7 +19,7 @@ STORY：#142 v1 在阅读工具栏直接加入／移出比较，沿用既有2–
 
 FIRST VIEWPORT：标题与关闭按钮在顶端；首组显示各篇原始题名、单篇阅读和原文入口。桌面2或3列严格对齐；手机按同一字段依次列出每篇，内容在页面内自然换行。
 
-FORM：既有表格式对照的局部扩展；明确任务直接施工，concept-seed不适用。加载、失败、撤权和缺项就地呈现；重试与移除有明确动作。关闭恢复原阅读与位置，或原选择、页码和列表焦点；阅读可回比较，账号与路由更新丢弃晚响应。
+FORM：既有表格式对照的局部扩展；明确任务直接施工，concept-seed不适用。加载、失败、撤权和缺项就地呈现；重试与移除有明确动作。关闭在重新核权读取后恢复原阅读语言、展开项与位置，或原选择、页码和列表焦点；阅读可回比较，账号与路由更新丢弃晚响应。
 
 FINISH：unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
 
