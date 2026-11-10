@@ -64,6 +64,7 @@ def main():
                     rows.first.locator('.library-row-source').click(button='right')
                     expect(menu).to_be_visible()
                     menu.get_by_role('menuitem', name='收藏资料', exact=True).click()
+                    expect(page.locator('#toast')).to_contain_text('已加入我的收藏')
                     more.click();expect(menu.get_by_role('menuitem', name='取消收藏', exact=True)).to_be_visible()
                     menu.get_by_role('menuitem', name='选择用于比较', exact=True).click()
                     rows.nth(1).get_by_role('button', name='更多资料操作').click()
@@ -194,8 +195,10 @@ def main():
                     page.goto(f'http://127.0.0.1:{portable_server.server_port}/#collaboration')
                     page.get_by_role('button', name='主机本机维护', exact=True).click()
                     expect(page.locator('.workbench-account-link[data-id=personal]')).to_have_text('本机维护')
+                    page.screenshot(path=str(evidence/'portable-return-1280.png'));captures.append('portable-return-1280.png')
                     page.set_viewport_size({'width':320,'height':844})
                     page.get_by_role('button',name='打开导航',exact=True).click()
+                    page.screenshot(path=str(evidence/'portable-return-320.png'));captures.append('portable-return-320.png')
                     page.get_by_role('button', name='返回研究身份', exact=True).click()
                     expect(page.locator('.workbench-account-link[data-id=personal]')).to_contain_text('临时研究员')
                     assert page.request.get(f'http://127.0.0.1:{portable_server.server_port}/api/session').json()['user']['id'] == identity
