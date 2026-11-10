@@ -7,6 +7,7 @@ import argparse
 import json
 import io
 import math
+import re
 import shutil
 import sys
 import threading
@@ -29,7 +30,7 @@ class Quiet(WSGIRequestHandler):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--evidence-dir', type=Path, required=True)
-    parser.add_argument('--case', choices=['focus', 'changed', 'stale', 'lifecycle', 'labels', 'security', 'network', 'all'], default='all')
+    parser.add_argument('--case', choices=['focus', 'changed', 'shell', 'access', 'stale', 'lifecycle', 'labels', 'security', 'reader', 'network', 'all'], default='all')
     args = parser.parse_args()
     out = args.evidence_dir.resolve()
     out.mkdir(parents=True, exist_ok=False)
@@ -47,7 +48,7 @@ def main():
     ids = []
     for year in ['1990', '2001', '2021']:
         ids.append(call('/api/records', {'title': '合成刷新验收 '+year, 'kind': 'report',
-                             'source_id':source, 'countries': 'Latvia', 'published_on': year})['id'])
+                             'source_id':source if args.case!='shell' else '', 'countries': 'Latvia', 'published_on': year, 'body_html':'<p>合成连续阅读正文。</p>'*40})['id'])
     server = make_server('127.0.0.1', 0, app, threaded=True, request_handler=Quiet)
     assert server.server_port not in {6430, 3435, 3436}
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -55,11 +56,13 @@ def main():
     base = f'http://127.0.0.1:{server.server_port}/'
     checks = []
     errors = []
+    traffic = []
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             page = browser.new_page(viewport={'width': 1366, 'height': 900})
             page.on('pageerror', lambda error: errors.append(str(error)))
+            page.on('response', lambda response: traffic.append({'path':response.url.removeprefix(base), 'status':response.status}) if '/api/' in response.url else None)
             page.goto(base)
             page.get_by_role('button', name='协作同事', exact=True).click()
             page.goto(base+'#library?feed=all&q=合成刷新验收')
@@ -76,6 +79,12 @@ def main():
                 # a neighbouring control's focus border; all chart pixels must match.
                 a=Image.open(io.BytesIO(first)).convert('RGB');b=Image.open(io.BytesIO(second)).convert('RGB')
                 return a.size==b.size and a.crop((1,1,a.width-1,a.height-1)).tobytes()==b.crop((1,1,b.width-1,b.height-1)).tobytes()
+
+            def same_time_window(first,second):
+                # Axis labels and every plot pixel independently expose the visible
+                # year window. ECharts can clear slider-handle hover emphasis on update.
+                a=Image.open(io.BytesIO(first)).convert('RGB');b=Image.open(io.BytesIO(second)).convert('RGB')
+                return a.size==b.size and a.crop((1,1,a.width-1,a.height-40)).tobytes()==b.crop((1,1,b.width-1,b.height-40)).tobytes()
 
             def focus_refresh():
                 expect(panel).not_to_have_attribute('aria-busy','true')
@@ -132,29 +141,94 @@ def main():
                 checks.append('No-change authorized focus reread retains same focused input, draft, canvas, rotated lens and actual mouse-adjusted chart zoom')
 
             if args.case in ('changed', 'all'):
-                call('/api/records', {'title':'合成刷新验收 新记录', 'kind':'report', 'countries':'Latvia','published_on':'2001'})
-                field = panel.locator('[data-material-from]')
+                rotate()
+                # Unknown date is deliberately not placed: unchanged geometry makes
+                # a camera reset observable while the matching query total grows.
+                chart=panel.locator('.material-time-chart')
+                chart.scroll_into_view_if_needed();b=chart.bounding_box()
+                page.mouse.move(b['x']+b['width']-25,b['y']+b['height']-20)
+                page.mouse.down();page.mouse.move(b['x']+b['width']*.72,b['y']+b['height']-20,steps=10);page.mouse.up()
+                page.mouse.move(10,10);page.wait_for_timeout(150)
+                chart_before=chart.screenshot();lens_before=lens.screenshot()
+                field=panel.locator('[data-material-from]')
+                field.fill('1998');field.focus()
                 field.evaluate('e=>window.changedField=e')
                 lens.evaluate('e=>window.changedCanvas=e')
-                held = []
-                page.route('**/api/material-discovery?**',lambda route:held.append(route),times=1)
-                panel.locator('[data-material-retry]').click()
-                page.wait_for_timeout(150)
-                assert held
-                field.fill('1999');field.focus()
-                held[0].fulfill(response=held[0].fetch())
+                page.locator('[data-reading-filters] input[name=q]').evaluate("e=>{e.value='尚未应用的检索草稿';window.changedQuery=e}")
+                call('/api/records', {'title':'合成刷新验收 新记录', 'kind':'report', 'countries':'Latvia','published_on':''})
+                # The normal event must update both ordinary rows and distribution.
+                focus_refresh()
+                expect(page.locator('.results-head')).to_contain_text('4')
+                expect(page.locator('.library-row')).to_have_count(4)
                 expect(panel.locator('.material-scope')).to_contain_text('4 条')
-                assert field.evaluate('e=>e===window.changedField && e===document.activeElement')
-                assert lens.evaluate('e=>e===window.changedCanvas')
-                expect(field).to_have_value('1999')
-                checks.append('Changed authorized data updates native totals in place and retains input edited while request was in flight')
-                # Synchronize the ordinary list too before testing a later focus event.
-                # Its independent permission/count check correctly reloads a changed list.
-                page.reload()
-                expect(panel.locator('[data-material-globe] canvas')).to_be_visible()
-                panel.locator('[data-material-scene=time]').click()
-                panel.locator('[data-material-lens]').click()
-                expect(lens).to_be_visible()
+                expect(panel).not_to_have_attribute('aria-busy','true')
+                assert field.evaluate('e=>e===window.changedField && e===document.activeElement'), 'changed focus replaced focused input'
+                assert lens.evaluate('e=>e===window.changedCanvas'), 'changed focus replaced canvas'
+                expect(field).to_have_value('1998')
+                expect(page.locator('[data-reading-filters] input[name=q]')).to_have_value('尚未应用的检索草稿')
+                assert same_scene(lens.screenshot(),lens_before), 'changed focus resets rotated camera'
+                page.mouse.move(10,10)
+                chart_after=chart.screenshot()
+                (out/'changed-zoom-before.png').write_bytes(chart_before)
+                (out/'changed-zoom-after.png').write_bytes(chart_after)
+                assert same_time_window(chart_after,chart_before), 'changed focus resets chart zoom'
+                checks.append('Public record creation then normal focus updates ordinary list/distribution together, preserving same focused year input, unapplied query, rotated camera and zoom without reload')
+
+            if args.case == 'shell':
+                page.goto(base+'#library?feed=all&q=合成刷新验收&size=3')
+                expect(page.locator('.library-row')).to_have_count(3)
+                expect(page.locator('.pagination')).to_contain_text('第 1 / 1 页')
+                expect(page.locator('.pagination [data-id="2"]')).to_be_disabled()
+                # A previously empty facet must gain its first authorized value.
+                expect(page.locator('[data-reading-filters] input[name=source_group]')).to_have_count(0)
+                call('/api/records', {'title':'合成刷新验收 跨页', 'kind':'report', 'countries':'Estonia', 'keywords':'新增主题', 'source_id':source})
+                focus_refresh()
+                expect(page.locator('.results-head')).to_contain_text('4')
+                expect(page.locator('.library-row')).to_have_count(3)
+                expect(page.locator('.pagination')).to_contain_text('第 1 / 2 页')
+                expect(page.locator('.pagination [data-id="2"]')).to_be_enabled()
+                expect(page.locator('[data-reading-filters] label').filter(has=page.locator('input[name=country][value=EE]'))).to_contain_text('1')
+                expect(page.locator('[data-reading-filters] input[name=topic][value="新增主题"]')).to_have_count(1)
+                expect(page.locator('[data-reading-filters] input[name=source_group]')).to_have_count(1)
+                csrf=client.get('/api/session').json['csrf']
+                record=client.get('/api/records/'+ids[0]).json
+                assert client.put('/api/records/'+ids[0],json={'version':record['version'],'keywords':'页外主题'},headers={'X-CSRF-Token':csrf}).status_code==200
+                focus_refresh()
+                expect(page.locator('[data-reading-filters] input[name=topic][value="页外主题"]')).to_have_count(1)
+                page.locator('.pagination [data-id="2"]').click()
+                expect(page.locator('.library-row')).to_have_count(1)
+                expect(page.locator('.pagination')).to_contain_text('第 2 / 2 页')
+                for number in range(10):
+                    call('/api/records', {'title':'合成刷新验收 默认页 '+str(number), 'kind':'report'})
+                page.goto(base+'#library?feed=all&q=合成刷新验收')
+                expect(page.locator('.library-row')).to_have_count(14)
+                focus_refresh()
+                expect(panel).not_to_have_attribute('aria-busy','true')
+                page.wait_for_timeout(150)
+                expect(page.locator('.library-row')).to_have_count(14)
+                expect(page.locator('.pagination')).to_contain_text('第 1 / 1 页')
+                checks.append('Normal focus crosses a page boundary: complete total, live next-page control, country counts and first value in an empty facet; next page reads the remaining real record')
+
+            if args.case == 'access':
+                records_query=re.compile(r'/api/records\?')
+                for status,sort in [(403,'title'),(404,'updated')]:
+                    page.goto(base+'#library?feed=all&q=合成刷新验收&sort='+sort)
+                    expect(page.locator('.library-row')).to_have_count(3)
+                    page.locator('.library-row').first.get_by_role('button').first.click()
+                    expect(page.locator('.library-reader')).to_be_visible()
+                    replies=iter([status,503])
+                    page.route(records_query,lambda route:route.fulfill(status=next(replies),json={'error':'合成清单失权及重读失败'}),times=2)
+                    focus_refresh()
+                    expect(page.locator('.library-workspace')).to_have_count(0)
+                    expect(page.locator('.library-reader')).to_have_count(0)
+                page.goto(base+'#library?feed=all&q=合成刷新验收&sort=collected')
+                expect(page.locator('.library-row')).to_have_count(3)
+                page.locator('.library-row').first.get_by_role('button').first.click()
+                page.route(records_query,lambda route:route.fulfill(status=401,json={'error':'合成会话过期'}),times=1)
+                focus_refresh()
+                expect(page.locator('.library-workspace')).to_have_count(0)
+                expect(page.get_by_role('button',name='协作同事',exact=True)).to_be_visible()
+                checks.append('Collection 403/404 clear old rows/reader even when route reread fails; collection401 clears authenticated workspace and returns login')
 
             if args.case in ('stale', 'all'):
                 page.route('**/api/material-discovery?**', lambda route: route.fulfill(status=503, json={'error':'合成断网'}), times=1)
@@ -257,6 +331,77 @@ def main():
                     page.screenshot(path=str(out/f'time-{width}-viewport.png'))
                 checks.append('Lens year and type labels retain >=14 CSS pixels at 1366/390/320')
 
+            if args.case in ('reader', 'all'):
+                page.set_viewport_size({'width':1366,'height':900})
+                page.goto(base+'#library?feed=all&q=合成刷新验收')
+                expect(page.locator('.library-row').first).to_be_visible()
+                count=page.locator('.library-row').count()
+                page.locator('[data-library-record="'+ids[0]+'"]').get_by_role('button').first.click()
+                reader=page.locator('.library-reader')
+                expect(reader).to_be_visible()
+                reader.locator('.maintenance-feedback > summary').click()
+                draft=reader.locator('textarea[name=feedback]');draft.fill('尚未提交的阅读反馈');draft.focus()
+                draft.evaluate('e=>window.readerDraft=e')
+                reader.evaluate('e=>window.retainedReader=e')
+                reader.evaluate('e=>e.scrollTop=100')
+                scroll=reader.evaluate('e=>e.scrollTop')
+                call('/api/records',{'title':'合成刷新验收 阅读时新增','kind':'report','published_on':'2005','countries':'Latvia'})
+                focus_refresh()
+                expect(page.locator('.library-row')).to_have_count(count+1)
+                assert reader.evaluate('e=>e===window.retainedReader')
+                assert draft.evaluate('e=>e===window.readerDraft && e===document.activeElement')
+                expect(draft).to_have_value('尚未提交的阅读反馈')
+                assert reader.evaluate('e=>e.scrollTop')==scroll
+                # General list read failure preserves the last authorized reader/draft.
+                page.route(re.compile(r'/api/records\?'),lambda route:route.fulfill(status=503,json={'error':'合成清单断网'}),times=1)
+                focus_refresh()
+                expect(page.locator('#toast')).to_contain_text('合成清单断网')
+                assert draft.evaluate('e=>e===window.readerDraft')
+                # Actual ACL revocation clears the inaccessible reader and list row.
+                csrf=client.get('/api/session').json['csrf']
+                record=client.get('/api/records/'+ids[0]).json
+                assert client.put('/api/records/'+ids[0],json={'version':record['version'],'visibility':'restricted'},headers={'X-CSRF-Token':csrf}).status_code==200
+                page.route(re.compile(r'/api/records\?'),lambda route:route.fulfill(status=503,json={'error':'失权后的清单断网'}),times=1)
+                focus_refresh()
+                expect(reader).to_be_hidden()
+                expect(page.locator('[data-library-record="'+ids[0]+'"]')).to_have_count(0)
+                expect(page.locator('#toast')).to_contain_text('失权后的清单断网')
+                focus_refresh()
+                expect(page.locator('.results-head')).to_contain_text(str(count))
+                # Actual cookie actor change is handled by the normal outer refresh.
+                csrf=page.request.get(base+'api/session').json()['csrf']
+                assert page.request.post(base+'api/login',data={'username':'researcher','password':'LocalDemo2026!'},headers={'X-CSRF-Token':csrf}).ok
+                focus_refresh()
+                expect(page.locator('.topbar')).to_contain_text('研究员 · 林')
+                expect(page.locator('[data-library-record="'+ids[0]+'"]')).to_have_count(1)
+                csrf=client.get('/api/session').json['csrf']
+                record=client.get('/api/records/'+ids[0]).json
+                assert client.put('/api/records/'+ids[0],json={'version':record['version'],'visibility':'shared'},headers={'X-CSRF-Token':csrf}).status_code==200
+                # A real editor/file selection keeps background refresh deferred.
+                page.get_by_role('button',name='补充资料',exact=True).click()
+                form=page.locator('#modal-root form').first
+                expect(form).to_be_visible()
+                file=form.locator('input[type=file]').first
+                file.set_input_files({'name':'未提交原件.txt','mimeType':'text/plain','buffer':b'SYNTHETIC UNSAVED FILE'})
+                file.evaluate('e=>window.retainedFile=e')
+                page.evaluate("window.dispatchEvent(new Event('focus'))")
+                assert file.evaluate('e=>e===window.retainedFile && e.files.length===1 && e.files[0].name==="未提交原件.txt"')
+                page.locator('#modal-root [data-action=close]').first.click()
+                # Late collection response after real route departure cannot replace it.
+                held=[];page.route(re.compile(r'/api/records\?'),lambda route:held.append(route),times=1)
+                focus_refresh();page.wait_for_timeout(150);assert held
+                page.goto(base+'#sources')
+                held[0].fulfill(response=held[0].fetch())
+                expect(page.locator('.library-workspace')).to_have_count(0)
+                page.get_by_role('button',name='退出登录',exact=True).click()
+                page.get_by_role('button',name='协作同事',exact=True).click()
+                page.goto(base+'#library?feed=all&q=合成刷新验收')
+                expect(page.locator('.material-discovery')).to_be_visible()
+                if panel.locator('[data-material-scene=time]').get_attribute('aria-pressed')!='true':panel.locator('[data-material-scene=time]').click()
+                if panel.locator('[data-material-lens]').get_attribute('aria-pressed')!='true':panel.locator('[data-material-lens]').click()
+                expect(lens).to_be_visible()
+                checks.append('Normal focus keeps same authorized reader/draft/scroll on changed list and general failure; actual ACL revocation and actor switch clear old content; real editor file survives; late route read is ignored')
+
             if args.case in ('security', 'all'):
                 page.set_viewport_size({'width':1366,'height':900})
                 for status in (403, 404):
@@ -318,7 +463,7 @@ def main():
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
-        (out/'results.json').write_text(json.dumps({'checks':checks,'page_errors':errors,'base':base,
+        (out/'results.json').write_text(json.dumps({'checks':checks,'page_errors':errors,'http_responses':traffic,'base':base,
             'visibility_evidence':'controlled DOM component test; native OS visibility not claimed',
             'server_thread_closed':not thread.is_alive()}, ensure_ascii=False, indent=2), encoding='utf-8')
         data = (out/'data').resolve()

@@ -79,35 +79,37 @@ class LastFixture(unittest.TestCase):
         self.assertNotIn("FIRST_MODULE_EXECUTED", result.stdout)
         self.assertIn("Ran 1 test", result.stderr)
 
-    def test_windows_gate_requires_both_successes_and_identical_nonempty_plans(self):
+    def test_windows_gate_requires_all_three_successes_and_identical_nonempty_plans(self):
         workflow = (ROOT / ".github/workflows/check.yml").read_text(encoding="utf-8")
         gate = workflow.split("  windows_gate:\n", 1)[1]
         self.assertIn("name: Python 3.12 / windows-latest\n", gate)
-        self.assertIn("needs: [windows_one, windows_two]", gate)
+        self.assertIn("needs: [windows_one, windows_two, windows_three]", gate)
         self.assertIn("if: ${{ always() }}", gate)
         self.assertIn("shell: python", gate)
+        for index, job in enumerate(("windows_one", "windows_two", "windows_three"), 1):
+            body = workflow.split("  " + job + ":\n", 1)[1].split("\n  windows_", 1)[0]
+            self.assertIn("timeout-minutes: 40", body)
+            self.assertIn("--shard-count 3 --plan", body)
+            self.assertIn(f"--shard-index {index} --shard-count 3 --expected-plan-digest", body)
         code = textwrap.dedent(gate.split("        run: |\n", 1)[1])
-        head = {"SHA_ONE": "expected", "SHA_TWO": "expected", "EXPECTED_SHA": "expected"}
-        for first, second, plan_a, plan_b, succeeds in [
-            ("success", "success", "same", "same", True),
-            ("success", "success", "first", "second", False),
-            ("success", "success", "", "", False),
-            ("success", "success", "same", "", False),
-        ] + [(status, "success", "same", "same", False) for status in ("failure", "cancelled", "skipped")] + [
-            ("success", status, "same", "same", False) for status in ("failure", "cancelled", "skipped")
-        ]:
-            with self.subTest(first=first, second=second, plans=(plan_a, plan_b)):
-                env = {**os.environ, "SHARD_ONE_RESULT": first, "SHARD_TWO_RESULT": second,
-                       "PLAN_ONE": plan_a, "PLAN_TWO": plan_b, **head}
+        valid = {"EXPECTED_SHA": "expected"}
+        for index in ("ONE", "TWO", "THREE"):
+            valid.update({f"SHARD_{index}_RESULT": "success", f"PLAN_{index}": "same", f"SHA_{index}": "expected"})
+        mutations = [(None, None)]
+        for index in ("ONE", "TWO", "THREE"):
+            mutations.extend((f"SHARD_{index}_RESULT", status) for status in ("failure", "cancelled", "skipped", ""))
+            mutations.extend((f"PLAN_{index}", value) for value in ("different", ""))
+            mutations.extend((f"SHA_{index}", value) for value in ("different", ""))
+        mutations.extend([("EXPECTED_SHA", ""), ("all_plans", "")])
+        for key, value in mutations:
+            with self.subTest(key=key, value=value):
+                env = {**os.environ, **valid}
+                if key == "all_plans":
+                    env.update({f"PLAN_{index}": "" for index in ("ONE", "TWO", "THREE")})
+                elif key:
+                    env[key] = value
                 result = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True)
-                self.assertEqual(result.returncode == 0, succeeds, result.stdout + result.stderr)
-        for invalid in [{"SHA_ONE": "different"}, {"SHA_TWO": "different"},
-                        {"SHA_ONE": ""}, {"SHA_TWO": ""}, {"EXPECTED_SHA": ""}]:
-            with self.subTest(invalid_head=invalid):
-                env = {**os.environ, **head, **invalid, "SHARD_ONE_RESULT": "success",
-                       "SHARD_TWO_RESULT": "success", "PLAN_ONE": "same", "PLAN_TWO": "same"}
-                result = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True)
-                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(result.returncode == 0, key is None, result.stdout + result.stderr)
 
     def test_shards_match_full_multiset_and_preserve_module_class_fixture_order(self):
         root = self.checkout('''
