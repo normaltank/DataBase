@@ -45,10 +45,16 @@ records distinguish blocked external AdGuard injection from application assets.
 
 The primary handoff history groups each submission with its actual reviews in a
 single chronological record. A complete relationship graph is optional, uses the
-explicit material-lineage mode and equal-height read-only nodes, and fits the
-whole chain on narrow screens. Approvals remain in the native material actions.
+explicit material-lineage mode and equal-height read-only nodes, with desktop columns bound to actual version refs: submission then its real
+reviews on the vertical axis. Narrow views stack those version groups at readable
+1:1 text size; the page scrolls instead of shrinking all text. Approvals remain in the native material actions.
 The selected version changes reading; retained forms keep their original version,
 File identity, conflict target and focus. Source originals render only in their
 triggering concrete version block. The personal menu restores local host entry
 only when the server session says host_available; return preserves research actor
 and query. Developer evidence is handed off separately for independent review.
+
+Compact period context is disclosed at <=1000px, including native200% CSS widths.
+A direct original destination keeps viewed version and actual write target.
+Archive introduction/works precede section/maintenance tools. Discovery has
+explicit candidate and exploration destinations; scrolling retains its DOM/camera.

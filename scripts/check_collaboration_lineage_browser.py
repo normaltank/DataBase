@@ -126,7 +126,10 @@ def main():
                 graph=material.locator('.react-flow__node').filter(has_text='版本 1').filter(has_text='退回').first
                 graph.click()
                 expect(reading).to_contain_text('历史版 1 · 退回')
-                assert any('/static/vendor/visual/elk-worker.min.js' in url for url in workers),workers
+                groups=material.locator('.actual-flow').evaluate('e=>e._actualFlow.snapshot.groups')
+                assert [len(g['nodes']) for g in groups]==[2,2,1],groups
+                assert [g['nodes'][0] for g in groups]==['version:'+v['ref'] for v in versions]
+                assert material.locator('.react-flow__node button').count()==0,'Material nodes remain read-only'
                 return_current(material)
                 expect(reading).to_contain_text('原件与意见')
                 for number, decision, note in [(1, '退回', '请补充政策依据'), (2, '通过', '依据已核对，可接续')]:
@@ -368,7 +371,7 @@ def main():
                 policy_violations=verify_policy(page)
                 assert not errors, errors
                 result={'head':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'ok': True, 'url': base, 'evidence': str(root), 'errors': errors, 'screenshots': captures, 'native_zoom':2,'original_and_review_bytes':True,'draft_files_and_nodes_retained':True,'concurrent_review_target_retained':True,'narrow_keyboard_location_preserves_selection_focus_and_drafts':True}
-                result.update(real_flow_worker=True,policy_violations=policy_violations)
+                result.update(material_layout='fixed-version-groups',actual_event_nodes=5,material_elk_worker=False,policy_violations=policy_violations)
                 (root/'result.json').write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
                 print(json.dumps(result, ensure_ascii=False))
             finally:

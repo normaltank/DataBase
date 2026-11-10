@@ -193,3 +193,32 @@ body[data-page=library]:not(:has(.library-reading)) .desk-location{display:none}
  .desk-workspace .handoff-lineage:has(.handoff-graph[open])>.handoff-current-actions{grid-row:3}
  .desk-workspace .handoff-lineage:has(.handoff-graph[open])>.handoff-lineage-reading{grid-row:4}
 }
+/* Compact workfaces serve native zoom as well as phone widths. */
+.desk-period-context{margin:0 0 10px;border:0;padding:0}.desk-period-context>summary{font-size:14px;min-height:36px;padding:6px 0;color:var(--text-muted)}
+.desk-original-jump{white-space:nowrap}.desk-profile-tools{margin:12px 0;padding:12px 0;border-block:1px solid var(--border)}.desk-profile-tools>.section-navigation{margin:8px 0;border:0;position:static}.desk-profile-tools>.section-navigation>span{display:none}
+body:has(.person-page,.source-page) .desk-location,body:has(.person-page,.source-page) .desk-main>.content>.reading-tabs{display:none}
+.desk-main .person-page>.person-heading,.desk-main .source-profile-heading{padding-bottom:8px}.desk-main .person-page>.person-section:has(#person-introduction),.desk-main .source-page>.source-introduction{padding-top:16px}
+.desk-main .person-heading p,.desk-main .source-profile-heading p{margin-block:4px}
+.desk-main .person-page>.desk-profile-tools .person-maintenance,.desk-main .source-page>.desk-profile-tools .source-maintenance{margin:0}
+@media(min-width:1001px){.desk-period-context>summary{display:none}}
+@media(max-width:1000px){
+ .desk-header{padding:8px 12px;gap:4px 8px;min-height:0}.workbench-brand strong{font-size:14px}.desk-primary{gap:0}.desk-primary .nav-item,.desk-primary .desk-menu>.button{padding:6px 8px;min-height:40px;font-size:14px}.desk-account .desk-menu>.button{font-size:14px;min-height:36px;padding:4px}
+ .desk-main>.content{padding:12px 12px 32px}.desk-workspace .desk-work-toolbar{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;margin-bottom:8px;align-items:center}.desk-work-toolbar label{display:block;min-width:0}.desk-work-toolbar select{width:100%;max-width:100%;font-size:14px}.desk-main .desk-work-toolbar>.button{font-size:14px;padding:8px;min-height:40px}.desk-main .desk-work-toolbar>.button>.icon{display:none}
+ .desk-workspace .handoff-materials{display:flex;flex-direction:column;gap:8px}.desk-workspace .handoff-materials>*{width:100%;min-width:0}.desk-workspace .handoff-materials>.desk-material-index{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;overflow:visible;align-items:end}.desk-material-index>[data-desk-material],.desk-material-index>h2{display:none}.desk-material-picker{display:grid;gap:2px;min-width:0;font-size:14px;order:0}.desk-material-picker select{font:inherit;padding:8px;min-height:44px;width:100%;min-width:0;max-width:100%;border:1px solid var(--control-border);border-radius:6px;color:var(--text);background:var(--surface)}
+ .desk-material-index>.handoff-upload{order:1;margin:0}.desk-material-index>.handoff-upload[open]{grid-column:1 / -1}.desk-material-index>.handoff-upload>summary{font-size:14px;padding:8px 6px;min-height:44px;max-width:92px}.desk-material-index>.handoff-upload[open]>summary{max-width:none}
+ .desk-workspace .handoff-material{padding:12px;display:block}.desk-workspace .handoff-material>.between>h2{font-size:18px;line-height:1.5}.desk-workspace .handoff-material>.between>.badge{display:none}.desk-workspace .handoff-material>.handoff-owner{margin:2px 0 4px;font-size:14px}
+ .desk-workspace .handoff-lineage>.handoff-version-picker{display:flex;gap:6px;align-items:center}.desk-workspace .handoff-version-picker select{min-width:120px;min-height:44px;font-size:14px;padding:6px;flex:1}.desk-workspace .handoff-version-picker>.desk-original-jump{font-size:14px;min-height:44px;padding:6px 10px}
+ .desk-workspace .handoff-current-actions{gap:4px 12px}.desk-workspace .handoff-current-actions>h3{font-size:14px;margin:0}
+ .desk-workspace .handoff-lineage-reading .handoff-version{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 12px;align-items:center}.desk-workspace .handoff-version>strong{grid-column:1;grid-row:1}.desk-workspace .handoff-version>.row{grid-column:2;grid-row:1;margin:0;gap:12px}.desk-workspace .handoff-version>.desk-original,.desk-workspace .handoff-version>.desk-file-meta,.desk-workspace .handoff-version>.handoff-version-reviews{grid-column:1 / -1}.desk-workspace .handoff-version>.desk-original{margin-top:4px;padding-top:8px}
+ .desk-main .person-page,.desk-main .source-profile.source-page{padding:16px 12px}.desk-main .person-page>.person-heading h1,.desk-main .source-profile-heading .detail-title{font-size:22px}.desk-main .person-page>.back-link,.desk-main .source-page>.back-link{margin-bottom:12px}.desk-main .person-page>.person-heading{grid-template-columns:44px minmax(0,1fr);gap:10px}.desk-main .person-page>.person-heading .person-avatar{width:40px;height:40px}.desk-main .person-page>.person-heading p{font-size:14px}
+ .desk-main .reading-library>.page-heading{flex-wrap:wrap;gap:8px;margin-bottom:8px}.desk-main .reading-library>.page-heading>.button{width:auto;margin:0}.desk-main .reading-library>.page-heading [data-desk-results]{color:var(--primary);border-color:var(--primary)}
+ .desk-main .library-results-area>.results-head{gap:8px}.desk-main [data-desk-explore]{margin-left:auto}
+}
+@media(min-width:701px) and (max-width:1000px){
+ .desk-workspace .handoff-lineage>.handoff-current-actions{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;padding-bottom:8px}.desk-workspace .handoff-current-actions>h3{grid-column:1;grid-row:1}.desk-workspace .handoff-current-actions>.handoff-review{grid-column:2;grid-row:1;min-width:0}.desk-workspace .handoff-current-actions>.handoff-upload{grid-column:1 / -1;margin:0}.desk-workspace .handoff-current-actions .handoff-review form{justify-content:end}
+ .desk-workspace .handoff-material>.between,.desk-workspace .handoff-material>.handoff-owner{display:inline-flex;margin-right:12px}
+}
+.handoff-graph .react-flow__node-material{padding:12px;border:1px solid var(--control-border);border-radius:4px;background:var(--surface);color:var(--text);font-size:14px;line-height:1.5;text-align:left;box-sizing:border-box}
+.handoff-graph .react-flow__node-material.selected{border-color:var(--primary);background:var(--surface-selected)}
+.handoff-graph .material-flow-node{height:100%;display:flex;align-items:center}.handoff-graph .material-flow-node>.flow-node-object{width:100%}
+.handoff-graph .react-flow__node-material .react-flow__handle{width:3px;height:3px;opacity:0;border:0}

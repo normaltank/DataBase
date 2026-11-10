@@ -50,9 +50,10 @@
       }
     ],
     "composition": {
-      "materials": "Compact viewed-version and actual write target; grouped chronological handoffs; optional read-only material-lineage graph.",
+      "materials": "Compact period context and original destination; actual version columns with submission/reviews on the same axis; readable stacked groups on compact screens, no automatic text shrinking.",
       "reading": "One return and compact article header; comparison under reader tools; retained query/canvas.",
-      "profiles": "Continuous introduction/works, subordinate maintenance and evidence."
+      "profiles": "Introduction and works lead; maintenance/section tools follow content.",
+      "discovery": "Large canvas with direct candidates and back-to-exploration scroll destinations, same retained canvas/camera."
     }
   },
   "components": [

@@ -43,13 +43,38 @@ def main():
                 expect(material.locator('[data-desk-preview]')).to_contain_text('第16段')
                 expect(material.locator('.handoff-current-actions>h3')).to_contain_text('写入当前版 3')
                 page.evaluate('scrollTo(0,0)');capture('long-desk-'+suffix,factor,material.locator('[data-desk-preview]'))
+                if factor==2:
+                    jump=material.get_by_role('button',name='阅读原件',exact=True);assert jump.bounding_box()['y']<page.evaluate('innerHeight')
+                    jump.click();expect(material.locator('[data-desk-preview]')).to_be_focused();capture('long-desk-read-'+suffix,factor,material.locator('[data-desk-preview]'))
                 material.locator('.handoff-track-details>summary').click();material.locator('.handoff-track-details').scroll_into_view_if_needed();capture('timeline-'+suffix,factor,material.locator('.handoff-lineage-tracks'))
                 material.locator('.handoff-graph>summary').click();expect(material.locator('.react-flow__node')).to_have_count(5);expect(material.locator('[data-flow-status]')).to_have_text('');material.get_by_role('button',name='显示全图',exact=True).click();material.locator('.actual-flow').scroll_into_view_if_needed();page.wait_for_timeout(250);capture('graph-'+suffix,factor,material.locator('[data-flow-slot]'))
+                groups=material.locator('.actual-flow').evaluate('e=>e._actualFlow.snapshot.groups')
+                geometry=material.locator('.react-flow__node').evaluate_all('els=>Object.fromEntries(els.map(e=>[e.dataset.id,e.getBoundingClientRect().toJSON()]))')
+                submissions=[]
+                for group in groups:
+                    submit=geometry[group['nodes'][0]];submissions.append(submit)
+                    for rid in group['nodes'][1:]:
+                        review=geometry[rid];assert abs(review['x']-submit['x'])<1 and review['y']>submit['y'],(group,geometry)
+                narrow=material.locator('[data-flow-slot]').evaluate('e=>e.clientWidth<700')
+                if narrow:
+                    assert max(x['x'] for x in submissions)-min(x['x'] for x in submissions)<1
+                    assert all(b['y']>a['y'] for a,b in zip(submissions,submissions[1:]))
+                else:
+                    assert max(x['y'] for x in submissions)-min(x['y'] for x in submissions)<1
+                    assert all(b['x']>a['x'] for a,b in zip(submissions,submissions[1:]))
+                assert material.locator('.react-flow__viewport').evaluate('e=>new DOMMatrix(getComputedStyle(e).transform).a')==1
+                metrics[-1].update(versionGroups=groups,eventGeometry=geometry,versionAxis='vertical' if narrow else 'horizontal',defaultGraphScale=1)
+                metrics[-1]['nodeFontSizes']=material.locator('.react-flow__node').evaluate_all('els=>els.map(e=>getComputedStyle(e).fontSize)')
+                assert all(float(v.replace('px',''))>=14 for v in metrics[-1]['nodeFontSizes'])
                 metrics[-1].update(nodeCount=material.locator('.react-flow__node').count(),flowStatus=material.locator('[data-flow-status]').inner_text(),allNodesInSlot=material.locator('[data-flow-slot]').evaluate('(s)=>{const b=s.getBoundingClientRect();return [...s.querySelectorAll(".react-flow__node")].every(n=>{const r=n.getBoundingClientRect();return r.left>=b.left-2&&r.right<=b.right+2&&r.top>=b.top-2&&r.bottom<=b.bottom+2})}'))
                 page.goto(base+'/#library?feed=all');expect(page.locator('.library-row')).to_have_count(6)
                 panel=page.locator('.material-discovery')
                 if panel.get_attribute('open') is None:panel.locator('>summary').click()
                 expect(panel.locator('[data-material-globe] canvas')).to_be_visible();page.evaluate('scrollTo(0,0)');capture('discovery-'+suffix,factor,panel.locator('[data-material-globe]'))
+                canvas=panel.locator('[data-material-globe] canvas').element_handle()
+                page.get_by_role('button',name='查看候选资料',exact=True).click();expect(page.locator('.library-results-area')).to_be_focused();capture('candidates-'+suffix,factor,page.locator('.library-row').first)
+                page.get_by_role('button',name='返回图形探索',exact=True).click();assert canvas.evaluate('e=>e.isConnected')
+                page.get_by_role('button',name='查看候选资料',exact=True).click()
                 page.locator('.library-row .title-button').first.click();expect(page.locator('.library-reader .ux-main-body .rich-prose p').first).to_be_visible();page.evaluate('scrollTo(0,0)');capture('reader-'+suffix,factor,page.locator('.library-reader .ux-main-body .rich-prose p').first)
                 assert page.get_by_role('button',name='返回探索与结果',exact=True).count()==1
                 page.get_by_role('button',name='返回探索与结果',exact=True).click();assert '#library?feed=all' in page.url

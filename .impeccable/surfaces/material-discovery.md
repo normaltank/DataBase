@@ -36,3 +36,8 @@ uses public HTTP, isolated synthetic records, real Chromium, random port and no
 worker/AI. It checks rapid countries, slow/late reads, retained DOM/camera/input,
 saved query/history, failure retry, batches, permission/account boundaries,
 320/390/1280/1440 and native200% browser zoom.
+
+The second repair adds visible “查看候选资料” and “返回图形探索” destinations.
+They scroll the existing authorized result/canvas DOM; they do not rebuild the
+chart, reset camera, or replace the pending year draft. Native200% and phones can
+reach candidates directly even while the expanded large canvas continues below.

@@ -75,15 +75,14 @@ destinations in ordinary text. The local Cytoscape stylesheet compatibility rule
 above is part of this exact locked version, including the external stylesheet ID.
 
 Flow options: `{snapshot:{nodes:[{id,label,actions?:[{id,label,primary?,disabled?}]}],edges:[{id,source,target,label,description?}],
-selected:[id],layout?:'lineage',legend?:string},viewport?,onSelect(id),onAction(id, action),onStatus(message)}`. IDs and labelled edges
+selected:[id],layout?:'lineage'|'material-lineage',groups?:[{id,version,nodes:[id]}],legend?:string},viewport?,onSelect(id),onAction(id, action),onStatus(message)}`. IDs and labelled edges
 must come from the authorized version/review or step/evidence projection. The
-module performs ELK layout, reading selection and dispatches adapter-provided node actions. The adapter alone checks permissions and owns HTTP requests, forms, tokens, request identity and File objects; these remain outside the React root. `update` preserves the
+module uses ELK for general maintenance layout, reading selection and adapter-provided node actions. Material-lineage uses explicit version groups rather than DAG layering; it does not start an unused ELK worker. The adapter alone checks permissions and owns HTTP requests, forms, tokens, request identity and File objects; these remain outside the React root. `update` preserves the
 viewport; `zoomIn()`, `zoomOut()`, `fit()`, `focusSelected()` and `getViewport()`
 support the caller's explicit controls and visibility lifecycle. Initial maintenance view
-centres the first node at zoom 1; short material graphs use the compact lineage
-layout and initially fit desktop at approximately 1:1. Only selected-adjacent edges
-show short labels; their full description remains accessible and in the text legend. `fit` is the user's optional whole-graph overview.
-Topology replacement, timeout and dispose terminate the true classic Worker;
+centres the first node at zoom 1. Material-lineage places version columns left to right, with submission and actual reviews in that column; compact widths stack version groups. Material text starts at zoom1 and fits by page height rather than automatic shrinking. Only selected-adjacent edges
+show short labels; their full description remains accessible and in the text legend. `fit` is the user's optional whole-graph overview for general graphs; in material-lineage it restores the readable group origin at zoom1.
+For general ELK graphs, topology replacement, timeout and dispose terminate the true classic Worker;
 late layouts are ignored. React Flow's transient zero-size measurement while a
 disclosure is hidden is left to its ResizeObserver, not reported as data loss.
 Application forms, file inputs, tokens and write targets stay outside this root.
