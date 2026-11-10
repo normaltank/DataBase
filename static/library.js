@@ -253,7 +253,9 @@ function libraryReaderBackground(blocked){
   if(blocked)sidebar?.setAttribute('aria-hidden','true');else sidebar?.removeAttribute('aria-hidden');
   document.querySelector('.topbar')?.toggleAttribute('inert',blocked);
   const root=document.querySelector('.library-workspace');
-  if(root)for(const child of root.children)if(!child.classList.contains('library-results-workspace'))child.inert=blocked;
+  const reader=root?.querySelector('.library-reader');
+  const siblings=parent=>{for(const child of parent.children){if(child===reader)continue;if(reader&&child.contains(reader))siblings(child);else child.inert=blocked;}};
+  if(root)siblings(root);
 }
 async function libraryCheckPermissions() {
   if(libraryPermissionCheck||!state.me||!document.querySelector('.library-workspace')||document.querySelector('#modal-root .overlay'))return;

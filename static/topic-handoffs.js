@@ -259,7 +259,7 @@ document.addEventListener('submit',async event=>{
     if(root)await handoffReadRefresh(root);else await handoffRefreshNew(form);
     toast(result.reused?'已保存，已读取当前状态':type==='handoff-upload'?'材料已上传':'审阅已保存');
   }catch(e){
-    if(account===state.me?.id&&load===state.loadId&&form.isConnected){if([401,403,404].includes(e.status)){form.dataset.allowed='false';const root=form.closest('[data-material-ref]')?.querySelector('.handoff-lineage');if(root)await handoffReadRefresh(root);}
+    if(account===state.me?.id&&load===state.loadId&&form.isConnected){if([401,403,404].includes(e.status)){form.dataset.allowed='false';const root=form.closest('[data-material-ref]')?.querySelector('.handoff-lineage')||form.closest('.handoff-materials')?.querySelector('.handoff-lineage');if(root)await handoffReadRefresh(root);}
       error.textContent=e.status?e.message:e.message+' 请重试核对这次提交。';if(e.status&&e.status!==409){form._attempt=null;form._decision=null;form.querySelectorAll('input,textarea').forEach(input=>input.disabled=false);}if(e.status===409){form._conflict=true;form.querySelectorAll('input,textarea').forEach(input=>input.disabled=false);form.querySelector('[data-handoff-conflict]').innerHTML='<button class="button" type="button" data-action="handoff-refresh">刷新状态，保留输入</button>';}}
   }finally{form.dataset.saving='false';if(form.isConnected)form.querySelectorAll('[type=submit]').forEach(b=>b.disabled=form.dataset.allowed==='false'||!!(form._attempt&&type==='handoff-review'&&b.value!==form._decision));handoffSyncActions(form);}
 });
