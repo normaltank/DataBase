@@ -25,6 +25,7 @@ CAPTURES=[]
 def capture(page,path):
     # Wait for the real feedback to finish; never hide it for a screenshot.
     expect(page.locator('#toast')).to_have_css('opacity','0',timeout=7000)
+    page.wait_for_function("[...document.querySelectorAll('[data-flow-status],[data-material-globe-status],[data-material-time-status],[data-network-status]')].every(e=>!e.getClientRects().length||!/^正在(?:加载|读取|排列)/.test(e.textContent))")
     page.screenshot(path=str(path))
     CAPTURES.append({'file':Path(path).name,'viewport':page.viewport_size,
         'position':page.evaluate('({scrollY,readerY:document.querySelector(".library-reader")?.scrollTop||0})'),
