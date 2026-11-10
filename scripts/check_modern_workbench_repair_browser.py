@@ -84,20 +84,36 @@ def reader_checks(page, base, out, case, result):
             for mode in ['plane','space']:
                 relation.locator(f'[data-explore-mode={mode}]').click();expect(page.locator('.record-network-label')).to_have_count(2)
                 page.wait_for_timeout(200)
-                initial=network_boxes(page);assert all(item['inside'] for item in initial),initial
+                initial=network_boxes(page);assert len(initial)==2,initial;assert all(item['inside'] for item in initial),initial
                 relation.locator('[data-explore-reset]').click();page.wait_for_timeout(200)
                 boxes=network_boxes(page);result[str(width)][mode]={'initial':initial,'reset':boxes}
                 relation.locator('[data-explore-locate]').click()
                 capture(page,out,f'reader-relations-{mode}-{width}')
-                assert all(item['inside'] for item in boxes),boxes
+                assert len(boxes)==2,boxes;assert all(item['inside'] for item in boxes),boxes
                 viewport=relation.locator('[data-network-viewport]');viewport.scroll_into_view_if_needed();box=viewport.bounding_box()
                 page.mouse.move(box['x']+25,box['y']+25);page.mouse.down();page.mouse.move(box['x']+55,box['y']+45,steps=6);page.mouse.up();page.wait_for_timeout(100)
                 moved=network_boxes(page)
                 if not relation.locator('.record-network-text').evaluate('e=>e.open'):relation.get_by_text('关系文字列表',exact=True).click()
                 relation.locator('[data-explore-select]').first.click();relation.locator('[data-explore-refresh]').click();expect(relation.locator('.record-explore-content')).not_to_have_attribute('aria-busy','true')
                 after=network_boxes(page)
+                assert len(after)==len(moved)==2,(moved,after)
+                result[str(width)][mode]['visible_after_refresh']=len(after)
                 assert all(abs(a['x']-b['x'])<1 and abs(a['y']-b['y'])<1 for a,b in zip(moved,after)),(moved,after)
                 expect(relation.locator('[data-network-selection]')).to_contain_text('完全合成 · 研究机构')
+                page.set_viewport_size(dict(width=width+24,height=height));page.wait_for_timeout(100)
+                resized=network_boxes(page);assert len(resized)==2,resized
+                page.set_viewport_size(dict(width=width,height=height));page.wait_for_timeout(100)
+                result[str(width)][mode]['visible_after_resize']=len(network_boxes(page))
+                assert result[str(width)][mode]['visible_after_resize']==2
+                if mode=='space':
+                    relation.locator('[data-network-selection] [data-explore-target]').click();expect(page.locator('.source-page')).to_be_visible()
+                    page.get_by_role('button',name='返回资料',exact=True).click()
+                    expect(page.locator('[data-explore-mode=space]')).to_have_attribute('aria-pressed','true')
+                    expect(page.locator('.record-network-label')).to_have_count(2)
+                    page.wait_for_timeout(150)
+                    returned=network_boxes(page);assert len(returned)==2,returned
+                    result[str(width)][mode]['visible_after_profile_return']=len(returned)
+                    expect(relation.locator('[data-network-selection]')).to_contain_text('完全合成 · 研究机构')
             relation.get_by_role('button',name='关闭关联',exact=True).click()
     result['policy_violations']=verify_policy(page)
 
