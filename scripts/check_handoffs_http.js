@@ -54,7 +54,22 @@ async function review(value,unknown=false){await login('researcher');await w.rou
  await upload('compilation');await review('approved');
  // An open form captured under another account cannot write as the new one.
  await login('colleague');await w.route();const retained=w.document.querySelector('[data-form=handoff-upload][data-material=""]');file(retained);await login('admin');const count=writes.length;submit(retained);await tick();assert.equal(writes.length,count);assert.match(retained.querySelector('.form-error').textContent,/账号已切换/);
- await login('researcher');await w.route();w.document.querySelector('[data-action=topic-closure-end]').click();await until(()=>w.document.querySelector('[data-form=topic-closure]'));const end=w.document.querySelector('[data-form=topic-closure]');submit(end);await until(()=>/已结束/.test(w.document.querySelector('.workbench-detail-meta').textContent));assert.equal(w.document.querySelector('.workbench-detail-meta').textContent,'已结束 · 当前身份：负责人 · 负责人：研究员 · 林');assert.equal(w.document.querySelectorAll('[data-form=handoff-upload]').length,0);
+ await login('researcher');await w.route();w.document.querySelector('[data-action=topic-closure-end]').click();await until(()=>w.document.querySelector('[data-form=topic-closure]'));const end=w.document.querySelector('[data-form=topic-closure]');submit(end);await until(()=>/已结束/.test(w.document.querySelector('.workbench-detail-meta').textContent));
+ // State and actor role are compact; the signed-in account identifies the lead.
+ assert.equal(w.document.querySelector('.workbench-detail-meta').textContent,'已结束 · 负责人');
+ const closed=await w.api(`/api/collaboration/topics/${tid}/handoffs`),session=await w.api('/api/session');
+ assert.equal(closed.lifecycle_state,'closed');assert.equal(closed.is_lead,true);
+ assert.equal(session.user.id,'researcher');assert.equal(session.user.name,'研究员 · 林');
+ assert.equal(closed.lead_id,session.user.id);assert.equal(closed.lead_name,session.user.name);
+ assert.equal(w.document.querySelectorAll('[data-form=handoff-upload]').length,0);
+ // Participants still read the concrete responsible person in the actual page header.
+ await login('colleague');await w.route();
+ const memberMeta=w.document.querySelector('.workbench-detail-meta').textContent;
+ const memberPrefix='已结束 · 参与成员 · 负责人：';
+ assert.equal(memberMeta.slice(0,memberPrefix.length),memberPrefix);
+ assert.equal(memberMeta.slice(memberPrefix.length),'研究员 · 林');
+ assert.equal(w.document.querySelectorAll('[data-form=handoff-upload]').length,0);
+ await login('researcher');await w.route();
  w.document.querySelector('[data-action=topic-closure-reopen]').click();await until(()=>w.document.querySelector('[data-form=topic-closure]'));const reopen=w.document.querySelector('[data-form=topic-closure]');submit(reopen);await until(()=>!reopen.isConnected);assert.equal((await w.api(`/api/collaboration/topics/${tid}/handoffs`)).stage,'compilation');
  // A qualifying old final uses the unchanged legacy HTTP chain, then the new
  // workbench's secondary entry must still permit first/new optional summaries.
@@ -86,5 +101,5 @@ async function review(value,unknown=false){await login('researcher');await w.rou
  // The same historical content remains readable after closing, with no summary write entry.
  await w.route();w.document.querySelector('[data-action=topic-closure-end]').click();await until(()=>w.document.querySelector('[data-form=topic-closure]'));const legacyEnd=w.document.querySelector('[data-form=topic-closure]');submit(legacyEnd);await until(()=>!legacyEnd.isConnected);
  w.document.querySelector('[data-action=handoff-legacy]').click();await until(()=>w.document.querySelector('[data-summary-card]'));assert.equal(w.document.querySelector('[data-action=topic-finals-summary]'),null);assert.equal((await w.api(base)).can_submit_summary,false);
- process.stdout.write(JSON.stringify({done:true,unknown_result_retry:true,account_switch_blocked:true,two_stages:true,solo_lead:true,closed_lead_label:true,optional_legacy_summary_versions:2,existing_result_association:true,closed_summary_read_only:true,writes:writes.length})+'\n');w.close();process.exit(0);
+ process.stdout.write(JSON.stringify({done:true,unknown_result_retry:true,account_switch_blocked:true,two_stages:true,solo_lead:true,closed_lead_label:true,closed_actor_role:true,closed_lead_identity:true,closed_participant_lead_name:true,optional_legacy_summary_versions:2,existing_result_association:true,closed_summary_read_only:true,writes:writes.length})+'\n');w.close();process.exit(0);
 })().catch(error=>{process.stderr.write(error.stack+'\n');w.close();process.exit(1);});
