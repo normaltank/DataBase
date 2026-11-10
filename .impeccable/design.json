@@ -63,7 +63,7 @@
       "refersTo": "button-primary",
       "description": "有权执行的具体版本操作。",
       "html": "<button class=\"ds-button\">通过此版</button>",
-      "css": ".ds-button{font:500 15px/1.5 \"Noto Sans CJK SC\",\"Microsoft YaHei\",\"Segoe UI\",sans-serif;padding:8px 14px;min-height:40px;border:1px solid #354ac5;border-radius:6px;background:#354ac5;color:#fff;transition:background .15s,color .15s,border-color .15s}.ds-button:hover{background:#273a9d}.ds-button:focus-visible{outline:3px solid #354ac5;outline-offset:3px}.ds-button:disabled{background:#edf0f4;color:#607080}"
+      "css": ".ds-button{font:500 15px/1.5 \"Noto Sans CJK SC\",\"Microsoft YaHei\",\"Segoe UI\",sans-serif;padding:8px 14px;min-height:40px;border:1px solid #354ac5;border-radius:6px;background:#354ac5;color:#fff;transition:background .15s,color .15s,border-color .15s}.ds-button:hover{background:#273a9d;border-color:var(--primary-hover)}.ds-button:focus-visible{outline:3px solid #354ac5;outline-offset:3px}.ds-button:disabled{background:#edf0f4;color:#607080}"
     }
   ]
 }
