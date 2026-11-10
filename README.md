@@ -555,12 +555,13 @@ python scripts/check.py
 需要在本机查看计划或单独复跑某片时，运行：
 
 ```powershell
-python scripts/check.py --plan --shard-count 2
-python scripts/check.py --shard-index 1 --shard-count 2
-python scripts/check.py --shard-index 2 --shard-count 2
+python scripts/check.py --plan --shard-count 3
+python scripts/check.py --shard-index 1 --shard-count 3
+python scripts/check.py --shard-index 2 --shard-count 3
+python scripts/check.py --shard-index 3 --shard-count 3
 ```
 
-计划模式检查语法和完整发现，核对两片无交叠、用例ID多重集合并集与完整套件相等，输出数量与SHA-256摘要；它不执行测试，不代表校验通过。执行分片仍检查全部源文件语法并禁用外部资料；空片、非法参数、失败及整片跳过均返回非零。CI 用 `--expected-plan-digest` 绑定实际执行与预先核对的计划。原必需检查名 `Python 3.12 / windows-latest` 保留为总放行检查，只有两个分片均成功、实际检出提交与事件提交一致、覆盖计划相同时才通过；取消、跳过、缺结果或缺摘要均不放行。每片保留实际执行／跳过数量、总耗时与最慢10项信息。结果以对应提交的实际检查记录为准；配置和规划数量不代表某次执行已经通过。
+计划模式检查语法和完整发现，核对三片无交叠、用例ID多重集合并集与完整套件相等，输出数量与SHA-256摘要；它不执行测试，不代表校验通过。执行分片仍检查全部源文件语法并禁用外部资料；空片、非法参数、失败及整片跳过均返回非零。CI 用 `--expected-plan-digest` 绑定实际执行与预先核对的计划。原必需检查名 `Python 3.12 / windows-latest` 保留为总放行检查，只有三个分片均成功、实际检出提交与事件提交一致、覆盖计划相同时才通过；取消、跳过、缺结果或缺摘要均不放行。每片保留实际执行／跳过数量、总耗时与最慢10项信息。结果以对应提交的实际检查记录为准；配置和规划数量不代表某次执行已经通过。
 
 辅助录入的定向浏览器回归为 `python scripts/check_intake_preview_browser.py`，需另有 Playwright 和 Chromium；可用 `DATABASE_BROWSER_EXECUTABLE` 指定浏览器。脚本只在空闲的 8851 端口启动临时合成库，模拟题录服务，不访问真实资料或外部站点；它不包含在上述无浏览器的合成套件中。
 
