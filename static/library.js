@@ -127,6 +127,7 @@ document.addEventListener('click',async event=>{
       button.disabled=true;const pending=libraryWorkspace.finishContext;
       const result=await api('/api/reading-batches/'+encodeURIComponent(pending.batch)+'/finish',{method:'POST',body:{conditions:pending.conditions,confirmation:pending.confirmation}});
       if(account!==state.me?.id||load!==state.loadId||!button.isConnected)return;
+      libraryWorkspace.batch=null; // The next new-feed entry must obtain its current pending batch.
       if(result.confirmed){toast('已确认当前结果 '+result.confirmed+' 条，其余新增继续保留。');go('library',{feed:'new'});}
       else{const next=new URLSearchParams(pending.conditions);next.delete('batch');next.delete('page');next.set('feed','new');toast('本次确认 0 条，全部未浏览资料继续保留。');go('library',next);}
     }else if(action==='reading-reread'){
@@ -201,9 +202,92 @@ function libraryCloseReader(restore=true) {
 }
 function libraryAfterRender() {
   if(!document.querySelector('.library-workspace'))return;
+  const root=document.querySelector('.library-workspace');root._query=new URLSearchParams(state.params);root._account=state.me.id;root._page=state.page;
   librarySelectionChanged();
   document.dispatchEvent(new CustomEvent('library:rendered',{detail:{root:document.querySelector('.library-workspace'),items:libraryWorkspace.items}}));
 }
+// Country/time navigation is an ordinary history entry, but it does not replace
+// the workspace. Explicit batch/scope changes still resolve server-side state;
+// a bare new-feed history entry inherits the active derived batch, not a new one.
+function libraryQueryWithBatch(params,previous){
+  const query=new URLSearchParams(params);
+  if(state.page==='library'&&(query.get('feed')||(!query.size?'new':'all'))==='new'){
+    query.set('feed','new');
+    for(const key of ['batch','batch_scope'])if(!query.has(key)&&previous.has(key))query.set(key,previous.get(key));
+  }
+  return query;
+}
+function libraryCanUpdateQuery(previousPage){
+  const root=document.querySelector('.library-workspace');
+  if(!root||previousPage!==state.page||root._page!==state.page||root._account!==state.me?.id||state.params.has('saved_search'))return false;
+  if(state.page==='library'&&(state.params.get('feed')||(!state.params.size?'new':'all'))==='new'&&!libraryWorkspace.batch)return false;
+  const context=p=>{const copy=libraryQueryWithBatch(p,root._query);if(state.page==='library'&&!copy.has('sort'))copy.set('sort','collected');if(state.page==='favorites')copy.set('favorite','1');if(state.page==='review')copy.set('status','pending');for(const key of ['country','from','to','date_field','date_unknown','page','size','saved_search'])copy.delete(key);copy.sort();return String(copy);};
+  return context(root._query)===context(state.params);
+}
+function libraryCanResolveSavedQuery(previousPage){
+  const root=document.querySelector('.library-workspace');
+  return root&&previousPage===state.page&&root._page===state.page&&root._account===state.me?.id&&state.params.has('saved_search');
+}
+async function libraryUpdateSavedQuery(previousPage){
+  const root=document.querySelector('.library-workspace'),account=state.me.id,hash=location.hash,load=++state.loadId,sid=state.params.get('saved_search'),page=state.params.get('page');
+  // The pending URL identifies a query; the visible controls still act on the
+  // last resolved, authorized query until that URL has actually resolved.
+  state.params=new URLSearchParams(root._query);
+  const current=()=>root.isConnected&&state.me?.id===account&&location.hash===hash&&state.loadId===load;
+  try{
+    // Resolve the owned, current persisted conditions through its public API;
+    // a saved ID alone is never an effective query or a client-side cache key.
+    const saved=await api('/api/saved-searches/'+encodeURIComponent(sid));if(!current())return;
+    state.params=new URLSearchParams(saved.conditions);if(page)state.params.set('page',page);
+    if(!libraryCanUpdateQuery(previousPage))return route(true);
+    state.params.set('saved_search',sid);savedSearchUI.active=saved;savedSearchUI.epoch++;
+    return libraryUpdateQuery();
+  }catch(error){if(current())return route(true);}
+}
+async function libraryUpdateQuery(){
+  const root=document.querySelector('.library-workspace'),account=state.me.id,hash=location.hash,load=++state.loadId;
+  state.params=libraryQueryWithBatch(state.params,root._query);
+  const current=()=>root.isConnected&&account===state.me?.id&&load===state.loadId&&hash===location.hash;
+  closeModal(false);state.detail=null;
+  if(!state.params.has('saved_search'))savedSearchUI.active=null;
+  libraryRouteContext(savedSearchUI.active?.version??null);
+  let status=root.querySelector('[data-library-query-status]');
+  if(!status){status=document.createElement('div');status.dataset.libraryQueryStatus='';status.setAttribute('role','status');root.querySelector('.material-workspace').before(status);}
+  status.textContent='正在更新结果，暂保留上次内容…';root.querySelector('.library-results-area').setAttribute('aria-busy','true');
+  const panel=root.querySelector('.material-discovery');if(panel?.open)materialLoad(panel);
+  try{
+    const session=await api('/api/session');if(!current())return;
+    if(session.user?.id!==account){libraryResetAccount();root.remove();state.me=session.user;state.csrf=session.csrf;if(state.me)await loadLookups();return route();}
+    const query=recordQuery();if(!query.has('size'))query.set('size','20');
+    const data=await api('/api/records?'+query);if(!current())return;
+    const latest=await api('/api/session');if(!current())return;
+    if(latest.user?.id!==account){libraryResetAccount();root.remove();state.me=latest.user;state.csrf=latest.csrf;if(state.me)await loadLookups();return route();}
+    libraryRefreshResults(root,data);
+    const template=document.createElement('template');template.innerHTML=readingLibraryHTML(data);
+    const savedBar=root.querySelector('.saved-search-bar');if(savedBar){const toolbar=document.createElement('template');toolbar.innerHTML=savedSearchToolbar();savedBar.replaceWith(toolbar.content);}
+    const chips=root.querySelector('.reading-current'),nextChips=template.content.querySelector('.reading-current');
+    if(chips){if(nextChips)chips.replaceWith(nextChips);else chips.remove();}else if(nextChips)root.querySelector('[data-reading-filters]').after(nextChips);
+    for(const input of root.querySelectorAll('[data-reading-filters] [name]')){
+      const key=input.name;if(root._query.get(key)===state.params.get(key))continue;
+      if(input.type==='checkbox'){
+        const country=['country','source_country','employment_country','subject_country'].includes(key);
+        const selected=(state.params.get(key)||'').split('|').map(value=>country?countryKey(value):value);
+        input.checked=selected.includes(country?countryKey(input.value):input.value);
+      }
+      else input.value=state.params.get(key)||(key==='date_field'?'published':'');
+    }
+    for(const [index,facet] of [...root.querySelectorAll('.reading-facet')].entries()){const next=template.content.querySelectorAll('.reading-facet')[index];if(next)facet.querySelector('summary').textContent=next.querySelector('summary').textContent;}
+    const more=root.querySelector('.reading-more > summary');if(more)more.textContent=template.content.querySelector('.reading-more > summary').textContent;
+    const exported=root.querySelector('a[href^="/api/export?"]');if(exported)exported.href='/api/export?'+recordQuery();
+    const fullExport=root.querySelector('[data-action="export-content"]');if(fullExport)fullExport.dataset.query=String(recordQuery());
+    root._query=new URLSearchParams(state.params);status.textContent='';
+    await continuityRestore();
+  }catch(error){if(!current())return;
+    if([401,403,404].includes(error.status)){libraryCloseReader(false);libraryClearSelection();root.replaceChildren();status=document.createElement('div');status.setAttribute('role','alert');root.append(status);}
+    status.innerHTML='无法更新结果：'+esc(error.message)+' <button class="button tiny" type="button" data-library-query-retry>重试当前查询</button>';
+  }finally{if(current())root.querySelector('.library-results-area')?.removeAttribute('aria-busy');if(load===state.loadId)continuityRouting=false;}
+}
+document.addEventListener('click',event=>{if(event.target.closest('[data-library-query-retry]')){if(document.querySelector('.material-workspace'))libraryUpdateQuery();else route();}});
 // Refresh the current authorized result representation without rebuilding its
 // filters, discovery scene or reader. Existing rows retain their native state.
 function libraryRefreshResults(root,data){
@@ -290,7 +374,14 @@ async function libraryCheckPermissions() {
     if(!readerAllowed&&libraryWorkspace.readerId===readerId)libraryCloseReader(false);
     if(changed)libraryRefreshResults(root,data);
     if(removed){librarySelectionChanged();toast('资料访问范围已更新，已清空选择中的失效条目。');}
-  }catch(error){if(current()){if([401,403,404].includes(error.status)){libraryCloseReader(false);libraryClearSelection();await route();}toast(error.message);}}
+  }catch(error){if(current()){
+    if([401,403,404].includes(error.status)){
+      // A confirmed collection denial invalidates the displayed representation.
+      // Remove it before rereading: a subsequent transient failure cannot keep it.
+      libraryResetAccount();root.remove();await route(true);
+    }
+    toast(error.message);
+  }}
   finally{libraryPermissionCheck=false;}
 }
 window.addEventListener('focus',()=>{libraryCheckPermissions().catch(error=>toast(error.message));});
@@ -312,13 +403,13 @@ async function libraryOpenReader(id,origin=null,section='') {
   if(firstOpen){libraryWorkspace.returnFocus=origin||document.activeElement;libraryWorkspace.returnY=window.scrollY;}
   libraryWorkspace.readerId=id;panel.hidden=false;
   panel.closest('.library-workspace').classList.add('library-reading');
-  panel.innerHTML='<header class="library-reader-head"><button class="button tiny" type="button" data-action="library-reader-close">返回列表</button></header><p class="library-loading" role="status">正在读取资料…</p>';libraryReaderSemantics();
+  panel.innerHTML='<header class="library-reader-head"><button class="button tiny" type="button" data-action="library-reader-close">返回探索与结果</button></header><p class="library-loading" role="status">正在读取资料…</p>';libraryReaderSemantics();
   panel.querySelector('[data-action="library-reader-close"]').focus({preventScroll:true});
   try{
     const record=await api('/api/records/'+encodeURIComponent(id));
     if(epoch!==libraryWorkspace.readerEpoch||account!==state.me?.id||hash!==location.hash||!panel.isConnected)return;
     const index=libraryWorkspace.items.findIndex(record=>record.id===id);
-    panel.innerHTML='<header class="library-reader-head"><button class="button tiny" type="button" data-action="library-reader-close">返回列表</button><div class="row"><button class="button tiny" type="button" data-action="library-reader-prev" title="上一条 (k / Alt+↑)" '+(index<=0?'disabled':'')+'>上一条</button><button class="button tiny" type="button" data-action="library-reader-next" title="下一条 (j / Alt+↓)" '+(index<0||index>=libraryWorkspace.items.length-1?'disabled':'')+'>下一条</button></div><p>本页第 '+(index+1)+' / '+libraryWorkspace.items.length+' 条</p></header><div class="drawer-body library-reader-body"></div>';
+    panel.innerHTML='<header class="library-reader-head"><button class="button tiny" type="button" data-action="library-reader-close">返回探索与结果</button><div class="row"><button class="button tiny" type="button" data-action="library-reader-prev" title="上一条 (k / Alt+↑)" '+(index<=0?'disabled':'')+'>上一条</button><button class="button tiny" type="button" data-action="library-reader-next" title="下一条 (j / Alt+↓)" '+(index<0||index>=libraryWorkspace.items.length-1?'disabled':'')+'>下一条</button></div><p>'+(index+1)+' / '+libraryWorkspace.items.length+'</p></header><div class="drawer-body library-reader-body"></div>';
     const body=panel.querySelector('.library-reader-body');await uxReadRecord(record,body);
     if(epoch!==libraryWorkspace.readerEpoch||account!==state.me?.id||!panel.isConnected){body.replaceChildren();return;}
     panel.scrollTop=0;body.scrollTop=0;

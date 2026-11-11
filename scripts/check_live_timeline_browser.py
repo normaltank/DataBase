@@ -130,7 +130,7 @@ try{Function('return 1')();window.timelineEvalSentinel=false;}catch(e){window.ti
             with page.expect_response(lambda r:'/api/records/'+ids[0] in r.url and r.status==200):
                 page.mouse.click(b['x']+b['width']/2,b['y']+b['height']/2-dot(point,up)*scale)
             expect(page.locator('.library-reader')).to_contain_text('合成时间资料 000')
-            page.get_by_role('button',name='返回列表',exact=True).click()
+            page.get_by_role('button',name='返回探索与结果',exact=True).click()
             expect(panel.locator('[data-material-from]')).to_have_value('')
             checks.append('Independent projection -> real Three point click -> correct ID HTTP -> ordinary reader -> return')
             for width,zoom in [(1366,1),(390,1),(320,1),(1366,2)]:
@@ -168,7 +168,7 @@ try{Function('return 1')();window.timelineEvalSentinel=false;}catch(e){window.ti
             picked_record=picked.value.json();assert picked_record['id'] in {item['id'] for item in known}
             expect(page.locator('.library-reader')).to_contain_text(picked_record['title'])
             page.screenshot(path=str(evidence/'multi-lens-selected-reader.png'))
-            page.get_by_role('button',name='返回列表',exact=True).click()
+            page.get_by_role('button',name='返回探索与结果',exact=True).click()
             expect(panel.locator('[data-material-time-status]')).to_contain_text('已选中：'+picked_record['title'])
             panel.screenshot(path=str(evidence/'multi-lens-selected.png'))
             checks.append({'multi_year_type_Three_pick':picked_record['id'],'title':picked_record['title']})

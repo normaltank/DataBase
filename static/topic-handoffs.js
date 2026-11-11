@@ -40,25 +40,6 @@ function handoffSyncActions(form){
   const material=workbenchState.board?.materials.find(item=>item.ref===form.closest('[data-material-ref]')?.dataset.materialRef);
   if(root&&material)handoffFlowUpdate(root,material,root.querySelector('[data-handoff-version]').value);
 }
-function handoffMenuActions(root,id){
-  const material=workbenchState.board?.materials.find(m=>m.ref===root.closest('[data-material-ref]')?.dataset.materialRef),v=material?.versions.find(v=>id==='version:'+v.ref);
-  if(!v||root.dataset.lineageAccount!==state.me?.id)return [];
-  const form=[...root.closest('[data-material-ref]').querySelectorAll('[data-form=handoff-review]')].find(form=>form.dataset.version===v.ref);
-  const allowed=v.can_review&&v.ref===material.versions[0].ref&&form&&form.dataset.allowed!=='false'&&form.dataset.saved!=='true';
-  return [{id:'read',label:'查看原件与意见'},...(v.file_url?[{id:'original',label:'下载原件',href:v.file_url}]:[]),...(allowed?[{id:'approved',label:'通过此版',disabled:form.dataset.saving==='true'||!!form._conflict||!!(form._attempt&&form._decision!=='approved')},{id:'returned',label:'退回',disabled:form.dataset.saving==='true'||!!form._conflict||!!(form._attempt&&form._decision!=='returned')},{id:'note',label:'意见/附件'}]:[])];
-}
-function handoffNodeAction(root,id,action){
-  if(action==='read'){handoffSelect(root,id.slice(8));root.querySelector('[data-handoff-reading]').scrollIntoView({block:'nearest'});return;}
-  if(root.dataset.lineageAccount!==state.me?.id)return;
-  const form=[...root.closest('[data-material-ref]').querySelectorAll('[data-form=handoff-review]')].find(form=>id==='version:'+form.dataset.version);
-  if(!form||id!=='version:'+form.dataset.version||form.dataset.allowed==='false')return;
-  if(action==='note'){
-    handoffSelect(root,form.dataset.version);form.querySelector('details').open=true;
-    form.scrollIntoView({block:'nearest'});form.querySelector('textarea').focus({preventScroll:true});return;
-  }
-  const button=[...form.querySelectorAll('[type=submit]')].find(button=>button.value===action);
-  if(button&&!button.disabled)form.requestSubmit(button);
-}
 async function handoffRefreshNew(form){
   const account=state.me?.id,load=state.loadId;
   const t=await api('/api/collaboration/topics/'+encodeURIComponent(form.dataset.topic)+'/handoffs');
@@ -73,19 +54,19 @@ function handoffFlowUpdate(root,material,version=material.versions[0].ref,review
   if(root.dataset.lineageAccount!==state.me?.id)return;
   let host=root.querySelector('.actual-flow');
   if(!host){root.querySelector('.handoff-graph').insertAdjacentHTML('beforeend',visualFlowHtml());host=root.querySelector('.actual-flow');}
-  if(!root._graphPrepared){root._graphPrepared=true;root.querySelector('.handoff-graph').open=typeof matchMedia!=='function'||!matchMedia('(max-width:700px)').matches;}
-  const versions=[...material.versions].reverse(),nodes=[],edges=[];
+  if(!root._graphPrepared){root._graphPrepared=true;root.querySelector('.handoff-graph').open=false;}
+  const versions=[...material.versions].reverse(),nodes=[],edges=[],groups=[];
   for(const [index,v] of versions.entries()){
-    const form=[...root.closest('[data-material-ref]').querySelectorAll('[data-form=handoff-review]')].find(form=>form.dataset.version===v.ref),allowed=v.can_review&&form?.dataset.version===v.ref&&form.dataset.allowed!=='false';
-    const actions=allowed?[{id:'approved',label:form.dataset.saving==='true'?'保存中…':'通过',primary:true},{id:'returned',label:'退回'},{id:'note',label:'意见/附件'}].map(action=>({...action,disabled:form.dataset.saving==='true'||form._conflict||!!(form._attempt&&action.id!=='note'&&action.id!==form._decision)})):[];
-    nodes.push({id:'version:'+v.ref,actions,menuActions:handoffMenuActions(root,'version:'+v.ref),label:`${v.ref===material.versions[0].ref?'当前版':'版本'} ${v.version} · ${handoffStatus(v.status)}\n成员提交`});
-    if(index)edges.push({id:'registered:'+v.ref,source:'version:'+versions[index-1].ref,target:'version:'+v.ref,label:'顺序'});
-    for(const r of v.reviews){nodes.push({id:'review:'+r.id,label:`版本 ${v.version} · ${handoffStatus(r.decision)}\n负责人审阅`});edges.push({id:'reviewed:'+r.id,source:'version:'+v.ref,target:'review:'+r.id,label:'审阅'});}
+    const reviews=[...v.reviews].sort((a,b)=>(a.created_at||'').localeCompare(b.created_at||''));
+    groups.push({id:v.ref,version:v.version,nodes:['version:'+v.ref,...reviews.map(r=>'review:'+r.id)]});
+    nodes.push({id:'version:'+v.ref,label:`${v.ref===material.versions[0].ref?'当前版':'版本'} ${v.version} · ${handoffStatus(v.status)}\n成员提交`});
+    if(index)edges.push({id:'registered:'+v.ref,source:'version:'+versions[index-1].ref,target:'version:'+v.ref,label:'顺序',relation:'sequence'});
+    for(const r of reviews){nodes.push({id:'review:'+r.id,label:`版本 ${v.version} · ${handoffStatus(r.decision)}\n负责人审阅`});edges.push({id:'reviewed:'+r.id,source:'version:'+v.ref,target:'review:'+r.id,label:'审阅',relation:'review',parallel:reviews.length>1});}
   }
-  visualFlowUpdate(host,{nodes,edges,layout:'lineage',legend:'',selected:['version:'+version,...(review?['review:'+review]:[])]},id=>{
+  visualFlowUpdate(host,{nodes,edges,groups,layout:'material-lineage',legend:'',selected:['version:'+version,...(review?['review:'+review]:[])]},id=>{
     if(id.startsWith('version:'))handoffSelect(root,id.slice(8));
     else{const rid=id.slice(7),v=material.versions.find(v=>v.reviews.some(r=>r.id===rid));if(v)handoffSelect(root,v.ref,rid);}
-  },(id,action)=>handoffNodeAction(root,id,action));
+  });
 }
 const handoffFlowObserver=new MutationObserver(()=>{
   handoffRememberDrafts();
@@ -101,16 +82,16 @@ function handoffUpload(t,stage,material=null){
   return '<details class="handoff-upload '+(!material&&!t.can_enter_compilation?'handoff-primary-upload':'')+'" '+(!material&&!t.materials.some(m=>m.stage===stage)?'open':'')+'><summary>'+(material?'提交新版本':'上传'+(stage==='selection'?'选题':'编译')+'材料')+'</summary><form data-form="handoff-upload" data-account="'+esc(state.me.id)+'" data-topic="'+esc(t.id)+'" data-stage="'+stage+'" data-material="'+esc(material?.ref||'')+'" data-source="'+esc(material?.legacy?material.versions[0].ref:'')+'" data-token="'+esc(t.token)+'" data-request="'+crypto.randomUUID()+'">'+(!material?'<label class="field" for="'+key+'-title">材料题名（可选）<input id="'+key+'-title" name="title" maxlength="500"></label>':'')+'<label class="field" for="'+key+'-file">文件<input id="'+key+'-file" name="file" type="file" accept=".pdf,.docx,.txt,.md" required></label><p class="form-help">PDF、DOCX、TXT 或 Markdown，最多 20 MB。</p><label class="field" for="'+key+'-note">说明（可选）<textarea id="'+key+'-note" name="note" maxlength="4000" rows="2"></textarea></label><div class="form-error" role="alert"></div><div data-handoff-conflict></div><button class="button primary" type="submit">'+(material?'保存新版本':'上传材料')+'</button></form></details>';
 }
 function handoffVersion(v){
-  return '<div class="handoff-version" data-reading-version="'+esc(v.ref)+'"><strong>'+esc(v.name||'原件名称未记录')+'</strong>'+(v.file_url?'<div class="row wrap"><button class="link-button" data-action="handoff-view" data-version="'+esc(v.ref)+'" data-url="'+esc(v.file_url)+'">查看内容</button><a href="'+esc(v.file_url)+'" download>下载原件</a></div>':'<p>此版原件暂不可用。</p>')+'<p class="muted">'+(v.legacy?'原版本 ':'版本 ')+esc(v.version)+' · 提交人：'+esc(v.author_name||'未记录')+' · '+handoffTime(v.created_at)+'</p><p>'+esc(v.note||'')+'</p><div class="handoff-version-reviews">'+(v.reviews.length?v.reviews.map(r=>'<div class="handoff-review-result" data-reading-review="'+esc(r.id)+'"><strong>'+handoffStatus(r.decision)+'</strong> · 审阅人：'+esc(r.actor_name||r.author_name||'未记录')+'<p class="muted">'+handoffTime(r.created_at)+'</p><p>'+esc(r.note||'')+'</p>'+(r.file_url?'<a href="'+esc(r.file_url)+'" download>审阅附件：'+esc(r.name||'下载附件')+'</a>':'')+'</div>').join(''):'')+'</div></div>';
+  return '<div class="handoff-version" data-reading-version="'+esc(v.ref)+'"><strong>'+esc(v.name||'原件名称未记录')+'</strong>'+(v.file_url?'<div class="row wrap"><button class="link-button" data-action="handoff-view" data-version="'+esc(v.ref)+'" data-url="'+esc(v.file_url)+'">查看内容</button><a href="'+esc(v.file_url)+'" download>下载原件</a></div>':'<p>此版原件暂不可用。</p>')+'<details class="desk-file-meta"><summary>提交信息与说明</summary><p class="muted">'+(v.legacy?'原版本 ':'版本 ')+esc(v.version)+' · 提交人：'+esc(v.author_name||'未记录')+' · '+handoffTime(v.created_at)+'</p><p>'+esc(v.note||'')+'</p></details><div class="handoff-version-reviews">'+(v.reviews.length?v.reviews.map(r=>'<div class="handoff-review-result" data-reading-review="'+esc(r.id)+'"><strong>'+handoffStatus(r.decision)+'</strong> · 审阅人：'+esc(r.actor_name||r.author_name||'未记录')+'<p class="muted">'+handoffTime(r.created_at)+'</p><p>'+esc(r.note||'')+'</p>'+(r.file_url?'<a href="'+esc(r.file_url)+'" download>审阅附件：'+esc(r.name||'下载附件')+'</a>':'')+'</div>').join(''):'')+'</div></div>';
 }
 function handoffTime(value){return value?esc(/^\d{4}-\d{2}-\d{2}$/.test(value)?value:new Date(value).toLocaleString('zh-CN',{timeZone:'Asia/Singapore',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})):'时间未记录';}
 function handoffLineageReading(m,v,review=''){
-  return '<div class="between wrap"><h3>'+(v.ref===m.versions[0].ref?'原件与意见':'历史版 '+esc(v.version)+' · '+handoffStatus(v.status))+'</h3><span class="muted">'+(review?'负责人审阅':'')+'</span></div>'+handoffVersion(v);
+  return '<div class="between wrap desk-reading-label"><h3>'+(v.ref===m.versions[0].ref?'原件与意见':'历史版 '+esc(v.version)+' · '+handoffStatus(v.status))+'</h3><span class="muted">'+(review?'负责人审阅':'')+'</span></div>'+handoffVersion(v);
 }
 function handoffLineage(m){
   const current=m.versions[0],versions=[...m.versions].reverse();
-  const node=(v,r)=>'<div class="handoff-node-object" data-object-kind="material" data-object-id="'+esc(v.ref)+'"><button type="button" class="handoff-lineage-node" data-action="handoff-select" data-version="'+esc(v.ref)+'" data-review="'+esc(r?.id||'')+'" aria-pressed="'+(!r&&v.ref===current.ref)+'" aria-label="'+(r?'查看版本 '+v.version+' 的'+handoffStatus(r.decision)+'审阅':'查看版本 '+v.version)+'"><strong>'+(r?handoffStatus(r.decision):'版本 '+v.version+(v.ref===current.ref?' · 当前版':''))+'</strong><span>'+esc((r?r.actor_name||r.author_name:v.author_name)||'责任人未记录')+'</span><time>'+handoffTime((r||v).created_at)+'</time>'+(!r?'<span>'+handoffStatus(v.status)+'</span>':'')+'</button>'+(!r?objectActions.more('更多版本操作'):'')+'</div>';
-  return '<section class="handoff-lineage" data-lineage-account="'+esc(state.me.id)+'" aria-label="材料版本与审阅沿革"><div class="between wrap handoff-lineage-toolbar"><h3>材料沿革</h3><div class="row wrap"><button type="button" class="button" data-action="handoff-read-refresh">刷新材料状态</button><button type="button" class="button" data-action="handoff-current">回当前版</button></div></div><p data-lineage-status role="status"></p><label class="handoff-version-picker">选择版本<select data-handoff-version aria-label="选择材料版本">'+m.versions.map(v=>'<option value="'+esc(v.ref)+'">版本 '+esc(v.version)+(v.ref===current.ref?' · 当前版':'')+' · '+handoffStatus(v.status)+'</option>').join('')+'</select></label><button type="button" class="button handoff-lineage-jump" data-action="handoff-locate-reading">查看所选版本 '+esc(current.version)+' 的原件与意见</button>'+'<details class="handoff-graph" open><summary>材料流程图</summary>'+visualFlowHtml()+'</details><details class="handoff-track-details"><summary>版本与责任记录</summary><div class="handoff-track-head"><strong>成员提交</strong><strong>负责人审阅</strong></div><div class="handoff-lineage-tracks">'+versions.map(v=>'<div class="handoff-lineage-row" data-lineage-version="'+esc(v.ref)+'">'+node(v)+'<svg class="handoff-lineage-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">'+v.reviews.map((r,i)=>'<path data-lineage-review="'+esc(r.id)+'" d="M 0 50 H 45 V '+(100*(i+.5)/v.reviews.length)+' H 100"/>').join('')+'</svg><div class="handoff-review-events">'+(v.reviews.length?v.reviews.map(r=>node(v,r)).join(''):'<p class="muted handoff-no-review">待审<br>尚无审阅记录</p>')+'</div></div>').join('')+'</div></details><div class="handoff-lineage-reading" data-handoff-reading aria-live="polite">'+handoffLineageReading(m,current)+'</div></section>';
+  const record=v=>'<div class="handoff-lineage-row" data-lineage-version="'+esc(v.ref)+'"><div class="handoff-submission"><button type="button" class="handoff-version-link" data-action="handoff-select" data-version="'+esc(v.ref)+'" data-review="" aria-pressed="'+(v.ref===current.ref)+'" aria-label="查看版本 '+v.version+'"><strong>版本 '+v.version+(v.ref===current.ref?' · 当前版':'')+'</strong></button><span>'+esc(v.author_name||'责任人未记录')+' 提交 · '+handoffTime(v.created_at)+'</span></div><div class="handoff-review-events">'+(v.reviews.length?v.reviews.map(r=>'<button type="button" class="handoff-review-link" data-action="handoff-select" data-version="'+esc(v.ref)+'" data-review="'+esc(r.id)+'" aria-label="查看版本 '+v.version+' 的'+handoffStatus(r.decision)+'审阅" aria-pressed="false">'+handoffStatus(r.decision)+' · '+esc(r.actor_name||r.author_name||'责任人未记录')+' · '+handoffTime(r.created_at)+(r.note?'<span>'+esc(r.note)+'</span>':'')+'</button>').join(''):'<span class="muted">'+handoffStatus(v.status)+' · 暂无审阅记录</span>')+'</div></div>';
+  return '<section class="handoff-lineage" data-lineage-account="'+esc(state.me.id)+'" aria-label="材料版本与审阅沿革"><div class="between wrap handoff-lineage-toolbar"><h3>材料沿革</h3><div class="row wrap"><button type="button" class="button" data-action="handoff-read-refresh">刷新材料状态</button><button type="button" class="button" data-action="handoff-current">回当前版</button></div></div><p data-lineage-status role="status"></p><label class="handoff-version-picker">所看版本<select data-handoff-version aria-label="选择材料版本">'+m.versions.map(v=>'<option value="'+esc(v.ref)+'">版本 '+esc(v.version)+(v.ref===current.ref?' · 当前版':'')+' · '+handoffStatus(v.status)+'</option>').join('')+'</select></label><button type="button" class="button handoff-lineage-jump" data-action="handoff-locate-reading">查看所选版本 '+esc(current.version)+' 的原件与意见</button>'+ '<details class="handoff-track-details"><summary>版本交接 · '+versions.length+' 版</summary><div class="handoff-lineage-tracks">'+versions.map(record).join('')+'</div></details><details class="handoff-graph"><summary>完整关系图</summary><p class="handoff-graph-hint">每列是一版，组内由成员提交接该版实际审阅；横向为版本顺序。手机按版本逐组向下阅读，节点可选，审阅在材料动作区进行。</p>'+visualFlowHtml()+'</details><div class="handoff-lineage-reading" data-handoff-reading aria-live="polite">'+handoffLineageReading(m,current)+'</div></section>';
 }
 function handoffSelect(root,versionRef,review='',animate=true){
   window.objectActions?.close(false);
@@ -120,13 +101,16 @@ function handoffSelect(root,versionRef,review='',animate=true){
   root.querySelectorAll('[data-action="handoff-select"]').forEach(b=>{const selected=b.dataset.version===v.ref&&(!b.dataset.review||b.dataset.review===review||!review);b.setAttribute('aria-pressed',String(selected));});
   root.querySelectorAll('[data-lineage-version]').forEach(row=>{const selected=row.dataset.lineageVersion===v.ref;row.classList.toggle('is-selected',selected);row.querySelectorAll('path').forEach(path=>path.classList.toggle('is-selected',selected&&(!review||path.dataset.lineageReview===review)));});
   root.querySelector('[data-handoff-version]').value=v.ref;
+  root.querySelector('[data-action=handoff-current]').hidden=v.ref===m.versions[0].ref;
+  const context=root.closest('.handoff-material').querySelector('.handoff-current-actions>h3');if(context)context.textContent='写入当前版 '+m.versions[0].version+' · '+handoffStatus(m.status);
   root.querySelector('[data-action="handoff-locate-reading"]').textContent='查看所选版本 '+v.version+' 的原件与意见';
   const reading=root.querySelector('[data-handoff-reading]');
   const signature=JSON.stringify([v,review]);
   if(reading._signature!==signature){const html=handoffLineageReading(m,v,review);if(reading.innerHTML!==html)reading.innerHTML=html;reading._signature=signature;}
   reading.querySelectorAll('[data-reading-review]').forEach(item=>item.classList.toggle('is-selected',item.dataset.readingReview===review));
   handoffFlowUpdate(root,m,v.ref,review);
-  if(animate&&typeof reading.animate==='function'&&!matchMedia('(prefers-reduced-motion: reduce)').matches)reading.animate([{backgroundColor:'var(--accent-soft)'},{backgroundColor:'var(--surface-muted)'}],{duration:180,easing:'ease-out'});
+  if(typeof deskPreview==='function')deskPreview(material);
+
 }
 async function handoffReadRefresh(root){
   if(root._refreshing)return;
@@ -189,11 +173,11 @@ async function handoffReadRefresh(root){
 function handoffReview(t,v){
   if(!v.can_review)return '';
   const id=v.ref.replaceAll(':','-');
-  return '<div class="handoff-review"><h4>审阅版本 '+esc(v.version)+'</h4><form data-form="handoff-review" data-account="'+esc(state.me.id)+'" data-topic="'+esc(t.id)+'" data-version="'+esc(v.ref)+'" data-token="'+esc(t.token)+'" data-request="'+crypto.randomUUID()+'"><details><summary>添加意见或附件</summary><label class="field" for="review-'+id+'">意见（可选）<textarea id="review-'+id+'" name="note" rows="2" maxlength="4000"></textarea></label><label class="field" for="review-file-'+id+'">附件（可选）<input id="review-file-'+id+'" type="file" name="file" accept=".pdf,.docx,.txt,.md"></label></details><div class="form-error" role="alert"></div><div data-handoff-conflict></div><div class="row wrap"><button class="button" type="submit" name="decision" value="returned">退回</button><button class="button primary" type="submit" name="decision" value="approved">通过此版</button></div></form></div>';
+  return '<div class="handoff-review"><h4 class="sr-only">审阅版本 '+esc(v.version)+'</h4><form data-form="handoff-review" data-account="'+esc(state.me.id)+'" data-topic="'+esc(t.id)+'" data-version="'+esc(v.ref)+'" data-token="'+esc(t.token)+'" data-request="'+crypto.randomUUID()+'"><details><summary>意见与附件</summary><label class="field" for="review-'+id+'">意见（可选）<textarea id="review-'+id+'" name="note" rows="2" maxlength="4000"></textarea></label><label class="field" for="review-file-'+id+'">附件（可选）<input id="review-file-'+id+'" type="file" name="file" accept=".pdf,.docx,.txt,.md"></label></details><div class="form-error" role="alert"></div><div data-handoff-conflict></div><div class="row wrap"><button class="button" type="submit" name="decision" value="returned">退回</button><button class="button primary" type="submit" name="decision" value="approved">通过此版</button></div></form></div>';
 }
 function handoffMaterials(t,stage){
   const items=t.materials.filter(m=>m.stage===stage).sort((a,b)=>Number(b.status==='pending')-Number(a.status==='pending')||Number(b.owner_id===state.me.id)-Number(a.owner_id===state.me.id));
-  return '<section class="handoff-materials" aria-label="'+(stage==='selection'?'选题':'编译')+'材料">'+handoffUpload(t,stage)+(items.length?items.map(m=>{const v=m.versions[0],prior=t.materials.find(p=>p.versions.some(v=>v.ref===m.source_ref));return '<article class="handoff-material" data-material-ref="'+esc(m.ref)+'"><div class="between wrap"><h2>'+esc(m.title)+'</h2><span class="badge '+(m.status==='approved'||m.status==='legacy_final'?'verified':'pending')+'">当前版 '+esc(v.version)+' · '+handoffStatus(m.status)+'</span></div><p class="handoff-owner">'+esc(m.owner_name)+(m.owner_id===state.me.id?' · 我的材料':'')+(m.legacy?' · 旧材料':'')+'</p>'+handoffLineage(m)+(v.can_review||m.can_submit?'<div class="handoff-current-actions"><h3>审阅与新版本</h3><p class="muted"></p>'+handoffReview(t,v)+handoffUpload(t,stage,m)+'</div>':'')+(prior?'<details><summary>接续的旧材料 · '+esc(prior.title)+'</summary>'+prior.versions.map(handoffVersion).join('')+'</details>':'')+'</article>';}).join(''):'<p class="handoff-empty">'+(stage==='compilation'&&t.stage==='selection'?'负责人进入编译后可上传编译材料。':'暂无'+(stage==='selection'?'选题':'编译')+'材料。')+'</p>')+'</section>';
+  return '<section class="handoff-materials" aria-label="'+(stage==='selection'?'选题':'编译')+'材料">'+handoffUpload(t,stage)+(items.length?items.map(m=>{const v=m.versions[0],prior=t.materials.find(p=>p.versions.some(v=>v.ref===m.source_ref));return '<article class="handoff-material" data-material-ref="'+esc(m.ref)+'"><div class="between wrap"><h2>'+esc(m.title)+'</h2><span class="badge '+(m.status==='approved'||m.status==='legacy_final'?'verified':'pending')+'">当前版 '+esc(v.version)+' · '+handoffStatus(m.status)+'</span></div><p class="handoff-owner">'+esc(m.owner_name)+(m.owner_id===state.me.id?' · 我的材料':'')+(m.legacy?' · 旧材料':'')+'</p>'+handoffLineage(m)+(v.can_review||m.can_submit?'<div class="handoff-current-actions"><h3>写入当前版 '+esc(v.version)+' · '+handoffStatus(m.status)+'</h3><p class="muted"></p>'+handoffReview(t,v)+handoffUpload(t,stage,m)+'</div>':'')+(prior?'<details><summary>接续的旧材料 · '+esc(prior.title)+'</summary>'+prior.versions.map(handoffVersion).join('')+'</details>':'')+'</article>';}).join(''):'<p class="handoff-empty">'+(stage==='compilation'&&t.stage==='selection'?'负责人进入编译后可上传编译材料。':'暂无'+(stage==='selection'?'选题':'编译')+'材料。')+'</p>')+'</section>';
 }
 
 document.addEventListener('click',event=>{
@@ -230,7 +214,7 @@ document.addEventListener('click',async event=>{
       const account=state.me?.id,tid=b.closest('[data-collaboration-topic]')?.dataset.collaborationTopic||workbenchState.topic?.id;
       const result=await api('/api/collaboration/topics/'+encodeURIComponent(tid)+'/handoff-preview?version_ref='+encodeURIComponent(b.dataset.version));
       if(account!==state.me?.id||!b.isConnected)return;
-      modal(result.name||'材料内容','<div class="handoff-preview">'+(result.status==='ready'?result.segments.map(s=>'<p>'+esc(s.text)+'</p>').join(''):'<p>此文件暂不能预览，请下载原件查看。</p>')+'</div><a class="button" href="'+esc(b.dataset.url)+'" download>下载原件</a>');return;
+      deskRenderPreview(b,result);if(typeof deskLocateOriginal==='function')deskLocateOriginal(b);return;
     }
     if(b.dataset.action==='handoff-legacy'){await handoffLegacy(b.dataset.id);return;}
     const form=b.closest('form');if(form.dataset.account!==state.me?.id)throw new Error('账号已切换，请重新打开材料。');

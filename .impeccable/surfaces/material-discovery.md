@@ -1,49 +1,43 @@
 # Material discovery
 
-Mode: Operate. Ordinary extension of the compact library; retain DESIGN.md and
-its blue, white, grey and pale gold control/state language. Issues #138/#139, fixed
-specification 2.0 at 788adf5. Research staff find an article from its country or
-year distribution while preserving a visible, complete and authorized query.
+Mode: Operate / Read. Primary target: static/material-discovery.js. Related:
+static/library.js, static/desk.css. Issue #146, current rework 2026-11-10.
 
 ## Direction contract
 
-THESIS: Keep live country/time exploration beside visible candidate rows on desktop;
-phone readers reach results first and explicitly open the exploration scene.
+THESIS: Supporting country/time exploration is a workface with candidates below;
+opening a record gives saved text a centered reading surface.
 
-OWN-WORLD: Use the existing 14px interface type, 4px buttons, white surfaces,
-blue selection and gold focus. Colour encodes counts, never research importance.
+OWN-WORLD: Follow [DESIGN](../../DESIGN.md): cool white/pale indigo, dark graphite,
+15px UI and at least14px metadata. Real status words retain domain meanings.
 
-STORY: See the current query distribution, choose a country or
-year and return to the same filtered list. Explicit clear controls restore each
-dimension. Europe is the first view; the world remains one button away.
+STORY: Apply country or time to the authorized query, select a candidate, read,
+and return to the same canvas, camera, filters and unapplied year draft.
 
-FIRST VIEWPORT: The existing blue/white Operate workbench now follows #142 v1.
-Desktop places the real globe and time scene in an independent scrolling side
-area; candidates begin in the same viewport. Reading, list and exploration keep
-stable boundaries. A pointer/keyboard divider allocates list and prose width.
-Phone exploration starts folded with a clear entry; current conditions are short
-removable chips. Keyword and find stay first; date, country and sort controls remain in the existing more-filters disclosure. Map, years, unknown dates and unmapped countries remain usable.
+FIRST VIEWPORT: Desktop chart/map is above a bottom candidate tray. Surrounding headings and controls stay compact; the large map and first
+candidates share the desktop viewport. Search and extra filters are disclosed.
+Reading uses one return, compact title/metadata and early opening text at narrow
+widths and native zoom. Reading hides the attached exploration and results
+without destroying them; the article is centered. Mobile starts with results,
+opens exploration explicitly and keeps one task in a single-column flow.
 
-FORM: 本轮作为既有 Operate 界面扩展，沿用现有项目与 Three 原型，未执行新的 visual-world / seed 流程。 The signature interaction is the boundary-to-list filter,
-duplicated by textual controls. The local Three globe rotates only on user input;
-there is no auto rotation or authored camera animation.
+FORM: Code-led structural replacement under the user's direction; no new map
+library or raster assets. Existing Three/ECharts stable snapshots, text/flat map,
+brush and lens keep their real selection semantics. The global bounded object-
+to-workface transition is documented in the collaboration desk surface.
 
-Time brush and zoom write a pending year range; applying it updates the ordinary
-query and URL. Published, collected and updated retain their own meaning.
-The overview excludes only time filters while preserving the other query scope;
-the light record window describes the current complete query, capped at 300.
-The lens uses real IDs and date intervals, leaves unknown dates unplaced, and
-opens the existing reader. The window and original date precision remain visible
-as text. Switching scenes disposes the hidden graph and preserves input/query.
+FINISH: Developer evidence is not independent acceptance or deployment. Parent
+owns Standards/Spec/visual review. No shipping raster assets.
 
-FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
+## Verification boundary
 
-Verification: HTTP complete-query contracts and isolated synthetic browser
-checks. Parent coordinator runs the final mechanical detector and independent
-Standards/Spec reviews on the integrated commit. No raster assets introduced.
+[scripts/check_minimal_research_browser.py](../../scripts/check_minimal_research_browser.py)
+uses public HTTP, isolated synthetic records, real Chromium, random port and no
+worker/AI. It checks rapid countries, slow/late reads, retained DOM/camera/input,
+saved query/history, failure retry, batches, permission/account boundaries,
+320/390/1280/1440 and native200% browser zoom.
 
-#142 development evidence and final-review ownership: work/现代研究工作台142开发验证.md.
-Healthy graphs omit explanatory paragraphs and persistent retries. Scope/precision
-remain available on demand; errors reveal the local retry and text alternatives.
-
-第二轮R2保持手机查找主动作单行、最小64px且不收缩；更多筛选仍按需打开，结果首屏位置和查询行为保持。作者验证见既有#142开发验证记录。
+The second repair adds visible “查看候选资料” and “返回图形探索” destinations.
+They scroll the existing authorized result/canvas DOM; they do not rebuild the
+chart, reset camera, or replace the pending year draft. Native200% and phones can
+reach candidates directly even while the expanded large canvas continues below.

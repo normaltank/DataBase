@@ -1,53 +1,34 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-02T17:30:26.325876+00:00",
+  "generatedAt": "2026-11-10T12:39:19.878590+00:00",
   "title": "Design System: 北外中东欧研究中心内部使用",
   "extensions": {
     "colorMeta": {
       "primary": {
         "role": "primary",
-        "displayName": "研究蓝"
+        "displayName": "群青动作色"
       },
-      "shell-navy": {
-        "role": "shell",
-        "displayName": "研究界面深蓝"
+      "page-bg": {
+        "role": "surface",
+        "displayName": "浅靛蓝工作底面"
       },
       "surface-selected": {
         "role": "selection",
-        "displayName": "当前记录浅蓝"
-      },
-      "pending-bg": {
-        "role": "state",
-        "displayName": "待处理柔黄"
-      }
-    },
-    "typographyMeta": {
-      "body": {
-        "displayName": "界面正文与元数据",
-        "purpose": "所有正文、标签与元数据至少14px。"
-      },
-      "list-title": {
-        "displayName": "紧凑条目题名",
-        "purpose": "清单主要辨识信息。"
+        "displayName": "当前工作"
       }
     },
     "shadows": [
       {
-        "name": "drawer",
-        "value": "-8px 0 32px #00000020",
-        "purpose": "编辑与确认对话框。"
-      },
-      {
-        "name": "action-menu",
-        "value": "0 8px 22px #00000026",
-        "purpose": "发起工作菜单。"
+        "name": "top-layer-menu",
+        "value": "0 16px 40px #24293626",
+        "purpose": "个人与资源菜单。"
       }
     ],
     "motion": [
       {
-        "name": "hover",
-        "value": "150ms ease",
-        "purpose": "非阻塞悬停反馈。"
+        "name": "object-workface",
+        "value": "220ms outExpo",
+        "purpose": "Anime.js scope可撤销；减少动效终态。"
       }
     ],
     "breakpoints": [
@@ -56,74 +37,33 @@
         "value": "700px"
       },
       {
-        "name": "collapsed-navigation",
+        "name": "compact-shell",
         "value": "1000px"
       },
       {
-        "name": "separate-detail",
-        "value": "1199px"
+        "name": "parallel-review",
+        "value": "1100px"
       },
       {
         "name": "wide",
         "value": "1600px"
       }
-    ]
+    ],
+    "composition": {
+      "materials": "Compact period context and original destination; actual version columns with submission/reviews on the same axis; readable stacked groups on compact screens, no automatic text shrinking.",
+      "reading": "One return and compact article header; comparison under reader tools; retained query/canvas.",
+      "profiles": "Introduction and works lead; maintenance/section tools follow content.",
+      "discovery": "Large canvas with direct candidates and back-to-exploration scroll destinations, same retained canvas/camera."
+    }
   },
   "components": [
     {
       "name": "主要操作",
       "kind": "button",
       "refersTo": "button-primary",
-      "description": "当前工作中有权限执行的主要动作。",
-      "html": "<button class=\"ds-button\">提交原件</button>",
-      "css": ".ds-button{font:14px/1.5 \"Noto Sans CJK SC\",sans-serif;padding:5px 12px;min-height:34px;border:1px solid var(--primary,#174e9c);border-radius:4px;background:var(--primary,#174e9c);color:#fff;cursor:pointer}.ds-button:hover{background:var(--primary-hover,#103d7d)}.ds-button:focus-visible{outline:3px solid var(--focus,#b47d00);outline-offset:3px}.ds-button:disabled{background:#edf0f4;color:#607080;border-color:#aebdce;cursor:default}"
-    },
-    {
-      "name": "清单检索",
-      "kind": "input",
-      "description": "位于所作用清单的上方。",
-      "html": "<label class=\"ds-field\">工作标题<input placeholder=\"查找工作标题\"></label>",
-      "css": ".ds-field{display:grid;gap:6px;font:14px/1.6 \"Noto Sans CJK SC\",sans-serif;color:var(--text,#243347)}.ds-field input{font:inherit;min-height:35px;border:1px solid var(--control-border,#aebdce);border-radius:4px;padding:6px 10px;color:inherit;caret-color:var(--primary,#174e9c)}.ds-field input:focus-visible{outline:3px solid var(--focus,#b47d00);outline-offset:3px}"
-    },
-    {
-      "name": "待处理状态",
-      "kind": "chip",
-      "refersTo": "pending-status",
-      "description": "实际需要接续的事项，始终带业务文字。",
-      "html": "<span class=\"ds-status\">待审稿</span>",
-      "css": ".ds-status{display:inline-block;font:14px/1.5 \"Noto Sans CJK SC\",sans-serif;padding:1px 7px;border-radius:3px;background:var(--pending-bg,#fff0c5);color:var(--pending-text,#795200)}"
+      "description": "有权执行的具体版本操作。",
+      "html": "<button class=\"ds-button\">通过此版</button>",
+      "css": ".ds-button{font:500 15px/1.5 \"Noto Sans CJK SC\",\"Microsoft YaHei\",\"Segoe UI\",sans-serif;padding:8px 14px;min-height:40px;border:1px solid #354ac5;border-radius:6px;background:#354ac5;color:#fff;transition:background .15s,color .15s,border-color .15s}.ds-button:hover{background:#273a9d;border-color:var(--primary-hover)}.ds-button:focus-visible{outline:3px solid #354ac5;outline-offset:3px}.ds-button:disabled{background:#edf0f4;color:#607080}"
     }
-  ],
-  "narrative": {
-    "northStar": "清单与具体交接并列",
-    "overview": "稳定导航、紧凑清单与当前对象的就地详情。中心产出优先，资料阅读和研究档案共享熟悉的层级与控件。",
-    "keyCharacteristics": [
-      "记录身份稳定",
-      "紧凑但保持可读",
-      "具体版本对应动作",
-      "响应式改变结构"
-    ],
-    "rules": [
-      {
-        "name": "按实际业务状态表达",
-        "body": "工作、来源核对、机器处理、稿件定稿分别表达；不推断整期完成。",
-        "section": "components"
-      },
-      {
-        "name": "14px可读底线",
-        "body": "通过减少层级和按需展开提高密度，正文与元数据不低于14px。",
-        "section": "typography"
-      }
-    ],
-    "dos": [
-      "保留具体版本、出处和原件",
-      "失败保留文件与输入",
-      "手机返回恢复清单焦点"
-    ],
-    "donts": [
-      "把机器结果当人工核对",
-      "以外链冒充已保存原件",
-      "增加在线Word写作器或重新填写报告模板"
-    ]
-  }
+  ]
 }

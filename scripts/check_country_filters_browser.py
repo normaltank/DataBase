@@ -94,7 +94,7 @@ def main():
                 reading_url=page.url
                 page.locator('.record-title button').first.click()
                 expect(page.locator('.library-reader')).to_be_visible()
-                page.get_by_role('button',name='返回列表',exact=True).click()
+                page.get_by_role('button',name='返回探索与结果',exact=True).click()
                 expect(page.locator('.library-row')).to_have_count(1)
                 assert page.url==reading_url
                 page.locator('.reading-more>summary').click()

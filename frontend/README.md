@@ -6,7 +6,8 @@ Run `node build.mjs --entry timeline` to build one entry. No command clears the
 output directory or deletes a peer module. Full builds compile all existing named
 entries and reproducibly copy shared styles, the worker and license files.
 
-The five fixed entry names are `globe`, `timeline`, `network`, `flow`, `diff`.
+The fixed entry names are `globe`, `timeline`, `network`, `flow`, `diff`,
+and `desk-motion`.
 Their source is `frontend/<name>.js` and output is
 `static/vendor/visual/<name>.js`. Missing entries are skipped by the full build;
 a missing requested single entry is an error. Do not change the lock or loader
@@ -73,16 +74,15 @@ the semantic relationship direction, basis, AI/human provenance and real profile
 destinations in ordinary text. The local Cytoscape stylesheet compatibility rule
 above is part of this exact locked version, including the external stylesheet ID.
 
-Flow options: `{snapshot:{nodes:[{id,label,actions?:[{id,label,primary?,disabled?}]}],edges:[{id,source,target,label,description?}],
-selected:[id],layout?:'lineage',legend?:string},viewport?,onSelect(id),onAction(id, action),onStatus(message)}`. IDs and labelled edges
+Flow options: `{snapshot:{nodes:[{id,label,actions?:[{id,label,primary?,disabled?}]}],edges:[{id,source,target,label,description?,relation?:'sequence'|'review',parallel?:boolean}],
+selected:[id],layout?:'lineage'|'material-lineage',groups?:[{id,version,nodes:[id]}],legend?:string},viewport?,onSelect(id),onAction(id, action),onStatus(message)}`. IDs and labelled edges
 must come from the authorized version/review or step/evidence projection. The
-module performs ELK layout, reading selection and dispatches adapter-provided node actions. The adapter alone checks permissions and owns HTTP requests, forms, tokens, request identity and File objects; these remain outside the React root. `update` preserves the
-viewport; `zoomIn()`, `zoomOut()`, `fit()`, `focusSelected()` and `getViewport()`
+module uses ELK for general maintenance layout, reading selection and adapter-provided node actions. Material-lineage uses explicit version groups rather than DAG layering; it does not start an unused ELK worker. The adapter alone checks permissions and owns HTTP requests, forms, tokens, request identity and File objects; these remain outside the React root. `update` preserves the
+viewport for general graphs and selection changes with unchanged topology. Material topology replacement resets the readable origin to x0/y0/zoom1; `zoomIn()`, `zoomOut()`, `fit()`, `focusSelected()` and `getViewport()`
 support the caller's explicit controls and visibility lifecycle. Initial maintenance view
-centres the first node at zoom 1; short material graphs use the compact lineage
-layout and initially fit desktop at approximately 1:1. Only selected-adjacent edges
-show short labels; their full description remains accessible and in the text legend. `fit` is the user's optional whole-graph overview.
-Topology replacement, timeout and dispose terminate the true classic Worker;
+centres the first node at zoom 1. Material-lineage places version columns left to right, with submission and actual reviews in that column; compact widths stack version groups. Material text starts at zoom1 and fits by page height rather than automatic shrinking. Only selected-adjacent edges
+show short labels; their full description remains accessible and in the text legend. `fit` is the user's optional whole-graph overview for general graphs; in material-lineage it restores the readable group origin at zoom1.
+For general ELK graphs, topology replacement, timeout and dispose terminate the true classic Worker;
 late layouts are ignored. React Flow's transient zero-size measurement while a
 disclosure is hidden is left to its ResizeObserver, not reported as data loss.
 Application forms, file inputs, tokens and write targets stay outside this root.
@@ -114,3 +114,17 @@ observation. This is not native OS visibility evidence. The single-year visual
 review scene can be recaptured with `python scripts/capture_time_review_browser.py
 --evidence-dir tests/artifacts/<new-directory>`; it writes new screenshots and
 metadata without modifying prior review evidence.
+
+`desk-motion` is a bounded interaction helper rather than a chart adapter. It
+exports `transition(target)` and `cancel()` using exact Anime.js 4.5.0. The
+application imports its same-origin revisioned bundle; its scope is reverted
+on another transition, route composition, document hiding or reduced-motion
+changes. Reduced motion takes the visible final state. No runtime CDN, Node
+service, inline stylesheet or CSP exception is needed. Native Popover provides
+top-layer menus, light dismissal and Escape/focus restoration; the public
+Chromium desk check exercises those behaviors. No duplicate write-form component
+is mounted: native form/File nodes stay owned by the existing handoff module.
+
+The build copies the Anime.js MIT notice into `static/vendor/visual/licenses/`.
+`npm ci --ignore-scripts --no-audit --no-fund` followed by `node build.mjs`
+reproduces the six same-origin bundles from the lockfile.

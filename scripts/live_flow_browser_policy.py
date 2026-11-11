@@ -28,7 +28,9 @@ def verify(page):
     assert page.evaluate('flowStyleSentinel&&flowEvalSentinel'), 'The strict runtime sentinels must both be blocked'
     violations=page.evaluate('flowPolicyViolations')
     # The two deliberate sentinel violations are retained in the evidence.
-    library=[v for v in violations if not ('/static/visual-loader.js' in v['source'] and v['blocked'] in ('inline','eval'))]
+    library=[v for v in violations if not ('/static/visual-loader.js' in v['source'] and v['blocked'] in ('inline','eval')) and not (v['source']=='http://local.adguard.org/' and v['blocked']=='eval')]
+    # Windows AdGuard injects a probe independently of application assets. Its
+    # blocked eval remains in evidence; it is not a library CSP relaxation.
     assert not library,library
     return violations
 

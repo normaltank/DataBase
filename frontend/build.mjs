@@ -4,7 +4,7 @@ import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 const root=path.dirname(fileURLToPath(import.meta.url));
 const output=path.resolve(root,'../static/vendor/visual');
-const names=['globe','timeline','network','flow','diff'];
+const names=['globe','timeline','network','flow','diff','desk-motion'];
 const selected=process.argv.includes('--entry')?[process.argv[process.argv.indexOf('--entry')+1]]:names;
 if(selected.some(name=>!names.includes(name)))throw new Error('Unknown visual entry');
 await mkdir(output,{recursive:true});
