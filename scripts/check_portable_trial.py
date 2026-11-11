@@ -181,28 +181,55 @@ def browser_admission(base, evidence):
             for page in pages:
                 page.on('pageerror', lambda error: errors.append(str(error)))
                 page.goto(base)
-                expect(page.get_by_role('heading', name='从自己的实践开始')).to_be_visible()
-            accounts = [c.request.get(base + '/api/session').json()['user']['id'] for c in contexts]
-            assert accounts[0] != accounts[1]
+                expect(page.get_by_role('heading', name='协作编译', exact=True)).to_be_visible()
+                expect(page.get_by_role('button', name='开启一期主题', exact=True)).to_be_visible()
+            accounts = [c.request.get(base + '/api/session').json()['user'] for c in contexts]
+            assert accounts[0]['id'] != accounts[1]['id']
+            assert all(account['temporary'] for account in accounts)
             page = pages[0]
-            page.get_by_role('button', name='修改我的称呼', exact=True).click()
+            page.get_by_role('button', name=accounts[0]['name'], exact=True).click()
+            page.get_by_role('button', name='个人空间', exact=True).click()
+            expect(page.get_by_role('heading', name='个人空间', exact=True)).to_be_visible()
             page.get_by_label('我的临时称呼').fill('浏览器合成甲')
             page.get_by_role('button', name='保存称呼', exact=True).click()
             expect(page.get_by_role('button', name='浏览器合成甲', exact=True)).to_be_visible()
-            page.goto(base + '/#collaboration')
-            page.get_by_role('button', name='开启我的练习主题', exact=True).click()
-            page.get_by_label('本期主题').fill('浏览器合成练习 ' + secrets.token_hex(4))
+            renamed = contexts[0].request.get(base + '/api/session').json()['user']
+            assert renamed['id'] == accounts[0]['id'] and renamed['name'] == '浏览器合成甲'
+            page.get_by_role('navigation', name='主导航', exact=True).get_by_role('button', name='协作编译', exact=True).click()
+            page.get_by_role('button', name='开启一期主题', exact=True).click()
+            theme = '浏览器合成练习 ' + secrets.token_hex(4)
+            page.get_by_label('本期主题').fill(theme)
             page.get_by_role('button', name='保存本期信息', exact=True).click()
-            expect(page.locator('[data-form=handoff-upload]')).to_be_visible()
-            page.get_by_label('文件', exact=True).set_input_files({'name': '浏览器合成.txt', 'mimeType': 'text/plain', 'buffer': b'SYNTHETIC browser report'})
-            page.get_by_role('button', name='上传材料', exact=True).click()
-            expect(page.locator('[data-material-ref]')).to_be_visible()
-            expect(page.get_by_text('待审', exact=True)).to_be_visible()
-            page.get_by_role('button', name='进入编译', exact=True).click()
+            expect(page.get_by_role('heading', name=theme, exact=True)).to_be_visible()
+            upload = page.locator('[data-form=handoff-upload][data-material=""]')
+            expect(upload).to_be_visible()
+            original = b'SYNTHETIC browser report'
+            upload.get_by_label('文件', exact=True).set_input_files({'name': '浏览器合成.txt', 'mimeType': 'text/plain', 'buffer': original})
+            upload.get_by_role('button', name='上传材料', exact=True).click()
+            material = page.locator('article[data-material-ref]')
+            expect(material).to_be_visible()
+            expect(material.locator(':scope > .between > .badge')).to_have_text('当前版 1 · 待审')
+            tid = page.locator('[data-collaboration-topic]').get_attribute('data-collaboration-topic')
+            board_url = base + '/api/collaboration/topics/' + tid + '/handoffs'
+            board = contexts[0].request.get(board_url).json()
+            assert board['lead_id'] == accounts[0]['id'] and len(board['materials']) == 1
+            saved = board['materials'][0]
+            assert saved['owner_id'] == accounts[0]['id'] and saved['status'] == 'pending'
+            assert contexts[0].request.get(base + saved['versions'][0]['file_url']).body() == original
+            material.locator('.handoff-track-details > summary').click()
+            expect(material.get_by_role('button', name='查看版本 1', exact=True)).to_be_visible()
+            page.screenshot(path=str(evidence / 'trial-browser-material.png'), full_page=True)
+            page.locator('.workbench-primary-actions').get_by_role('button', name='进入编译', exact=True).click()
             page.locator('[data-form=topic-stage-enter]').get_by_role('button', name='进入编译', exact=True).click()
             expect(page.locator('.workbench-detail-meta')).to_contain_text('编译阶段')
+            expect(page.get_by_role('button', name='编译材料', exact=True)).to_have_attribute('aria-current', 'page')
+            assert contexts[0].request.get(board_url).json()['stage'] == 'compilation'
             page.screenshot(path=str(evidence / 'trial-browser-admission.png'), full_page=True)
             assert not errors, errors
+        except Exception:
+            for index, page in enumerate(pages):
+                page.screenshot(path=str(evidence / f'trial-browser-failure-{index}.png'), full_page=True)
+            raise
         finally:
             for context in contexts:
                 context.close()
