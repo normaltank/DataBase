@@ -11,6 +11,7 @@ import re
 import shutil
 import sys
 import threading
+import time
 from pathlib import Path
 
 from PIL import Image
@@ -472,8 +473,11 @@ def main():
                 held = []
                 page.route('**/api/records/'+ids[0],lambda route:held.append(route),times=1)
                 page.evaluate("window.controlledHidden=false;document.dispatchEvent(new Event('visibilitychange'))")
-                page.wait_for_timeout(150)
-                assert held
+                # Reauthorization reads /api/session before this record request.
+                deadline = time.monotonic()+10
+                while not held and time.monotonic() < deadline:
+                    page.wait_for_timeout(50)
+                assert held, 'authorized record reread did not arrive within 10 seconds'
                 expect(graph).to_have_count(0)
                 held[0].fulfill(response=held[0].fetch())
                 expect(graph).to_have_count(1)
