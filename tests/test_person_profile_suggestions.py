@@ -62,6 +62,8 @@ class PersonProfileSuggestionsTests(unittest.TestCase):
         with db:
             # These are exactly schema29's additions. The remaining fixture is
             # a schema28 person, jobs with real mock input hashes, and revisions.
+            from tests.fixtures.legacy_schema import remove_post29_tables
+            remove_post29_tables(db)
             for table in ['maintenance_evidence','maintenance_steps','maintenance_jobs']:
                 self.assertEqual(db.execute('SELECT COUNT(*) FROM '+table).fetchone()[0],0)
                 db.execute('DROP TABLE '+table)
@@ -83,7 +85,8 @@ class PersonProfileSuggestionsTests(unittest.TestCase):
         restore_backup(create_backup(data),upgraded)  # schema28 itself is valid.
         self.app=create_app(upgraded,testing=True)
         self.clients={name:archive_fixture.workflow_fixture.WorkflowTests.login(self,name) for name in ['researcher','colleague','admin']}
-        self.assertEqual(self.clients['researcher'].get('/health').json['schema'],29)
+        from platform_app.store import CURRENT_SCHEMA_VERSION
+        self.assertEqual(self.clients['researcher'].get('/health').json['schema'],CURRENT_SCHEMA_VERSION)
         self.assertEqual(self.get('/api/people/'+self.pid)['orcid'],'')
         return upgraded,legacy,old.json['id'],current.json['id']
 

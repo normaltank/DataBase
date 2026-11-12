@@ -11,7 +11,7 @@ from pathlib import Path
 from platform_app.web import create_app
 from platform_app.maintenance import restore_backup
 from platform_app.store import CURRENT_SCHEMA_VERSION
-from tests.test_people import legacy_automatic_fields
+from tests.test_people import legacy_automatic_fields, legacy_empty_fulltext_fields
 
 
 class BylineTests(unittest.TestCase):
@@ -445,7 +445,7 @@ class BylineTests(unittest.TestCase):
             self.assertEqual(self.get("/health")["schema"], CURRENT_SCHEMA_VERSION)
             old_record = expected["records"][rid]
             self.assertEqual(self.get("/api/records/" + rid), {
-                **old_record, **legacy_automatic_fields(old_record), "display_title": old_record["title"], "display_abstract": old_record["abstract"],
+                **old_record, **legacy_automatic_fields(old_record), **legacy_empty_fulltext_fields(), "display_title": old_record["title"], "display_abstract": old_record["abstract"],
                 "translation_origin": "original", "reading_translation_id": "", "has_chinese": False,
                 "abstract_is_chinese": False, "original_abstract_missing": not bool(old_record["abstract"]), "volume": "", "issue": "", "pages": "", "issn": "", "attachment_matches": [], "can_manage_access": True,
                 "chinese_title": "", "chinese_abstract": "", "adopted_translation_id": "", "translations": [], "translation_history": [],

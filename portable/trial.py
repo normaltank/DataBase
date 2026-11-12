@@ -32,7 +32,8 @@ def initialize(data_dir):
         topics = [seed[k] for k in ('complete_topic', 'active_topic') if seed.get(k) and
                   db.execute('SELECT 1 FROM collaboration_topics WHERE id=?', (seed[k],)).fetchone()]
         journal = db.execute('SELECT record_id FROM journal_works WHERE id=?', (seed.get('journal'),)).fetchone()
-        value = dict(topics=topics, records=[journal[0]] if journal else [])
+        value = dict(topics=topics, records=[journal[0]] if journal else [],
+                     journals=[sid for sid in seed.get('source_ids', []) if db.execute("SELECT 1 FROM sources WHERE id=? AND kind='journal'", (sid,)).fetchone()])
         with db:
             db.execute('INSERT OR IGNORE INTO settings VALUES (?,?)', (SAMPLES, json.dumps(value)))
     finally:
@@ -49,7 +50,7 @@ def enrich(db, account):
         sample = db.execute('SELECT value FROM settings WHERE key=?', (SAMPLES,)).fetchone()
         samples = json.loads(sample[0]) if sample else {}
         result.update(temporary=True, trial_sample_topics=samples.get('topics', []),
-                      trial_sample_records=samples.get('records', []))
+                      trial_sample_records=samples.get('records', []), trial_sample_journals=samples.get('journals', []))
     host = db.execute('SELECT value FROM settings WHERE key=?', (HOST,)).fetchone()
     if host and host[0] == result['id']:
         if not local_request():

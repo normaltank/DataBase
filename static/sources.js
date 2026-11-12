@@ -99,6 +99,7 @@ async function sourceContentSection(s,key,label,page=Number(state.params.get('co
   return `<section class="detail-section source-content-section" data-source-content="${key}" data-label="${label}"><div class="between wrap"><h3 id="source-${key}">${label}</h3>${key==='translations'?linkButton(icon('plus')+' 导入目录译稿','new-source-translation',s.id,'button primary tiny'):''}</div><p class="small muted">当前可阅读 ${d.total} 份</p><div class="source-content-list">${d.items.map(r=>`<article><div class="row wrap">${typeBadge(r.kind)}<span class="muted">${esc(r.coverage||r.published_on)}</span>${r.has_attachment?'<span class="badge neutral">有附件</span>':''}</div>${linkButton(esc(r.title),'detail',r.id,'title-button')}<p class="small muted">${esc(r.author_name||r.authors||'署名待补充')} · 版本 ${r.version}</p></article>`).join('')||'<p class="muted">尚未关联</p>'}</div>${d.total>d.size?`<div class="pagination"><button class="button tiny" data-action="source-content-page" data-key="${key}" data-id="${d.page-1}" ${d.page<=1?'disabled':''}>上一页</button><span>第 ${d.page} / ${Math.ceil(d.total/d.size)} 页</span><button class="button tiny" data-action="source-content-page" data-key="${key}" data-id="${d.page+1}" ${d.page*d.size>=d.total?'disabled':''}>下一页</button></div>`:''}</section>`;
 }
 async function sourceProfile(s,preview=false,requested=s.id){
+  if(s.kind==='journal'&&!preview)return journalArchivePage(s);
   const feedback=await maintenanceFeedbackHtml('source',s);
   const common=detailPair('来源研究覆盖范围',esc(s.research_scope));
   let fields='',relations='',evidence='';
@@ -222,6 +223,7 @@ document.addEventListener('click',event=>{
   if(event.target.closest('[data-action="source-directory-back"]'))sourceRestorePosition=true;
 },true);
 function sourceAfterRender(){
+  if(typeof journalArchiveMounted==='function')journalArchiveMounted();
   if(state.page!=='sources'||state.params.has('id'))return;
   if(sourceRestorePosition&&sourceDirectoryPosition?.hash===location.hash)requestAnimationFrame(()=>window.scrollTo(0,sourceDirectoryPosition.y));
   sourceRestorePosition=false;
