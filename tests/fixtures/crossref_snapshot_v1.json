@@ -1,0 +1,123 @@
+{
+  "id": "0ba474a515e0c2aa85647206002914ae59abaf3a24a3134b6453351cebb46939",
+  "url": "https://api.crossref.org/journals/2159-9165/works?filter=type%3Ajournal-article&rows=25&cursor=%2A",
+  "retrieved_at": "2026-11-04T12:00:00+00:00",
+  "sha256": "0ba474a515e0c2aa85647206002914ae59abaf3a24a3134b6453351cebb46939",
+  "bytes": 525,
+  "raw_base64": "eyJzdGF0dXMiOiAib2siLCAibWVzc2FnZSI6IHsiaXRlbXMiOiBbeyJET0kiOiAiMTAuNTU1NS9zeW50aGV0aWMuMjE1OS05MTY1IiwgInRpdGxlIjogWyJTeW50aGV0aWMgcHVibGljIGFydGljbGUiXSwgImNvbnRhaW5lci10aXRsZSI6IFsiRWFzdCBFdXJvcGVhbiBQb2xpdGljcyJdLCAiSVNTTiI6IFsiMjE1OS05MTY1IiwgIjIxNTktOTE3MyJdLCAidHlwZSI6ICJqb3VybmFsLWFydGljbGUiLCAicHVibGlzaGVkLW9ubGluZSI6IHsiZGF0ZS1wYXJ0cyI6IFtbMjAyNiwgMTEsIDFdXX0sICJpbmRleGVkIjogeyJkYXRlLXRpbWUiOiAiMjAyNi0xMS0wM1QwMDowMDowMFoifSwgImF1dGhvciI6IFt7ImdpdmVuIjogIkFkYSIsICJmYW1pbHkiOiAiRXhhbXBsZSIsICJPUkNJRCI6ICJodHRwczovL29yY2lkLm9yZy8wMDAwLTAwMDItMTgyNS0wMDk3In1dLCAiY3JlYXRlZCI6IHsiZGF0ZS1wYXJ0cyI6IFtbMjAyNiwgMTEsIDJdXX19XSwgIm5leHQtY3Vyc29yIjogIm5leHQtcGFnZSIsICJ0b3RhbC1yZXN1bHRzIjogMX19",
+  "content_type": "application/json",
+  "encoding": "utf-8",
+  "adapter": "eep-crossref-v1",
+  "page_html": "",
+  "page_text": "",
+  "metadata": {
+    "fields": {
+      "title": "Synthetic public article",
+      "doi": "10.5555/synthetic.2159-9165",
+      "publication_title": "East European Politics",
+      "url": "https://doi.org/10.5555/synthetic.2159-9165",
+      "published_on": "2026-11-01",
+      "issn": "2159-9165; 2159-9173",
+      "authors": "Ada Example",
+      "kind": "journal_article"
+    },
+    "authors": [
+      {
+        "raw_name": "Ada Example",
+        "identifiers": {
+          "ORCID": "https://orcid.org/0000-0002-1825-0097"
+        },
+        "affiliations": []
+      }
+    ],
+    "identifiers": {
+      "issn": [
+        "2159-9165",
+        "2159-9173"
+      ],
+      "isbn": []
+    },
+    "hints": {
+      "publisher": [
+        ""
+      ],
+      "volume": "",
+      "issue": "",
+      "page": ""
+    },
+    "provenance": {
+      "title": "Crossref",
+      "doi": "Crossref",
+      "publication_title": "Crossref",
+      "url": "Crossref",
+      "published_on": "Crossref",
+      "issn": "Crossref",
+      "authors": "Crossref"
+    },
+    "raw": {
+      "message": {
+        "DOI": "10.5555/synthetic.2159-9165",
+        "title": [
+          "Synthetic public article"
+        ],
+        "container-title": [
+          "East European Politics"
+        ],
+        "ISSN": [
+          "2159-9165",
+          "2159-9173"
+        ],
+        "type": "journal-article",
+        "published-online": {
+          "date-parts": [
+            [
+              2026,
+              11,
+              1
+            ]
+          ]
+        },
+        "indexed": {
+          "date-time": "2026-11-03T00:00:00Z"
+        },
+        "author": [
+          {
+            "given": "Ada",
+            "family": "Example",
+            "ORCID": "https://orcid.org/0000-0002-1825-0097"
+          }
+        ],
+        "created": {
+          "date-parts": [
+            [
+              2026,
+              11,
+              2
+            ]
+          ]
+        }
+      },
+      "date_fields": {
+        "published-online": {
+          "date-parts": [
+            [
+              2026,
+              11,
+              1
+            ]
+          ]
+        }
+      }
+    },
+    "warnings": []
+  },
+  "pdf_links": [],
+  "sidebar_credit": "Ada Example",
+  "sidebar_credit_raw": "Ada Example",
+  "content_kind": "bibliographic_metadata",
+  "work_body_available": false,
+  "work_body": null,
+  "work_body_basis": "",
+  "doi": "10.5555/synthetic.2159-9165",
+  "reason": "Crossref公开JSON题录；摘要仅在实际返回时保存，未取得论文全文。"
+}
