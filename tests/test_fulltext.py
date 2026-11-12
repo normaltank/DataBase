@@ -4,7 +4,7 @@ import json
 import unittest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
-from tests.synthetic_ai import ENV
+from tests.synthetic_ai import ENV,prepared_https_context
 from tests import test_assisted_intake as fixture
 PublicSocket = fixture.PublicSocket
 
@@ -105,7 +105,29 @@ class FulltextTests(unittest.TestCase):
         self.call('/api/admin/ai/config',{'cap':'1','currency':'USD'},user='admin')
         self.assertEqual(self.call('/api/records/'+rid+'/fulltext',{'input_hash':detail['fulltext']['inputs'][0]['input_hash']}).status_code,201)
         with self.provider():self.worker()
+        history=self.clients['researcher'].get('/api/history/record/'+rid).json['items']
+        first=next(h for h in reversed(history) if h['version']==1)
+        self.assertEqual(self.call('/api/history/'+str(first['id'])+'/restore',{'version':2}).status_code,200)
+        self.assertTrue(self.detail(rid)['fulltext']['versions'][0]['stale'])
+        original_id=detail['saved_originals'][0]['id']
+        with self.clients['researcher'].get('/api/fulltext-originals/'+original_id) as response:
+            self.assertEqual(response.data,content)
+        with self.public(content.replace(b'Actual',b'Newer_')):
+            self.assertEqual(self.call('/api/records/'+rid+'/original-file',{'url':'https://example.org/original.pdf'}).status_code,201)
+        self.assertEqual(self.call('/api/records/'+rid+'/fulltext').status_code,201)
         expected=self.detail(rid)['fulltext']
+        import zipfile
+        export_path=Path(self.temp.name)/'content.zip'
+        with self.clients['researcher'].get('/api/export/content') as response:export_path.write_bytes(response.data)
+        from scripts.verify_content_export import verify
+        verify(export_path)
+        with zipfile.ZipFile(export_path) as archive:
+            exported=json.loads(archive.read('content.json'))
+            record=next(r for r in exported['records'] if r['id']==rid)
+            self.assertEqual(record['fulltext'],expected)
+            first_file=next(a for a in exported['attachments'] if a['id']==saved.json['attachment_id'])
+            self.assertEqual(archive.read(first_file['path']),content)
+            self.assertIn('PDF 第 2 页（文件页码）',archive.read(record['path']).decode())
         backup=Path(self.temp.name)/'pdf.zip'
         with self.call('/api/backup',user='admin') as response:backup.write_bytes(response.data)
         restored=restore_backup(backup,Path(self.temp.name)/'pdf-restored')
@@ -153,6 +175,58 @@ class FulltextTests(unittest.TestCase):
         db.close()
         self.assertEqual(create_app(legacy,testing=True).test_client().get('/health').json['schema'],30)
 
+    def test_merged_pdf_keeps_original_job_input_and_resumes_without_duplicate_charge(self):
+        from platform_app.maintenance import create_backup,restore_backup
+        from platform_app.web import create_app
+        rid=self.record();keep=self.record(title='Retained record',url='https://example.org/keep.pdf')
+        with self.public(self.text_pdf()):self.call('/api/records/'+rid+'/original-file',{'url':'https://example.org/original.pdf'})
+        self.call('/api/admin/ai/config',{'cap':'1','currency':'USD'},user='admin')
+        jid=self.call('/api/records/'+rid+'/fulltext').json['id']
+        with self.provider():self.worker(limit=1)
+        result=self.call('/api/merge',{'type':'record','keep_id':keep,'duplicate_id':rid,'keep_version':1,'duplicate_version':2,'confirmed':True},user='admin')
+        self.assertEqual(result.status_code,200,result.json)
+        self.assertTrue(self.detail(keep)['fulltext']['available'])
+        self.assertEqual(self.call('/api/records/'+keep+'/fulltext').json['id'],jid)
+        with self.provider() as mock:
+            self.worker('2090-11-12T00:10:00+00:00');self.assertEqual(mock.sent.call_count,1)
+        expected=self.detail(keep)['fulltext']
+        self.assertEqual(expected['versions'][0]['completed'],2)
+        self.assertEqual(self.clients['researcher'].get('/api/fulltext/'+jid).status_code,200)
+        # A PDF first requested after a merge must retain the old file's
+        # immutable provenance while using the retained record's task scope.
+        late=self.record(title='PDF before first request',url='https://example.org/late.pdf')
+        later_keep=self.record(title='Second retained record',url='https://example.org/later-keep.pdf')
+        with self.public(self.text_pdf()):self.call('/api/records/'+late+'/original-file',{'url':'https://example.org/late.pdf'})
+        self.assertEqual(self.call('/api/merge',{'type':'record','keep_id':later_keep,'duplicate_id':late,'keep_version':1,'duplicate_version':2,'confirmed':True},user='admin').status_code,200)
+        self.assertEqual(self.call('/api/records/'+later_keep+'/fulltext').status_code,201)
+        with self.provider():self.worker('2090-11-12T00:15:00+00:00')
+        restored=restore_backup(create_backup(self.app.config['DATA_DIR']),Path(self.temp.name)/'merged-restored')
+        client=create_app(restored,testing=True).test_client();csrf=client.get('/api/session').json['csrf']
+        client.post('/api/login',json={'username':'researcher','password':'LocalDemo2026!'},headers={'X-CSRF-Token':csrf})
+        self.assertEqual(client.get('/api/records/'+keep).json['fulltext'],expected)
+
+    def test_persistent_shared_worker_respects_paid_switch_and_stops_after_current_pdf_segment(self):
+        import threading
+        from contextlib import redirect_stdout
+        from platform_app.ingestion import run_worker
+        rid=self.record()
+        with self.public(self.text_pdf()):self.call('/api/records/'+rid+'/original-file',{'url':'https://example.org/original.pdf'})
+        self.call('/api/admin/ai/config',{'cap':'1','currency':'USD'},user='admin')
+        self.call('/api/records/'+rid+'/fulltext')
+        with self.provider() as mock,redirect_stdout(io.StringIO()):
+            run_worker(self.app.config['DATA_DIR'],once=True,paid_enabled=lambda:False)
+            self.assertEqual(mock.sent.call_count,0)
+            respond=mock.sent.side_effect;stop=threading.Event()
+            def finishing(request,**kwargs):
+                response=respond(request,**kwargs);stop.set();return response
+            mock.sent.side_effect=finishing
+            with patch('platform_app.store.now',return_value='2090-11-12T00:05:00+00:00'),patch('platform_app.ai_gateway.now',return_value='2090-11-12T00:05:00+00:00'):
+                run_worker(self.app.config['DATA_DIR'],once=True,stopping=stop.is_set)
+                self.assertEqual(self.detail(rid)['fulltext']['versions'][0]['completed'],1)
+                stop.clear();run_worker(self.app.config['DATA_DIR'],once=True,stopping=stop.is_set)
+                self.assertEqual(self.detail(rid)['fulltext']['versions'][0]['completed'],2)
+            self.assertEqual(mock.sent.call_count,2)
+
     def body(self, rid, text='First actual paragraph.\n\nSecond actual paragraph.'):
         # Synthetic fixture only: the acquired-work contract is independently
         # checked by ingestion's existing raw-response restoration tests.
@@ -194,6 +268,7 @@ class FulltextTests(unittest.TestCase):
             return response
         from contextlib import ExitStack
         stack=ExitStack()
+        stack.enter_context(prepared_https_context())
         stack.enter_context(patch.dict('os.environ',{**ENV,'DEEPSEEK_API_KEY':'synthetic-only'}))
         sent=stack.enter_context(patch('urllib.request.OpenerDirector.open',side_effect=respond))
         stack.sent=sent

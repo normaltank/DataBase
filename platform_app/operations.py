@@ -361,7 +361,7 @@ def register(app, ctx):
                         content += prose('快照出处与版本',snapshot['url']+'\n'+snapshot['retrieved_at']+'\nSHA256: '+snapshot['sha256']+'\n'+snapshot['reason'])
                         content += '<p>原始响应字节：'+html.escape(snapshot['path'])+'（仅供下载核对，含未执行的原站代码）</p>'
                 from .fulltext import export_html as fulltext_html
-                content += fulltext_html(item, prose)
+                content += fulltext_html(item, prose, attachments)
                 content += content_export.record_relations_html(item, prose, source_paths, people)
                 for key, label in [("quote", "原文摘录"), ("translation", "译文"), ("interpretation", "研究员说明"), ("locator", "原文定位")]:
                     content += prose(label, item[key])

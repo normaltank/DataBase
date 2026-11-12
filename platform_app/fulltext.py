@@ -1,5 +1,6 @@
 """Explicit public originals and resumable translations pinned to actual body versions."""
 import hashlib
+import html
 import io
 import json
 import re
@@ -31,6 +32,8 @@ def migrate(data_dir):
         backup = create_backup(data_dir)
         with db:
             db.execute('BEGIN IMMEDIATE')
+            if int(db.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0])>=SCHEMA_VERSION:
+                return
             db.execute('''CREATE TABLE saved_originals (
                 id TEXT PRIMARY KEY,record_id TEXT NOT NULL REFERENCES records(id),
                 attachment_id TEXT NOT NULL REFERENCES attachments(id),actor_id TEXT NOT NULL REFERENCES users(id),
@@ -93,11 +96,15 @@ def digest(value):
     return hashlib.sha256(json.dumps(value,ensure_ascii=False,sort_keys=True).encode()).hexdigest()
 
 
-def materials(db,row):
+def materials(db,row,visible=None):
     if not row or row['kind'] in workflow.CONTENT_KINDS or row['merged_into']:return []
     active=set(json.loads(row['attachment_ids']));result=[]
-    for original in db.execute('SELECT * FROM saved_originals WHERE record_id=? AND content_type=? ORDER BY rowid DESC',(row['id'],'application/pdf')):
+    for original in db.execute('''SELECT o.* FROM saved_originals o JOIN attachments a ON a.id=o.attachment_id
+        WHERE a.record_id=? AND o.content_type=? ORDER BY o.rowid DESC''',(row['id'],'application/pdf')):
         if original['attachment_id'] in active:
+            if original['record_id']!=row['id']:
+                origin=db.execute('SELECT * FROM records WHERE id=?',(original['record_id'],)).fetchone()
+                if not visible or not visible(origin):continue
             value=fulltext_pdf.material(original)
             if value:result.append(value)
     webpage=material(row)
@@ -105,8 +112,8 @@ def materials(db,row):
     return result
 
 
-def bound_material(db,row,input_hash):
-    return next((value for value in materials(db,row) if digest(value)==input_hash),None)
+def bound_material(db,row,input_hash,visible=None):
+    return next((value for value in materials(db,row,visible) if digest(value)==input_hash),None)
 
 
 def paragraph_messages(input_hash, value, number):
@@ -121,7 +128,7 @@ def paragraph_hash(input_hash, value, number):
 
 
 def projection(db, row, visible=None):
-    inputs=materials(db,row)
+    inputs=materials(db,row,visible)
     current=inputs[0] if inputs else None
     hashes={digest(value) for value in inputs}
     versions = []
@@ -152,7 +159,8 @@ def projection(db, row, visible=None):
         original['extraction']=json.loads(original.pop('extraction_json'))
     reason=next((o['extraction']['message'] for o in reversed(originals) if o['current'] and o['extraction'].get('message')),
         '尚未取得可用作品正文，不能发起全文翻译。')
-    return {'original_file_candidates':candidates(row),'saved_originals':originals,
+    urls=list(dict.fromkeys(candidates(row)+[o['requested_url'] for o in originals if o['current']]))
+    return {'original_file_candidates':urls,'saved_originals':originals,
         'fulltext':{'available':bool(current),'can_request':bool(current and row['visibility']=='shared'),
             'original':current,'inputs':[{**value,'input_hash':digest(value)} for value in inputs],
             'reason':'' if current else reason,'versions':versions}}
@@ -167,10 +175,16 @@ def permitted(db, row, actor_id, credential_version=None, *, public=False):
     return (not public or row['visibility']=='shared') and RecordRevisions(db,dict(actor),'.').visible(row)
 
 
-def current_original(db,row,url):
+def current_original(db,row,url,visible=None):
     active=set(json.loads(row['attachment_ids']))
-    return next((original for original in db.execute('SELECT * FROM saved_originals WHERE record_id=? AND requested_url=? ORDER BY rowid DESC',(row['id'],url))
-        if original['attachment_id'] in active),None)
+    for original in db.execute('''SELECT o.* FROM saved_originals o JOIN attachments a ON a.id=o.attachment_id
+        WHERE a.record_id=? AND o.requested_url=? ORDER BY o.rowid DESC''',(row['id'],url)):
+        if original['attachment_id'] not in active:continue
+        if original['record_id']!=row['id']:
+            origin=db.execute('SELECT * FROM records WHERE id=?',(original['record_id'],)).fetchone()
+            if not visible or not visible(origin):continue
+        return original
+    return None
 
 
 def register(app, ctx):
@@ -192,11 +206,11 @@ def register(app, ctx):
         db, data = ctx.db(), ctx.body()
         row = ctx.records().get(rid)
         url = intake.normalize_url(data.get('url'))
-        if not url or url not in candidates(row):
+        previous = current_original(db,row,url,ctx.records().visible) if url else None
+        if not url or url not in candidates(row) and not previous:
             abort(400,'请选择这条资料已有出处中的公开原文件链接。')
         actor_id = ctx.user()['id']
         credential = db.execute('SELECT credential_version FROM users WHERE id=?',(actor_id,)).fetchone()[0]
-        previous = current_original(db,row,url)
         if previous:
             return jsonify(attachment_id=previous['attachment_id']),200
         if not intake._slots.acquire(blocking=False):
@@ -217,7 +231,7 @@ def register(app, ctx):
             current = db.execute('SELECT * FROM records WHERE id=?',(row['id'],)).fetchone()
             if not permitted(db,current,actor_id,credential):
                 abort(404,'取得期间访问权限已变化，未保存文件。')
-            previous = current_original(db,current,url)
+            previous = current_original(db,current,url,ctx.records().visible)
             if previous:
                 return jsonify(attachment_id=previous['attachment_id']),200
             if current['version']!=row['version'] or url not in candidates(current):
@@ -247,7 +261,7 @@ def register(app, ctx):
         with db:
             db.execute('BEGIN IMMEDIATE')
             row = ctx.records().get(rid)
-            inputs=materials(db,row)
+            inputs=materials(db,row,ctx.records().visible)
             value=next((v for v in inputs if digest(v)==data.get('input_hash')),None) if data.get('input_hash') else (inputs[0] if inputs else None)
             if not value:
                 abort(409,'尚未取得可用作品正文，不能发起全文翻译。')
@@ -259,7 +273,9 @@ def register(app, ctx):
                 try:fulltext_pdf.checked_bytes(ctx.data_dir,original,attached)
                 except (OSError,ValueError) as error:abort(409,str(error))
             hashed = digest(value)
-            previous = db.execute('SELECT id FROM fulltext_jobs WHERE record_id=? AND input_hash=?',(row['id'],hashed)).fetchone()
+            records=[record_id for record_id in identity.origins(db,'records',row['id'])
+                if ctx.records().visible(db.execute('SELECT * FROM records WHERE id=?',(record_id,)).fetchone())]
+            previous = db.execute('SELECT id FROM fulltext_jobs WHERE record_id IN ('+','.join('?' for unused in records)+') AND input_hash=? ORDER BY rowid LIMIT 1',(*records,hashed)).fetchone()
             if previous:
                 return jsonify(id=previous['id']),200
             # Bound persistent queue independently of the provider's concurrency.
@@ -296,8 +312,8 @@ def register(app, ctx):
         db = ctx.db()
         with db:
             db.execute('BEGIN IMMEDIATE')
-            job,row = job_access(jid,current=True)
-            value = bound_material(db,row,job['input_hash'])
+            job,row = job_access(jid)
+            value = bound_material(db,row,job['input_hash'],ctx.records().visible)
             if not value or row['visibility']!='shared':
                 abort(409,'正文或公开权限已变化；请使用当前正文重新请求，旧译文继续保留。')
             if job['status']=='succeeded' or job['status']=='running' and job['lease_until']>store.now():
@@ -332,8 +348,13 @@ def later(seconds):
 
 def authorized(db, job):
     claim = db.execute('SELECT * FROM fulltext_jobs WHERE id=?',(job['id'],)).fetchone()
-    row = db.execute('SELECT * FROM records WHERE id=?',(job['record_id'],)).fetchone()
-    value = bound_material(db,row,job['input_hash'])
+    origin=db.execute('SELECT * FROM records WHERE id=?',(job['record_id'],)).fetchone()
+    row = identity.resolve(db,'records',job['record_id'])
+    actor=db.execute('SELECT * FROM users WHERE id=?',(job['actor_id'],)).fetchone()
+    if not actor or not permitted(db,row,job['actor_id'],job['credential_version'],public=True):return False
+    visible=RecordRevisions(db,dict(actor),'.').visible
+    if not origin or not visible(origin):return False
+    value = bound_material(db,row,job['input_hash'],visible)
     if value and value.get('kind')=='pdf_text':
         original=db.execute('SELECT * FROM saved_originals WHERE id=?',(value['snapshot_id'],)).fetchone()
         attached=db.execute('SELECT * FROM attachments WHERE id=?',(value['attachment_id'],)).fetchone()
@@ -438,8 +459,9 @@ def validate_backup(db,data_dir):
             value,segments = json.loads(job['input_json']),json.loads(job['segments_json'])
             row = db.execute('SELECT * FROM records WHERE id=?',(job['record_id'],)).fetchone()
             if value.get('kind')=='pdf_text':
-                original=db.execute('SELECT * FROM saved_originals WHERE id=? AND record_id=?',(value['snapshot_id'],job['record_id'])).fetchone()
-                expected=fulltext_pdf.material(original) if original else None
+                original=db.execute('SELECT * FROM saved_originals WHERE id=?',(value['snapshot_id'],)).fetchone()
+                expected=(fulltext_pdf.material(original) if original and
+                    identity.resolve(db,'records',original['record_id'])['id']==identity.resolve(db,'records',job['record_id'])['id'] else None)
             else:
                 raw = json.loads(row['raw_json'] or '{}')
                 snapshot = next((s for s in raw.get('automatic_acquisition',{}).get('snapshots',[]) if s['id']==value['snapshot_id']),None)
@@ -487,11 +509,14 @@ def validate_backup(db,data_dir):
         raise ValueError('全文原文版本、段落译文、人工校订或原文件出处校验失败。') from None
 
 
-def export_html(item, prose):
+def export_html(item, prose, attachments):
     content = ''
     for original in item.get('saved_originals',[]):
+        attached=attachments.get(original['attachment_id'])
         content += prose('按需保存的原文件出处',original['requested_url']+'\n最终地址：'+original['final_url']+
             '\nSHA256: '+original['sha256']+'\n'+str(original['bytes'])+' 字节 · '+original['retrieved_at'])
+        if attached:
+            content += '<p><a href="../'+html.escape(attached['path'],quote=True)+'">下载所据原文件：'+html.escape(attached['name'])+'</a></p>'
     for version in item.get('fulltext',{}).get('versions',[]):
         content += prose('全文原译版本',version['id']+' · '+version['status']+' · '+version['reason']+
             '\n所据快照：'+version['input']['snapshot_id']+'\n原文地址：'+version['input']['url']+'\n输入摘要值：'+version['input_hash'])
