@@ -95,8 +95,9 @@ def _resolve(host, port, deadline):
     return ips[0]
 
 
-def fetch_document(url, deadline, *, fixed_feed=None):
+def fetch_document(url, deadline, *, fixed_feed=None, file_types=None, max_bytes=None):
     """Public network boundary: validate every redirect, pin DNS and check peer."""
+    byte_limit = MAX_BYTES if max_bytes is None else max_bytes
     for hop in range(4):
         canonical = normalize_url(url)
         if not canonical:
@@ -112,7 +113,7 @@ def fetch_document(url, deadline, *, fixed_feed=None):
         response = None
         try:
             path = quote(p.path, safe="/%:@!$&'()*+,;=-._~") + ("?" + quote(p.query, safe="=&/%:@!$'()*+,;?-._~") if p.query else "")
-            connection.request("GET", path, headers={"Accept": "application/rss+xml, application/xml, text/xml" if fixed_feed else "text/html, application/json, application/ld+json", "Accept-Encoding": "identity", "User-Agent": "ResearchCommonsMetadata/1.0"})
+            connection.request("GET", path, headers={"Accept": ', '.join(file_types) if file_types else "application/rss+xml, application/xml, text/xml" if fixed_feed else "text/html, application/json, application/ld+json", "Accept-Encoding": "identity", "User-Agent": "ResearchCommonsMetadata/1.0"})
             response = connection.getresponse()
             connection.remaining()
             if response.status in {301, 302, 303, 307, 308}:
@@ -130,11 +131,11 @@ def fetch_document(url, deadline, *, fixed_feed=None):
                 raise AcquisitionError(message, http_status=response.status,
                     retry_after=response.getheader('Retry-After', '')[:128], host=p.hostname)
             mime = response.getheader("Content-Type", "").split(";")[0].strip().lower()
-            allowed = {"application/rss+xml", "application/xml", "text/xml"} if fixed_feed else {"text/html", "application/xhtml+xml", "application/json", "application/ld+json"}
+            allowed = set(file_types) if file_types else {"application/rss+xml", "application/xml", "text/xml"} if fixed_feed else {"text/html", "application/xhtml+xml", "application/json", "application/ld+json"}
             if mime not in allowed:
                 raise AcquisitionError("此链接不是支持的题录网页；不会下载全文或附件，可继续手填。")
             length = response.getheader("Content-Length")
-            if length and (not length.isdigit() or int(length) > MAX_BYTES):
+            if length and (not length.isdigit() or int(length) > byte_limit):
                 raise AcquisitionError("页面超过提取大小限制，请继续手填。")
             chunks, size = [], 0
             while True:
@@ -143,15 +144,17 @@ def fetch_document(url, deadline, *, fixed_feed=None):
                     raise AcquisitionError("提取超时，请重试或继续手填。")
                 if connection.sock:
                     connection.sock.settimeout(remaining)
-                chunk = response.read1(min(65536, MAX_BYTES + 1 - size))
+                chunk = response.read1(min(65536, byte_limit + 1 - size))
                 connection.remaining()
                 if not chunk:
                     break
                 chunks.append(chunk)
                 size += len(chunk)
-                if size > MAX_BYTES:
+                if size > byte_limit:
                     raise AcquisitionError("页面超过提取大小限制，请继续手填。")
             content = b"".join(chunks)
+            if file_types:
+                return {"url": canonical, "content_type": mime, "bytes": content}
             charset = response.headers.get_content_charset() or "utf-8"
             try:
                 text = content.decode(charset, errors="replace")

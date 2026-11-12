@@ -238,6 +238,7 @@ def register(app, ctx):
         attachments = {}
         for item in records.values():
             aids = [a["id"] for a in item["attachments"]]
+            aids.extend(original['attachment_id'] for original in item.get('saved_originals',[]))
             if item["evidence_attachment_id"]:
                 aids.append(item["evidence_attachment_id"])
             for citation in item["evidence_citations"]:
@@ -359,6 +360,8 @@ def register(app, ctx):
                                          '网页说明快照／原摘要（未取得作品全文）',snapshot['page_text'])
                         content += prose('快照出处与版本',snapshot['url']+'\n'+snapshot['retrieved_at']+'\nSHA256: '+snapshot['sha256']+'\n'+snapshot['reason'])
                         content += '<p>原始响应字节：'+html.escape(snapshot['path'])+'（仅供下载核对，含未执行的原站代码）</p>'
+                from .fulltext import export_html as fulltext_html
+                content += fulltext_html(item, prose)
                 content += content_export.record_relations_html(item, prose, source_paths, people)
                 for key, label in [("quote", "原文摘录"), ("translation", "译文"), ("interpretation", "研究员说明"), ("locator", "原文定位")]:
                     content += prose(label, item[key])
