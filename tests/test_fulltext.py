@@ -227,6 +227,29 @@ class FulltextTests(unittest.TestCase):
                 self.assertEqual(self.detail(rid)['fulltext']['versions'][0]['completed'],2)
             self.assertEqual(mock.sent.call_count,2)
 
+    def test_restoring_member_fields_keeps_latest_upstream_body_and_old_fulltext_binding(self):
+        from platform_app.maintenance import create_backup,restore_backup
+        rid=self.record();self.body(rid)
+        self.call('/api/admin/ai/config',{'cap':'1','currency':'USD'},user='admin')
+        old_id=self.call('/api/records/'+rid+'/fulltext').json['id']
+        with self.provider():self.worker(limit=1)
+        original=self.detail(rid)['fulltext']['versions'][0]
+        self.body(rid,'Changed upstream paragraph.\n\nSecond actual paragraph.')
+        revision=self.clients['researcher'].get('/api/history/record/'+rid).json['items'][-1]
+        self.assertEqual(self.call('/api/history/'+str(revision['id'])+'/restore',{'version':1}).status_code,200)
+        current=self.detail(rid)
+        self.assertEqual(current['fulltext']['original']['paragraphs'][0]['original'],'Changed upstream paragraph.\n\n')
+        self.assertTrue(current['fulltext']['versions'][0]['stale'])
+        self.assertEqual(self.call('/api/fulltext/'+old_id+'/retry').status_code,409)
+        self.assertEqual(self.call('/api/records/'+rid+'/fulltext').status_code,201)
+        with self.provider() as mock:
+            self.worker('2090-11-12T00:10:00+00:00');self.assertEqual(mock.sent.call_count,2)
+        versions=self.detail(rid)['fulltext']['versions']
+        self.assertEqual(versions[1]['input'],original['input'])
+        self.assertEqual(versions[1]['segments'][0]['reading_text'],'第一段完整译文。')
+        self.assertEqual(versions[0]['completed'],2)
+        restore_backup(create_backup(self.app.config['DATA_DIR']),Path(self.temp.name)/'updated-body-restored')
+
     def body(self, rid, text='First actual paragraph.\n\nSecond actual paragraph.'):
         # Synthetic fixture only: the acquired-work contract is independently
         # checked by ingestion's existing raw-response restoration tests.
