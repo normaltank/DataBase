@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from playwright.sync_api import expect, sync_playwright
 from werkzeug.serving import make_server, WSGIRequestHandler
 from tests.test_journal_archives import JournalArchiveTests
+from scripts.browser_camera import capture
 
 
 class Quiet(WSGIRequestHandler):
@@ -98,7 +99,7 @@ def main():
             old.get_by_role('button', name='恢复此版期刊信息与指标', exact=True).click()
             expect(page.locator('.ja-history')).to_have_count(4)
             assert fixture.get('/api/journals/' + b)['profile']['founded'] == 'Other member'
-            page.screenshot(path=str(args.out / 'profile-restored.png'))
+            capture(page, args.out / 'profile-restored.png')
             page.get_by_role('link', name='返回期刊档案', exact=True).click()
             page.get_by_role('link', name='维护期刊信息与指标', exact=True).click()
             page.get_by_role('button', name='恢复本机草稿', exact=True).click()
@@ -117,7 +118,7 @@ def main():
                 assert fixture.get(api)['version'] == 3
                 assert fixture.get(api)['sections' if kind == 'issue' else 'selections']
                 assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+1')
-                page.screenshot(path=str(args.out / f'{kind}-restored-{width}.png'))
+                capture(page, args.out / f'{kind}-restored-{width}.png')
                 report['checks'].append(f'{kind} history restored through actual {width}px button, old revisions retained')
             assert not report['errors'], report['errors']
             assert not report['external_requests'], report['external_requests']
