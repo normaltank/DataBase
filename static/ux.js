@@ -164,7 +164,7 @@ async function uxReadRecord(record,target=null) {
     +'<div class="ux-bibliography">'+(meta.length?'<p>'+meta.map(esc).join(' · ')+'</p>':'')+(sources.length?'<p>'+sources.map(esc).join(' · ')+'</p>':'')+(record.coverage?'<p>'+esc(record.coverage)+'</p>':'')+'</div>'
     +'<div class="ux-reading-actions ux-reading-toolbar">'+uxReadingActions(record,false)+linkButton(record.favorite?'取消收藏':'收藏资料','favorite',record.id)+'<details class="ux-reader-tools"><summary>阅读工具</summary><div class="ux-reading-actions">'+linkButton('加入资料夹','add-to-collection',record.id)+'<button class="button tiny" type="button" data-action="ux-copy" data-id="'+esc(record.id)+'">'+uxCopyLabel(record)+'</button>'+prefsControls+'</div></details></div><div data-copy-region></div>'
     +(typeof upstreamWarningsHtml==='function'?upstreamWarningsHtml(record.automatic_acquisition):'')
-    +bodySection+abstractSection+feedback
+    +bodySection+abstractSection+(typeof fulltextHtml==='function'?fulltextHtml(record):'')+feedback
     +(record.kind==='research_note'||authorControlledKinds.has(record.kind)?'<details class="ux-author-details"><summary>负责作者与编辑授权</summary>'+authorPanel(record)+'</details>':'')
     +(typeof topicRecordWorks==='function'?topicRecordWorks(record):'')
     +(typeof automaticProcessingHtml==='function'?automaticProcessingHtml(record):'')

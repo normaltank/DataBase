@@ -826,6 +826,11 @@ def run_worker(data_dir, poll_seconds=30, once=False, stopping=lambda: False, he
         if stopping():
             return
         from .archive_suggestions import run_pending as archive_pending
+        from .fulltext import run_pending as fulltext_pending
+        if paid_enabled():
+            result['fulltext'] = fulltext_pending(data_dir,limit=5,stopping=lambda: stopping() or not paid_enabled())
+        if stopping():
+            return
         if paid_enabled():
             result['archive_suggestions'] = archive_pending(data_dir,limit=2,stopping=lambda: stopping() or not paid_enabled())
         from .maintenance_agent import run_pending as maintain_pending

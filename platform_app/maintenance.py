@@ -118,6 +118,9 @@ def restore_backup(archive_path, target_dir):
             if int(version) >= 29:
                 from .maintenance_agent import validate_backup as validate_agent
                 validate_agent(db)
+            if int(version) >= 30:
+                from .fulltext import validate_backup as validate_fulltext
+                validate_fulltext(db,stage)
             if int(version) >= 24:
                 from .archive_suggestions import validate_backup as validate_archive_suggestions
                 validate_archive_suggestions(db)
