@@ -70,3 +70,5 @@
 @media(max-width:700px){.material-native-years>summary{min-height:44px}}
 
 .material-time-lens-label{position:absolute;transform:translate(-50%,-50%);font-size:14px;line-height:1.4;color:#292c2a;background:#f5f5f2;padding:0 3px;pointer-events:none;white-space:nowrap;font-variant-numeric:tabular-nums}
+.material-globe canvas{cursor:grab}.material-globe canvas.is-dragging{cursor:grabbing}.material-globe canvas:focus-visible{outline:3px solid #354ac5;outline-offset:-3px}.material-discovery .material-globe-help{color:#596174}.material-stage>[data-material-globe-status]{color:#242936}
+.material-country-column .material-multiselect{display:inline-flex;align-items:center;gap:6px;min-height:36px;color:#242936}.material-multiselect input{accent-color:#354ac5}@media(max-width:700px){.material-country-column .material-multiselect{min-height:44px}}

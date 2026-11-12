@@ -1,7 +1,7 @@
 'use strict';
 
 // Presentation state is deliberately absent from recordQuery and frozen queries.
-const materialDiscovery={account:null,open:!matchMedia('(max-width:1199px)').matches,view:'europe',role:'published',geometry:null,focus:null,lens:false,scene:'country',yearsOpen:false};
+const materialDiscovery={account:null,open:!matchMedia('(max-width:1199px)').matches,view:'europe',role:'published',geometry:null,focus:null,lens:false,scene:'country',yearsOpen:false,multiCountry:false};
 const materialDateNames={published:'发表时间',collected:'首次收录',updated:'最近修订'};
 function materialDiscoveryHTML(){
   return '<details class="material-discovery"><summary>国别地球与时间探索</summary><div data-material-distribution></div></details>';
@@ -16,6 +16,8 @@ async function materialLoad(panel){
   const epoch=(panel._materialEpoch||0)+1;panel._materialEpoch=epoch;
   const account=state.me?.id,load=state.loadId,hash=location.hash,body=panel.querySelector('[data-material-distribution]');
   panel._materialLoading=true;panel.setAttribute('aria-busy','true');
+  // Selection is URL-owned feedback; it need not wait for distribution HTTP.
+  if(panel._materialData)materialSyncGlobeSelection(panel);
   const inputs=panel.querySelector('[data-material-from]');
   if(inputs)panel._timeDraft={from:inputs.value,to:panel.querySelector('[data-material-to]').value};
   if(!panel._materialData){materialDispose(panel);body.innerHTML='<p role="status">正在读取当前查询的分布…</p>';}
@@ -44,6 +46,13 @@ async function materialLoad(panel){
     else {materialDispose(panel);panel._materialData=null;panel._globeView=null;panel._timeView=null;body.innerHTML='<p role="alert">无法读取地图与时间分布：'+esc(error.message)+'</p><button type="button" class="button" data-material-retry>重新读取分布</button>';}
   }finally{if(panel._materialEpoch===epoch){panel._materialLoading=false;panel.removeAttribute('aria-busy');}}
 }
+function materialSyncGlobeSelection(panel){
+  const selected=(recordQuery().get('country')||'').split('|').filter(Boolean).map(countryKey);
+  const scope=panel._materialData.country_context||panel._materialData;
+  panel._globe?.update({countries:scope.countries,selected});
+  for(const button of panel.querySelectorAll('.material-country-list [data-material-country]'))button.setAttribute('aria-pressed',String(selected.includes(button.dataset.materialCountry)));
+  const clear=panel.querySelector('[data-material-clear=country]');if(clear)clear.disabled=!selected.length;
+}
 function materialRender(panel){
   const data=panel._materialData,geometry=materialDiscovery.geometry;if(!data||!geometry)return;
   const flat=panel._flat===true;
@@ -69,11 +78,12 @@ function materialRender(panel){
     +'<div class="material-controls material-scene-controls" role="group" aria-label="资料探索视图"><button type="button" class="button tiny" data-material-scene="country" aria-pressed="'+(materialDiscovery.scene==='country')+'">国别地球</button><button type="button" class="button tiny" data-material-scene="time" aria-pressed="'+(materialDiscovery.scene==='time')+'">时间探索</button><button type="button" class="button tiny" data-material-retry>刷新分布</button></div>'
     +'<section data-material-country-scene '+(materialDiscovery.scene!=='country'?'hidden':'')+' aria-label="研究对象国分布"><div class="material-heading"><h2 class="sr-only">研究对象国</h2><div class="material-controls" role="group" aria-label="地图视角"><button type="button" class="button tiny" data-material-view="europe" aria-pressed="'+(materialDiscovery.view==='europe')+'">欧洲</button><button type="button" class="button tiny" data-material-view="world" aria-pressed="'+(materialDiscovery.view==='world')+'">全世界</button></div></div>'
     +'<details class="material-context"><summary>统计口径 · '+countryScope.total+' 条</summary><p>国别分布保留其他条件、排除对象国条件。多国资料分别计数。</p></details>'
-    +'<div class="material-geography"><div class="material-stage"><div class="material-globe" '+(flat?'hidden':'')+' data-material-globe></div><p data-material-globe-status role="status">正在加载地球…</p><div class="material-controls"><button type="button" class="button tiny" data-material-globe-retry hidden>重试地球</button><button type="button" class="button tiny" data-material-flat aria-pressed="'+flat+'">平面地图</button></div>'
+    +'<div class="material-geography"><div class="material-stage"><div class="material-globe" '+(flat?'hidden':'')+' data-material-globe></div><p data-material-globe-status role="status">正在加载地球…</p><div class="material-controls"><button type="button" class="button tiny" data-material-globe-retry hidden>重试地球</button><button type="button" class="button tiny" data-material-globe-zoom="1" '+(flat?'hidden':'')+'>放大地球</button><button type="button" class="button tiny" data-material-globe-zoom="-1" '+(flat?'hidden':'')+'>缩小地球</button><button type="button" class="button tiny" data-material-flat aria-pressed="'+flat+'">平面地图</button></div>'
+    +'<p class="material-globe-help" '+(flat?'hidden':'')+' data-material-globe-help>聚焦地球后：方向键旋转，+ / − 缩放，Home 复位。也可使用国别文字筛选。</p>'
     +'<p class="material-map-hint" '+(!flat?'hidden':'')+' data-material-map-hint aria-live="polite">点击国界或下方国别按钮筛选资料</p>'
     +'<svg class="material-map" '+(!flat?'hidden':'')+' viewBox="'+(materialDiscovery.view==='europe'?'385 38 230 125':geometry.viewBox)+'" role="group" aria-label="'+(materialDiscovery.view==='europe'?'欧洲':'全世界')+'研究对象国地图">'+paths+'</svg>'
     +'<details class="material-map-footer"><summary>图例与底图依据</summary><div class="material-legend" aria-label="库内资料数量图例">'+legend.map(([value,text])=>'<span><i class="material-count-'+value+'"></i>'+text+'</span>').join('')+'</div><span>底图：<a href="https://www.naturalearthdata.com/about/terms-of-use/" target="_blank" rel="noopener noreferrer">Natural Earth · 公共领域</a></span></details>'
-    +'</div><div class="material-country-column"><div class="material-heading"><h3 class="sr-only">国别列表</h3><button type="button" class="button tiny" data-material-clear="country" '+(!selected.size?'disabled':'')+'>清除研究对象国条件</button></div>'
+    +'</div><div class="material-country-column"><div class="material-heading"><h3 class="sr-only">国别列表</h3><label class="material-multiselect"><input type="checkbox" data-material-country-multi '+(materialDiscovery.multiCountry?'checked':'')+'>多选国家</label><button type="button" class="button tiny" data-material-clear="country" '+(!selected.size?'disabled':'')+'>清除研究对象国条件</button></div>'
     +'<div class="material-country-list" role="group" aria-label="国别文字筛选">'+(countries.length?countries.map(item=>'<button type="button" class="button tiny" data-material-country="'+esc(item.value)+'" aria-pressed="'+selected.has(item.value)+'">'+esc(label(item))+' <strong>'+item.count+'</strong>'+(!mapped.has(item.value)?'<span class="material-unmapped"> · 无地图</span>':'')+'</button>').join(''):'<p>当前查询没有国别分布。可清除筛选后重新查找。</p>')+'</div></div></div></section>'
     +'<section class="material-time" '+(materialDiscovery.scene!=='time'?'hidden':'')+' aria-label="时间分布"><div class="material-heading"><h2>时间分布</h2><label>浏览口径 <select data-material-role aria-label="分布时间口径">'+Object.entries(materialDateNames).map(([value,text])=>'<option value="'+value+'" '+(materialDiscovery.role===value?'selected':'')+'>'+text+'</option>').join('')+'</select></label><button type="button" class="button tiny" data-material-clear="time" '+(!hasTime?'disabled':'')+'>清除时间条件</button></div>'
     +'<details class="material-precision"><summary>日期精度 · 未知 '+date.unknown+' 条</summary><p>'+materialDateNames[materialDiscovery.role]+'：仅年份 '+date.precision.year+' 条，精确到月 '+date.precision.month+' 条，精确到日 '+date.precision.day+' 条；未知 '+date.unknown+' 条。</p></details>'
@@ -124,6 +134,14 @@ function materialResume(panel){
   if(materialDiscovery.scene==='time')materialMountTimeline(panel);
   else if(panel.querySelector('[data-material-flat]').getAttribute('aria-pressed')!=='true')materialMountGlobe(panel,panel._materialData.country_context||panel._materialData,new Set((recordQuery().get('country')||'').split('|').filter(Boolean).map(countryKey)));
 }
+function materialSelectCountry(value){
+  materialApply(query=>{
+    if(!materialDiscovery.multiCountry){query.set('country',value);return;}
+    const chosen=new Set((query.get('country')||'').split('|').filter(Boolean).map(countryKey));
+    chosen.has(value)?chosen.delete(value):chosen.add(value);
+    chosen.size?query.set('country',[...chosen].join('|')):query.delete('country');
+  });
+}
 function materialApply(change){
   const query=recordQuery();query.delete('saved_search');query.delete('page');query.delete('size');
   change(query);go(state.page,query);
@@ -143,7 +161,7 @@ document.addEventListener('library:rendered',event=>{
 document.addEventListener('click',event=>{
   if(event.target.closest('[data-material-return]')){libraryCloseReader();const panel=document.querySelector('.material-discovery');panel.open=true;panel.querySelector('[data-material-scene][aria-pressed="true"]')?.focus({preventScroll:true});return;}
   const panel=event.target.closest('.material-discovery');if(!panel)return;
-  const button=event.target.closest('[data-material-country],[data-material-year],[data-material-view],[data-material-clear],[data-material-retry],[data-material-globe-retry],[data-material-flat],[data-material-apply],[data-material-lens],[data-material-time-retry],[data-material-record],[data-material-scene],[data-material-camera-reset]');if(!button)return;
+  const button=event.target.closest('[data-material-country],[data-material-year],[data-material-view],[data-material-clear],[data-material-retry],[data-material-globe-retry],[data-material-flat],[data-material-apply],[data-material-lens],[data-material-time-retry],[data-material-record],[data-material-scene],[data-material-camera-reset],[data-material-globe-zoom]');if(!button)return;
   if(button.hasAttribute('data-material-scene')){
     materialDiscovery.scene=button.dataset.materialScene;
     panel.querySelector('[data-material-country-scene]').hidden=materialDiscovery.scene!=='country';panel.querySelector('.material-time').hidden=materialDiscovery.scene!=='time';
@@ -157,14 +175,15 @@ document.addEventListener('click',event=>{
   else if(button.hasAttribute('data-material-time-retry'))materialMountTimeline(panel);
   else if(button.hasAttribute('data-material-apply'))materialApplyRange(panel);
   else if(button.hasAttribute('data-material-globe-retry')){materialDisposeGlobe(panel);materialMountGlobe(panel,panel._materialData.country_context||panel._materialData,new Set((recordQuery().get('country')||'').split('|').filter(Boolean).map(countryKey)));}
-  else if(button.hasAttribute('data-material-flat')){const flat=panel.querySelector('.material-map');flat.toggleAttribute('hidden');const shown=!flat.hasAttribute('hidden');panel._flat=shown;panel.querySelector('[data-material-globe]').hidden=shown;button.setAttribute('aria-pressed',String(shown));panel.querySelector('[data-material-map-hint]').hidden=!shown;if(shown)materialDisposeGlobe(panel);else materialMountGlobe(panel,panel._materialData.country_context||panel._materialData,new Set((recordQuery().get('country')||'').split('|').filter(Boolean).map(countryKey)));}
-  else if(button.hasAttribute('data-material-country')){materialDiscovery.focus='.material-country-list [aria-pressed="true"]';materialApply(query=>query.set('country',button.dataset.materialCountry));}
+  else if(button.hasAttribute('data-material-flat')){const flat=panel.querySelector('.material-map');flat.toggleAttribute('hidden');const shown=!flat.hasAttribute('hidden');panel._flat=shown;panel.querySelector('[data-material-globe]').hidden=shown;button.setAttribute('aria-pressed',String(shown));panel.querySelector('[data-material-map-hint]').hidden=!shown;for(const control of panel.querySelectorAll('[data-material-globe-zoom],[data-material-globe-help]'))control.hidden=shown;if(shown)materialDisposeGlobe(panel);else materialMountGlobe(panel,panel._materialData.country_context||panel._materialData,new Set((recordQuery().get('country')||'').split('|').filter(Boolean).map(countryKey)));}
+  else if(button.hasAttribute('data-material-country')){materialDiscovery.focus='.material-country-list [aria-pressed="true"]';materialSelectCountry(button.dataset.materialCountry);}
+  else if(button.hasAttribute('data-material-globe-zoom'))panel._globe?.zoom(Number(button.dataset.materialGlobeZoom));
   else if(button.hasAttribute('data-material-view')){materialDiscovery.view=button.dataset.materialView;panel._globe?.reset(materialDiscovery.view);panel.querySelector('.material-map').setAttribute('viewBox',materialDiscovery.view==='europe'?'385 38 230 125':materialDiscovery.geometry.viewBox);panel.querySelector('[data-material-view="'+materialDiscovery.view+'"]').focus({preventScroll:true});}
   else if(button.hasAttribute('data-material-retry'))materialLoad(panel);
   else if(button.hasAttribute('data-material-clear')){materialDiscovery.focus='[data-material-role]';materialApply(query=>{for(const key of button.dataset.materialClear==='country'?['country']:['from','to','date_unknown','date_field'])query.delete(key);});}
   else if(button.hasAttribute('data-material-year')){materialDiscovery.focus='[data-material-year][aria-pressed="true"]';materialApply(query=>{query.delete('from');query.delete('to');query.delete('date_unknown');query.set('date_field',materialDiscovery.role);if(button.dataset.materialYear==='unknown')query.set('date_unknown','1');else{query.set('from',button.dataset.materialYear+'-01-01');query.set('to',button.dataset.materialYear+'-12-31');}});}
 });
-document.addEventListener('change',event=>{if(event.target.matches('[data-material-role]')){materialDiscovery.role=event.target.value;materialDiscovery.focus='[data-material-role]';materialApply(query=>query.set('date_field',materialDiscovery.role));}});
+document.addEventListener('change',event=>{if(event.target.matches('[data-material-country-multi]')){materialDiscovery.multiCountry=event.target.checked;return;}if(event.target.matches('[data-material-role]')){materialDiscovery.role=event.target.value;materialDiscovery.focus='[data-material-role]';materialApply(query=>query.set('date_field',materialDiscovery.role));}});
 document.addEventListener('keydown',event=>{if(event.key==='Enter'&&event.target.matches('[data-material-from],[data-material-to]')){event.preventDefault();materialApplyRange(event.target.closest('.material-discovery'));}});
 document.addEventListener('keydown',event=>{if(['Enter',' '].includes(event.key)&&event.target.matches('path[data-material-country]')){event.preventDefault();event.target.dispatchEvent(new MouseEvent('click',{bubbles:true}));}});
 for(const name of ['pointerover','focusin'])document.addEventListener(name,event=>{const path=event.target.closest('path[data-material-country]');if(!path)return;const panel=path.closest('.material-discovery');panel.querySelector('[data-material-map-hint]').textContent=path.querySelector('title').textContent+' · 点击筛选';});
@@ -182,11 +201,11 @@ async function materialMountGlobe(panel,scope,selected){
   try{
     const instance=await visualLoader.mount('globe',panel.querySelector('[data-material-globe]'),{
       geometry:materialDiscovery.geometry,viewState:panel._globeView,snapshot:{countries:scope.countries,selected:[...selected]},
-      onSelect:value=>{if(isCurrent())materialApply(query=>query.set('country',value));},
+      onSelect:value=>{if(isCurrent())materialSelectCountry(value);},
       onStatus:message=>{if(isCurrent())status.textContent=message;}
     },{isCurrent});
     if(!isCurrent()){instance?.dispose();return;}panel._globe=instance;
-    if(!panel._globeView)instance?.reset(materialDiscovery.view);status.textContent='';panel.querySelector('[data-material-globe-retry]').hidden=true;
+    if(!panel._globeView)instance?.reset(materialDiscovery.view);panel.querySelector('[data-material-globe-retry]').hidden=true;
   }catch(error){if(isCurrent()){status.textContent='地球未加载，可使用国别或平面地图。';panel.querySelector('[data-material-globe-retry]').hidden=false;panel.querySelector('[data-material-globe]').hidden=true;}}
 }
 new MutationObserver(()=>{for(const panel of materialPanels)if(!panel.isConnected||state.me?.id!==materialDiscovery.account)materialDispose(panel);}).observe(document.getElementById('app'),{childList:true,subtree:true});
