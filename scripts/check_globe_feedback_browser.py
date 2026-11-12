@@ -67,10 +67,46 @@ def camera(page):
 def settled(page, duration=350):
     page.wait_for_timeout(duration)
 
+def retry_selected_country(page, out, result):
+    """A recoverable HTTP failure must retain the selected country's feedback."""
+    panel=page.locator('.material-discovery');status=panel.locator('[data-material-globe-status]')
+    canvas=panel.locator('[data-material-globe] canvas')
+    page.mouse.move(0,0)
+    panel.locator('.material-country-list [data-material-country=LV]').click()
+    expect(panel.locator('.material-scope')).to_contain_text('9 条')
+    expect(panel).not_to_have_attribute('aria-busy','true')
+    expect(status).to_contain_text('已选：拉脱维亚')
+    canvas.focus();page.keyboard.press('ArrowLeft');settled(page)
+    original_canvas=canvas.element_handle();original_camera=camera(page);selected_url=page.url
+    assert 'country=LV' in selected_url
+    page.route('**/api/material-discovery?**',lambda route:route.fulfill(status=503,json={'error':'合成分布读取失败'}),times=1)
+    with page.expect_response(lambda r:'/api/material-discovery?' in r.url and r.status==503):
+        panel.locator('[data-material-retry]').click()
+    expect(status).to_contain_text('读取失败，保留上次分布与输入')
+    expect(panel).not_to_have_attribute('aria-busy','true')
+    page.screenshot(path=str(out/'retry-failed-read.png'))
+    with page.expect_response(lambda r:'/api/material-discovery?' in r.url and r.status==200):
+        panel.locator('[data-material-retry]').click()
+    expect(panel).not_to_have_attribute('aria-busy','true')
+    result['retry_recovery']={'url':page.url,'status':status.inner_text(),
+        'selected':panel.locator('.material-country-list [aria-pressed=true]').evaluate_all('(items)=>items.map(e=>e.dataset.materialCountry)'),
+        'same_canvas':original_canvas.evaluate('(e)=>e===document.querySelector("[data-material-globe] canvas")'),
+        'camera_before':original_camera,'camera_after':camera(page),'http_statuses':[503,200]}
+    page.screenshot(path=str(out/'retry-recovered.png'))
+    assert page.url==selected_url
+    expect(panel.locator('.material-country-list [aria-pressed=true]')).to_have_count(1)
+    expect(panel.locator('.material-country-list [data-material-country=LV]')).to_have_attribute('aria-pressed','true')
+    assert result['retry_recovery']['same_canvas'] and camera(page)==original_camera
+    expect(status).to_contain_text('已选：拉脱维亚')
+    expect(status).not_to_contain_text('读取失败')
+    result['checks'].append('Selected LV survives HTTP 503 then successful retry: status, button and URL agree; same canvas and rotated camera')
+    panel.locator('[data-material-clear=country]').click()
+    expect(panel).not_to_have_attribute('aria-busy','true')
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--evidence',type=Path,required=True)
-    parser.add_argument('--case',choices=['return','raised','all'],default='all')
+    parser.add_argument('--case',choices=['return','raised','retry','all'],default='all')
     args=parser.parse_args();out=args.evidence.resolve();out.mkdir(parents=True,exist_ok=False)
     app=create_app(out/'synthetic-data',testing=True,embedded_worker=False);client=app.test_client()
     def post(path, data):
@@ -92,6 +128,13 @@ def main():
             page.goto(result['base']+'/#library?feed=all&q=合成浮雕');page.get_by_role('button',name='研究员',exact=True).click()
             canvas=page.locator('[data-material-globe] canvas');expect(canvas).to_be_visible();canvas.scroll_into_view_if_needed()
             page.screenshot(path=str(out/'desktop-initial.png'))
+            if args.case in ('retry','all'):
+                retry_selected_country(page,out,result)
+                if args.case=='retry':
+                    result['csp_violations']=page.evaluate('window.globeProbe.violations')
+                    assert not result['csp_violations'] and not errors,(result['csp_violations'],errors)
+                    browser.close();return
+                page.locator('[data-material-view=europe]').click();settled(page)
             x,y=projected(page);before=page.url
             page.mouse.move(x,y);page.mouse.down();page.mouse.move(x+60,y,steps=8);page.mouse.move(x,y,steps=8);page.mouse.up()
             page.wait_for_timeout(350)
