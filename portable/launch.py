@@ -275,17 +275,29 @@ def serve(mode='local'):
             preferred = 0
         server = None
         for port in [preferred, 0] if preferred else [0]:
+            listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             try:
-                server = create_server(application, host='0.0.0.0' if mode == 'lan' else '127.0.0.1',
-                    port=port, threads=6, clear_untrusted_proxy_headers=False, asyncore_loop_timeout=.1)
+                # Windows reuse-address permits a wildcard listener to overlap
+                # another process's loopback listener. Reserve exclusively before
+                # handing the bound socket to Waitress's public sockets interface.
+                if os.name == 'nt':
+                    listener.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+                listener.bind(('0.0.0.0' if mode == 'lan' else '127.0.0.1', port))
+                if listener.getsockname()[1] == 8848:
+                    listener.close()
+                    continue
+                listener.setblocking(False)
+                server = create_server(application, sockets=[listener], threads=6,
+                    clear_untrusted_proxy_headers=False, asyncore_loop_timeout=.1)
                 break
             except OSError:
+                listener.close()
                 continue
+            except BaseException:
+                listener.close()
+                raise
         if server is None:
             raise RuntimeError('Unable to bind an available port.')
-        while server.effective_port == '8848':
-            server.close()
-            server = create_server(application, host='0.0.0.0' if mode == 'lan' else '127.0.0.1', port=0)
         port = int(server.effective_port)
         info = {'identity': IDENTITY, 'instance': instance, 'token': token, 'port': port, 'mode': mode,
                 'urls': [f'http://{address}:{port}' for address in addresses]}

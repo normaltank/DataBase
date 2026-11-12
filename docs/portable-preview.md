@@ -32,7 +32,7 @@ python scripts/check_portable_preview.py --package 'C:\明确路径\dist\Zhihui-
 
 LAN采用真实Waitress，Host只接受本机及最近一次启动／刷新时可绑定的本机IPv4，拒绝转发头，写入保留Origin／CSRF。地址列表排除回环、链路本地、组播、保留、文档及基准测试等特殊用途地址，保留普通私网、共享地址和校园公网IPv4；依据为[IANA特殊用途地址表](https://www.iana.org/assignments/iana-ipv4-special-registry/)。这些仍只是本机地址候选，不保证对应网卡与手机互通。127.0.0.1仅供主机本机，不作为同事访问地址。切网或开启热点后，再运行 `lan-start.bat` 会原地刷新允许地址和分享列表、撤销旧地址，保持同一实例、端口和身份，不用先停服务；无可用地址时只保留本机入口，联网后可再次刷新。未执行刷新前仍使用上次地址快照。
 
-无需修改端口时直接启动，优先复用上次端口；可停机执行 `lan-configure.bat --port 8851`，0为自动，省略参数保留原设置。此配置不读取口令、不改账号、不启用AI。随机令牌控制端点（停止／刷新）要求直接回环来源及本机Host，停止只管理本副本。
+无需修改端口时直接启动，优先复用上次端口；可停机执行 `lan-configure.bat --port 8851`，0为自动，省略参数保留原设置。Windows在交给Waitress前独占绑定本副本的监听socket，遇到其他程序占用（包括普通回环监听）时另选端口，不重叠监听或停止对方；本机和LAN均避开8848。此配置不读取口令、不改账号、不启用AI。随机令牌控制端点（停止／刷新）要求直接回环来源及本机Host，停止只管理本副本。
 
 双击 `lan-diagnose.bat`，或执行 `runtime\python.exe -I -B portable\launch.py lan-diagnose`，可取得不含控制令牌的JSON诊断：本副本是否可认证、回环健康、本机网卡地址及排除理由、最近允许的网址，以及最多16个当前地址的本机HTTP自测（每项0.4秒超时，绕过系统代理）。未认证到本副本时不探测旧端口。诊断不启动／停止服务、不刷新Host、不改账号、AI许可、防火墙、TUN或路由。`phone_verified: false` 表示本命令没有验证手机，`external_network_cause: undetermined` 表示未据此判断外部网络根因；HTTP 400与连接超时分别呈现。诊断含本机地址，转交公开Issue前须脱敏。
 

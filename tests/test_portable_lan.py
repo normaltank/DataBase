@@ -6,6 +6,8 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
+from contextlib import contextmanager
 import urllib.error
 import urllib.request
 import http.cookiejar
@@ -13,6 +15,24 @@ import unittest
 from unittest.mock import patch
 
 from portable import launch
+
+
+@contextmanager
+def portable_temporary():
+    temporary = tempfile.TemporaryDirectory(prefix='portable-lan-synthetic-')
+    try:
+        yield temporary.name
+    finally:
+        # The owned lock is released before Python closes redirected startup.log
+        # during interpreter exit. Allow that bounded final handle cleanup.
+        for attempt in range(40):
+            try:
+                temporary.cleanup()
+                break
+            except PermissionError:
+                if attempt == 39:
+                    raise
+                time.sleep(.05)
 
 
 class PortableLANAddressTests(unittest.TestCase):
@@ -40,7 +60,7 @@ class PortableLANLiveTests(unittest.TestCase):
     def test_repeated_start_refreshes_live_hosts_without_replacing_instance_or_identity(self):
         from platform_app.web import create_app
         source = Path(__file__).resolve().parents[1]
-        with tempfile.TemporaryDirectory(prefix='portable-lan-synthetic-') as temporary:
+        with portable_temporary() as temporary:
             root = Path(temporary)
             (root / 'portable').mkdir()
             # Only the OS address-enumeration/bind boundary is synthetic. CLI,
@@ -78,10 +98,11 @@ launch.main()
             fixture = root / 'interfaces.json'
             fixture.write_text(json.dumps(['192.168.50.20', '198.18.0.1']))
 
-            def cli(action):
-                result = subprocess.run([sys.executable, str(launcher), action, '--no-browser'],
-                                        cwd=root, capture_output=True, text=True, encoding='utf-8', timeout=30)
-                log = root / '.portable/startup.log'
+            def cli(action, timeout=30, copy_root=None):
+                target = copy_root or root
+                result = subprocess.run([sys.executable, str(target / 'portable/launch.py'), action, '--no-browser'],
+                                        cwd=target, capture_output=True, text=True, encoding='utf-8', timeout=timeout)
+                log = target / '.portable/startup.log'
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr +
                                  (log.read_text(encoding='utf-8') if log.exists() else ''))
                 return result.stdout
@@ -139,5 +160,53 @@ launch.main()
                 fixture.write_text(json.dumps(['192.168.137.1']))
                 cli('lan-start')
                 self.assertEqual(get(host='192.168.137.1')[0], 200)
+                cli('stop')
+                cli('lan-start')
+                restarted = json.loads((root / '.portable/server.json').read_text())
+                self.assertEqual(restarted['port'], state['port'])
+                self.assertEqual(get('/api/session', host='127.0.0.1')[1]['user']['id'], identity)
+                cli('stop')
+                # Keep the original non-exclusive conflict: on Windows an
+                # overlapping wildcard bind must not strand the own-control CLI.
+                with socket.socket() as conflict:
+                    conflict.bind(('127.0.0.1', state['port']))
+                    conflict.listen()
+                    try:
+                        cli('lan-start', timeout=12)
+                    except subprocess.TimeoutExpired:
+                        self.fail('LAN startup stranded on an occupied loopback control port')
+                    alternate = json.loads((root / '.portable/server.json').read_text())
+                    self.assertNotEqual(alternate['port'], state['port'])
+                    self.assertNotEqual(alternate['port'], 8848)
+                    cli('stop')
+                    self.assertGreaterEqual(conflict.fileno(), 0)
+                cli('start')
+                local = json.loads((root / '.portable/server.json').read_text())
+                base = 'http://127.0.0.1:' + str(local['port'])
+                self.assertEqual(local['mode'], 'local')
+                self.assertEqual(get('/api/session', host='127.0.0.1')[1]['user']['id'], identity)
+                cli('start')
+                self.assertEqual(json.loads((root / '.portable/server.json').read_text())['instance'], local['instance'])
+                cli('stop')
+                self.assertFalse(json.loads(cli('status'))['running'])
+                cli('start')
+                self.assertEqual(json.loads((root / '.portable/server.json').read_text())['port'], local['port'])
+                self.assertEqual(get('/api/session', host='127.0.0.1')[1]['user']['id'], identity)
+                other = root / 'second-copy'
+                (other / 'portable').mkdir(parents=True)
+                (other / 'portable/launch.py').write_bytes(launcher.read_bytes())
+                (other / 'interfaces.json').write_text('[]')
+                create_app(other / 'data', testing=True, embedded_worker=False, portable_trial=True)
+                try:
+                    cli('start', copy_root=other)
+                    second = json.loads((other / '.portable/server.json').read_text())
+                    self.assertNotEqual(second['port'], local['port'])
+                    with opener.open('http://127.0.0.1:' + str(second['port']) + '/api/session', timeout=3) as response:
+                        self.assertNotEqual(json.load(response)['user']['id'], identity)
+                    cli('stop', copy_root=other)
+                    self.assertTrue(json.loads(cli('status'))['running'])
+                    self.assertEqual(get('/api/session', host='127.0.0.1')[1]['user']['id'], identity)
+                finally:
+                    cli('stop', copy_root=other)
             finally:
                 cli('stop')

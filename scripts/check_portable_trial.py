@@ -165,18 +165,18 @@ def lan(one, two, env, evidence, result):
     assert first.request('/api/session')['user']['id'] == uid
     assert second.request('/api/collaboration/topics/' + tid)['id'] == tid
     command(one, env, 'stop')
-    with socket.socket() as conflict:
-        if os.name == 'nt':
-            # Windows SO_REUSEADDR permits overlapping wildcard binds unless
-            # the synthetic owner explicitly reserves the port exclusively.
-            conflict.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
-        conflict.bind(('127.0.0.1', state['port']))
-        conflict.listen()
-        command(one, env, 'lan-start', '--no-browser')
-        alternate = json.loads((one / '.portable/server.json').read_text(encoding='utf-8'))
-        assert alternate['port'] != state['port'] and alternate['port'] != 8848
-        command(one, env, 'stop')
-        assert conflict.fileno() >= 0
+    for exclusive in (False, True):
+        occupied = int((one / '.portable/last-port-lan').read_text())
+        with socket.socket() as conflict:
+            if exclusive and os.name == 'nt':
+                conflict.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+            conflict.bind(('127.0.0.1', occupied))
+            conflict.listen()
+            command(one, env, 'lan-start', '--no-browser')
+            alternate = json.loads((one / '.portable/server.json').read_text(encoding='utf-8'))
+            assert alternate['port'] != occupied and alternate['port'] != 8848
+            command(one, env, 'stop')
+            assert conflict.fileno() >= 0
     command(two, env, 'lan-start', '--no-browser')
     recovered = json.loads((two / '.portable/server.json').read_text(encoding='utf-8'))
     reader = HTTP(recovered['urls'][0])
