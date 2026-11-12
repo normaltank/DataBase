@@ -30,16 +30,29 @@ while hidden. Globe, timeline and network also expose `getViewState()`; globe
 and timeline expose `restoreViewState(value)`. Their optional mount `viewState`
 contains only camera/target, selection and chart zoom/brush state, never a copied
 record window. The page adapter captures it before disposing on document hiding
-and remounts only after a fresh authorized read. No module resumes itself on
-visibility return. A rejected module leaves the caller's text/ordinary actions usable.
+and remounts only after a fresh authorized read. The page adapter resumes only after that authorized read; a standalone globe
+can repaint its unchanged scene on visibility return. A rejected module leaves the caller's text/ordinary actions usable.
 The loader caches code only, never account data or instances.
 
 Globe options: `{geometry, snapshot:{countries:[{value,label,count}],selected:[]},
 onSelect(value), onStatus(message)}`. `update(snapshot)` retains the camera;
-`reset('europe'|'world')` is an optional globe-specific method. Country values
-are the existing subject-country IDs. Representative positions are geometric
-selection aids, not institution locations. The map is the existing local Natural
+`reset('europe'|'world')` and `zoom(step)` are globe-specific methods. The
+focusable canvas supports arrows, plus/minus and Home; native country buttons
+and the multi-country checkbox remain the selection entry. Selected countries
+use curved radial relief with side walls; update retains the camera and accepts
+multiple selected subject-country IDs. Country values are the existing
+subject-country IDs, never institution locations. The map is the existing local Natural
 Earth 1:110m asset under static/geo; attribution is preserved there.
+
+Globe borders use square-capped, screen-space triangle quads with CSS-pixel
+widths and deduplicated shared edges. The small ShaderMaterial handles only the
+globe's bounded camera domain, not generic near-plane crossing lines. It avoids
+the measured software-rendering cost of the initial general LineSegments2 path.
+`python scripts/check_globe_feedback_browser.py --evidence <new-directory>` from
+the repository root checks real Chromium/WebGL feedback and input with synthetic
+HTTP data. `python scripts/measure_globe_feedback_browser.py --evidence
+<new-directory>` compares the fixed #149 baseline bundle with the working bundle;
+its laboratory timings are not field INP. See [the #149 evidence notes](../work/globe-feedback-149.md).
 
 CSS is `/static/vendor/visual/flow.css`, `diff.css`, `cytoscape-csp.css`.
 Network style is installed using the exact Cytoscape 3.34.4 stylesheet ID
