@@ -23,8 +23,10 @@
 .material-legend span{display:flex;gap:5px;align-items:center}
 .material-legend i{display:inline-block;width:16px;height:12px;border:1px solid #aebdce}
 .material-country-list{display:flex;flex-wrap:wrap;gap:6px;max-height:192px;overflow:auto;padding:3px}
-.material-country-list button{white-space:normal;text-align:left;overflow-wrap:anywhere;max-width:100%}
+.material-country-list button{display:block;white-space:normal;text-align:left;overflow-wrap:anywhere;max-width:100%}
 .material-country-list strong,.material-year strong{font-variant-numeric:tabular-nums}
+.material-country-list strong,.material-country-list .material-unmapped{display:inline-block;white-space:nowrap}
+.material-country-list .material-unmapped{margin-inline-start:4px}
 .material-unmapped{color:#626461}
 .material-time{margin-top:8px}
 .material-years{display:grid;gap:4px;max-height:240px;overflow:auto;padding:3px;margin-bottom:8px}
@@ -49,7 +51,7 @@
 .material-geography{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(220px,1fr);gap:20px}
 .material-stage,.material-country-column{min-width:0}
 .material-country-column .material-heading{margin-top:0}
-.material-country-column .material-country-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));max-height:350px;align-content:start}
+.material-country-column .material-country-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,14em),1fr));max-height:350px;align-content:start}
 .material-country-column .material-country-list button{min-width:0;width:100%;overflow-wrap:anywhere}
 @media(max-width:700px){.material-geography{grid-template-columns:minmax(0,1fr);gap:12px}.material-country-column .material-country-list{max-height:240px}.material-heading label{min-width:0}.material-heading select{min-width:0}}
 
