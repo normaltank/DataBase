@@ -1,6 +1,5 @@
 """Public HTTP/browser regression for #153. Fresh synthetic data, no external I/O."""
 import argparse
-import base64
 import hashlib
 import io
 import importlib.metadata
@@ -16,22 +15,75 @@ from portable.demo_seed import login, call, seed, txt
 from werkzeug.serving import make_server
 
 
-def capture(page, path, native_zoom=False):
-    """Capture the actual viewport; older Chromium full-page capture changes layout."""
-    page.evaluate('scrollTo(0,0)')
-    page.wait_for_timeout(300)
-    cdp = page.context.new_cdp_session(page)
-    metrics = cdp.send('Page.getLayoutMetrics')
-    options = {'format': 'png', 'fromSurface': True, 'captureBeyondViewport': False}
-    path.write_bytes(base64.b64decode(cdp.send('Page.captureScreenshot', options)['data']))
-    path.with_suffix('.metrics.json').write_text(json.dumps(metrics, indent=2), encoding='utf-8')
-    cdp.detach()
+from scripts.browser_camera import capture, native_context, calibrate_native_window, set_native_zoom
+
+
+def camera_matrix(playwright, base, fixture, out):
+    """Camera-only rerun: actual shelves, ordinary mobile contexts, native zoom."""
+    from playwright.sync_api import expect
+    report = {'synthetic': True, 'frames': [], 'errors': [], 'external_requests': []}
+
+    def setup(context):
+        context.route('**/*', lambda r: r.continue_() if r.request.url.startswith(base) else (report['external_requests'].append(r.request.url), r.abort())[-1])
+        page = context.pages[0] if context.pages else context.new_page()
+        page.on('pageerror', lambda error: report['errors'].append(str(error)))
+        page.goto(base)
+        page.get_by_label('账号', exact=True).fill('researcher')
+        page.get_by_label('密码', exact=True).fill('LocalDemo2026!')
+        page.get_by_role('button', name='查看资料', exact=True).click()
+        page.wait_for_selector('[data-action="nav"][data-id="collaboration"]')
+        report['csp'] = page.request.get(base).headers.get('content-security-policy')
+        assert report['csp'] == "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
+        return page
+
+    routes = [('journal', '#journal-results?shelf_journal=id:' + fixture['journal']),
+        ('center', '#compilations?shelf_journal=id:' + fixture['journal']), ('sources', '#sources?group=journal')]
+    try:
+        browser = playwright.chromium.launch(headless=True)
+        context = browser.new_context(viewport={'width': 1366, 'height': 768}, reduced_motion='reduce')
+        page = setup(context)
+        report['standard_browser_version'] = browser.version
+        for name, route in routes:
+            for width, height in [(1366, 768), (390, 844), (320, 844)]:
+                page.set_viewport_size({'width': width, 'height': height})
+                page.goto(base + '/' + route)
+                expect(page.locator('[data-bookshelf]')).to_be_visible()
+                frame = capture(page, out / f'{name}-{width}.png')
+                report['frames'].append({'name': f'{name}-{width}', **frame})
+        page.set_viewport_size({'width': 1366, 'height': 768})
+        page.goto(base + '/#sources?group=journal&q=演示')
+        book = page.locator(f'[data-book-id="{fixture["journal"]}"]')
+        book.scroll_into_view_if_needed()
+        expect(book.locator('img')).to_be_visible()
+        report['frames'].append({'name': 'source-cover-scrolled-1366', **capture(page, out / 'source-cover-scrolled-1366.png', top=False)})
+        browser.close()
+        context = native_context(playwright, out, {'width': 1366, 'height': 768})
+        page = setup(context)
+        version = context.new_cdp_session(page)
+        report['native_browser_version'] = version.send('Browser.getVersion')
+        version.detach()
+        report['calibration'] = calibrate_native_window(page, out)
+        report['native_zoom'] = set_native_zoom(context, base, 2)
+        for name, route in routes:
+            page.goto(base + '/' + route)
+            expect(page.locator('[data-bookshelf]')).to_be_visible()
+            report['frames'].append({'name': name + '-native200', **capture(page, out / f'{name}-native200.png', native_zoom=True)})
+            page.locator('[data-bookshelf-view="shelf"] [data-book-id]').first.scroll_into_view_if_needed()
+            report['frames'].append({'name': name + '-native200-books-scrolled', **capture(page, out / f'{name}-native200-books-scrolled.png', native_zoom=True, top=False)})
+        context.close()
+        assert not report['errors'], report['errors']
+        assert not report['external_requests'], report['external_requests']
+        report['ok'] = True
+    finally:
+        (out / 'camera-result.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
+    print(json.dumps({'ok': True, 'frames': len(report['frames']), 'native_zoom': report['native_zoom']}))
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--red', action='store_true')
+    parser.add_argument('--camera-only', action='store_true', help='Only rerun calibrated viewport/native-zoom frames; no full behavior matrix')
     parser.add_argument('--serve', action='store_true')
     parser.add_argument('--fixture', type=Path, help='Reuse an existing isolated synthetic fixture without reseeding')
     args = parser.parse_args()
@@ -69,12 +121,15 @@ def main():
     report = {'synthetic': True, 'external_requests': [], 'checks': []}
     try:
         with sync_playwright() as p:
-            extension = args.out / 'zoom-extension'
-            extension.mkdir(exist_ok=True)
-            (extension / 'manifest.json').write_text(json.dumps({'manifest_version': 3, 'name': 'Synthetic bookshelf zoom', 'version': '1.0', 'permissions': ['tabs'], 'background': {'service_worker': 'worker.js'}}))
-            (extension / 'worker.js').write_text('chrome.runtime.onInstalled.addListener(()=>{});')
-            browser = p.chromium.launch_persistent_context(str(args.out / 'browser-profile'), executable_path=p.chromium.executable_path, headless=False, ignore_default_args=['--disable-extensions'], args=['--headless=new', f'--disable-extensions-except={extension}', f'--load-extension={extension}'], viewport={'width': 1366, 'height': 768}, has_touch=True)
-            page = browser.pages[0]
+            if args.camera_only:
+                try:
+                    camera_matrix(p, base, json.loads((fixture_root / 'fixture.json').read_text(encoding='utf-8')), args.out)
+                finally:
+                    server.shutdown()
+                return
+            process = p.chromium.launch(headless=True)
+            browser = process.new_context(viewport={'width': 1366, 'height': 768}, has_touch=True)
+            page = browser.new_page()
             version_session=browser.new_cdp_session(page)
             report['browser_version']=version_session.send('Browser.getVersion')
             version_session.detach()
@@ -278,9 +333,16 @@ def main():
             page.locator('[data-bookshelf-select="journal"][data-value="id:' + fixture['journal'] + '"]').click()
             expect(page.locator('[data-book-id]')).to_have_count(2)
             # Native browser 200% zoom, not CSS or device-scale emulation.
-            zoom = browser.service_workers[0] if browser.service_workers else browser.wait_for_event('serviceworker')
-            zoom.evaluate('async url=>{const t=(await chrome.tabs.query({})).find(t=>t.url.startsWith(url));await chrome.tabs.setZoom(t.id,2)}', base)
-            actual = zoom.evaluate('async url=>{const t=(await chrome.tabs.query({})).find(t=>t.url.startsWith(url));return chrome.tabs.getZoom(t.id)}', base)
+            native = native_context(p, args.out, {'width': 1366, 'height': 768})
+            native.add_cookies(browser.cookies())
+            native.route('**/*', lambda r: r.continue_() if r.request.url.startswith(base) else r.abort())
+            native_page = native.pages[0]
+            native_page.on('pageerror', lambda error: errors.append(str(error)))
+            native_page.goto(base + '/#compilations?shelf_journal=id:' + fixture['journal'])
+            expect(native_page.locator('[data-bookshelf="center"]')).to_be_visible()
+            calibrate_native_window(native_page, args.out)
+            actual = set_native_zoom(native, base, 2)
+            normal_page, page = page, native_page
             assert actual == 2
             assert page.evaluate('document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1')
             capture(page, args.out / 'center-native200.png', native_zoom=True)
@@ -295,7 +357,8 @@ def main():
             capture(page,args.out / 'journal-native200.png', native_zoom=True)
             page.goto(base + '/#compilations?shelf_journal=id:' + fixture['journal'])
             expect(page.locator('[data-bookshelf="center"]')).to_be_visible()
-            zoom.evaluate('async url=>{const t=(await chrome.tabs.query({})).find(t=>t.url.startsWith(url));await chrome.tabs.setZoom(t.id,1)}', base)
+            native.close()
+            page = normal_page
             page.emulate_media(reduced_motion='reduce')
             page.get_by_role('button', name='列表', exact=True).click()
             assert page.locator('[data-bookshelf-view="list"]').first.is_visible()
@@ -327,6 +390,7 @@ def main():
             report['ok'] = True
             (args.out / 'result.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
             browser.close()
+            process.close()
     except Exception as exc:
         report['ok'] = False
         report['failure'] = str(exc)

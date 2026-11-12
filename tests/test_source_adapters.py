@@ -48,6 +48,75 @@ class SourceAdapterTests(unittest.TestCase):
         self.addCleanup(record_clock.stop)
     call = base.AssistedIntakeTests.call
 
+    def test_upstream_return_to_observed_body_uses_a_without_erasing_a_or_b(self):
+        from platform_app.automatic_processing import run_pending
+        root = 'https://www.gssc.lt/en/'
+        sid = self.source(root, 'institution')
+        path = '/api/sources/' + sid + '/ingestion'
+        self.assertEqual(self.call(path, {'enabled': True}, user='admin', method='PUT').status_code, 200)
+        observations = []
+        for n, body in enumerate([GSSC_PAGE, GSSC_PAGE.replace('Actual synthetic policy body.', 'INTERMEDIATE B policy body.'), GSSC_PAGE]):
+            if n:
+                self.assertEqual(self.call(path + '/run', {}, user='admin').status_code, 200)
+            self.worker(root, xml=GSSC_LIST, page=body, stamp=f'2026-11-{3+n*8:02}T12:00:00+00:00')
+            run_pending(self.app.config['DATA_DIR'], limit=0)
+            rid = self.clients['researcher'].get('/api/records').json['items'][0]['id']
+            detail = self.clients['researcher'].get('/api/records/' + rid).json
+            observations.append(detail)
+        self.assertEqual(observations[2]['fulltext']['original']['text'], 'Evidence\n\nActual synthetic policy body.\n\nSecond body paragraph.')
+        snapshots = observations[2]['automatic_acquisition']['snapshots']
+        self.assertEqual(len(snapshots), 2)
+        self.assertIn('INTERMEDIATE B policy body.', snapshots[1]['page_text'])
+        self.assertEqual(observations[2]['fulltext']['original']['snapshot_id'], snapshots[0]['id'])
+        classifications = [item for item in observations[2]['automatic_tasks'] if item['task'] == 'classification' and not item['stale']]
+        self.assertEqual(len(classifications), 1)
+        self.assertEqual(classifications[0]['input']['body'], 'Evidence\n\nActual synthetic policy body.\n\nSecond body paragraph.')
+        self.assertEqual(self.clients['researcher'].get('/api/records?q=INTERMEDIATE%20B').json['total'], 0)
+
+    def test_returned_body_reuses_translation_human_edit_and_retains_unknown_charge(self):
+        from pathlib import Path
+        from tests.test_fulltext import FulltextTests
+        from platform_app.maintenance import create_backup, restore_backup
+        from platform_app.web import create_app
+        root = 'https://www.gssc.lt/en/'
+        sid = self.source(root, 'institution')
+        path = '/api/sources/' + sid + '/ingestion'
+        self.call(path, {'enabled': True}, user='admin', method='PUT')
+        self.call('/api/admin/ai/config', {'cap': '1', 'currency': 'USD'}, user='admin')
+        a = GSSC_PAGE.replace('<h2>Evidence</h2>', '')
+        jobs = []
+        for n, body in enumerate([a, a.replace('Actual synthetic policy body.', 'INTERMEDIATE B policy body.'), a]):
+            if n:
+                self.call(path + '/run', {}, user='admin')
+            self.worker(root, xml=GSSC_LIST, page=body, stamp=f'2026-11-{3+n*8:02}T12:00:00+00:00')
+            rid = self.clients['researcher'].get('/api/records').json['items'][0]['id']
+            response = self.call('/api/records/' + rid + '/fulltext')
+            self.assertEqual(response.status_code, 200 if n == 2 else 201, response.json)
+            jobs.append(response.json['id'])
+            if n < 2:
+                with FulltextTests.provider(self, unknown=n == 1) as provider:
+                    FulltextTests.worker(self, stamp='2090-10-31T23:59:00+00:00')
+                    self.assertEqual(provider.sent.call_count, 1 if n == 1 else 2)
+            if n == 0:
+                self.assertEqual(self.call('/api/fulltext/' + jobs[0] + '/edit', {'paragraph': 0, 'revision': 0, 'text': '人工保留的 A 校订。'}).status_code, 200)
+        self.assertEqual(jobs[2], jobs[0])
+        before = self.clients['admin'].get('/api/admin/ai').json['attempts']
+        unknown = next(item for item in before if item['status'] == 'unknown')
+        self.assertGreater(unknown['reserved_units'], 0)
+        restored = restore_backup(create_backup(self.app.config['DATA_DIR']), Path(self.temp.name) / 'reverted-translation-restored')
+        with FulltextTests.provider(self) as provider:
+            FulltextTests.worker(self, stamp='2090-11-01T00:01:00+00:00', data_dir=restored)
+            self.assertEqual(provider.sent.call_count, 0)
+        client = create_app(restored, testing=True, embedded_worker=False).test_client()
+        csrf = client.get('/api/session').json['csrf']
+        client.post('/api/login', json={'username': 'researcher', 'password': 'LocalDemo2026!'}, headers={'X-CSRF-Token': csrf})
+        detail = client.get('/api/records/' + rid).json
+        versions = {v['id']: v for v in detail['fulltext']['versions']}
+        self.assertFalse(versions[jobs[0]]['stale'])
+        self.assertTrue(versions[jobs[1]]['stale'])
+        self.assertEqual(versions[jobs[0]]['segments'][0]['reading_text'], '人工保留的 A 校订。')
+        self.assertEqual(self.clients['admin'].get('/api/admin/ai').json['attempts'], before)
+
     def source(self, root=CJIR, kind='journal'):
         response = self.call('/api/sources', dict(name='Synthetic official source ' + root, kind=kind, website=root))
         self.assertEqual(response.status_code, 201, response.json)

@@ -127,6 +127,192 @@ class JournalArchiveTests(unittest.TestCase):
                 'compiler': 'Synthetic compiler', 'body_html': '<p>合成摘要译文，不代表真实研究结论。</p>',
                 'basis': {'record_id': original['id'], 'record_version': original['version'], 'locator': 'Abstract, paragraph 1'}, **extra}
 
+    def test_merged_basis_keeps_origin_access_in_read_history_file_and_export(self):
+        rid = self.call('/api/records', {'title': 'Private adopted origin', 'kind': 'journal_article',
+            'visibility': 'restricted', 'abstract': 'PRIVATE-FROZEN-ABSTRACT'}).json['id']
+        csrf = self.clients['researcher'].get('/api/session').json['csrf']
+        self.assertEqual(self.clients['researcher'].put('/api/records/' + rid, data={
+            'data': json.dumps({'version': 1, 'sharing_confirmed': True}), 'file': (io.BytesIO(b'PRIVATE-FILE'), 'basis.txt')},
+            headers={'X-CSRF-Token': csrf}).status_code, 200)
+        original, issue, record = self.get('/api/records/' + rid), self.issue(), self.compilation()
+        path = self.base + '/compilations/' + record['id']
+        saved = self.call(path, {'version': 0, 'record_version': record['version'], 'issue_ids': [issue['id']],
+            'selections': [self.selected(issue, original)]}, 'PUT').json
+        file_url = saved['selections'][0]['basis']['snapshot']['attachments'][0]['url']
+        keep = self.call('/api/records', {'title': 'Survivor', 'kind': 'journal_article', 'visibility': 'restricted'}).json['id']
+        self.assertEqual(self.call('/api/merge', {'type': 'record', 'keep_id': keep, 'duplicate_id': rid,
+            'keep_version': 1, 'duplicate_version': original['version'], 'confirmed': True}, user='admin').status_code, 200)
+        survivor = self.get('/api/records/' + keep)
+        self.assertEqual(self.call('/api/records/' + keep, {'version': survivor['version'], 'visibility': 'shared',
+            'sharing_confirmed': True}, 'PUT').status_code, 200)
+        self.assertEqual(self.get(path, 'colleague')['selections'], [{'id': 'selection-one', 'unavailable': True}])
+        self.assertNotIn('PRIVATE-FROZEN-ABSTRACT', json.dumps(self.get(path + '/history', 'colleague')))
+        self.assertEqual(self.clients['colleague'].get(file_url).status_code, 404)
+        with self.clients['researcher'].get(file_url) as response:
+            self.assertEqual(response.data, b'PRIVATE-FILE')
+        self.assertEqual(self.get(path)['selections'][0]['basis']['record_id'], rid)
+        self.assertEqual(self.call(path + '/restore', {'version': 1, 'history_version': 1, 'record_version': record['version']}, user='colleague').status_code, 404)
+        recovered = self.call(path + '/restore', {'version': 1, 'history_version': 1, 'record_version': record['version']})
+        self.assertEqual(recovered.status_code, 200, recovered.json)
+        self.assertEqual(recovered.json['selections'][0]['basis']['record_id'], rid)
+        # The current survivor's deliberately shared files keep their ordinary
+        # download/export contract; that is separate from the old JA adoption.
+        with self.clients['colleague'].get('/api/attachments/' + original['attachments'][0]['id']) as response:
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.data, b'PRIVATE-FILE')
+        with zipfile.ZipFile(io.BytesIO(self.clients['colleague'].get('/api/export/content').data)) as package:
+            self.assertFalse(any(b'PRIVATE-FROZEN-ABSTRACT' in package.read(n) for n in package.namelist()))
+            self.assertTrue(any(package.read(n) == b'PRIVATE-FILE' for n in package.namelist() if n.startswith('attachments/')))
+
+    def test_adopted_basis_checks_intermediate_identity_authorization(self):
+        original = self.get('/api/records/' + self.call('/api/records', {'title': 'Original shared basis', 'kind': 'report', 'abstract': 'MID-CHAIN-FROZEN'}).json['id'])
+        issue, record = self.issue(), self.compilation()
+        path = self.base + '/compilations/' + record['id']
+        self.assertEqual(self.call(path, {'version': 0, 'record_version': record['version'], 'issue_ids': [issue['id']],
+            'selections': [self.selected(issue, original)]}, 'PUT').status_code, 200)
+        middle = self.call('/api/records', {'title': 'Middle identity', 'kind': 'report'}).json['id']
+        self.assertEqual(self.call('/api/merge', {'type': 'record', 'keep_id': middle, 'duplicate_id': original['id'],
+            'keep_version': 1, 'duplicate_version': original['version'], 'confirmed': True}, user='admin').status_code, 200)
+        mid = self.get('/api/records/' + middle)
+        self.assertEqual(self.call('/api/records/' + middle, {'version': mid['version'], 'visibility': 'restricted'}, 'PUT').status_code, 200)
+        mid = self.get('/api/records/' + middle)
+        last = self.call('/api/records', {'title': 'Current identity', 'kind': 'report', 'visibility': 'restricted'}).json['id']
+        self.assertEqual(self.call('/api/merge', {'type': 'record', 'keep_id': last, 'duplicate_id': middle,
+            'keep_version': 1, 'duplicate_version': mid['version'], 'confirmed': True}, user='admin').status_code, 200)
+        current = self.get('/api/records/' + last)
+        self.assertEqual(self.call('/api/records/' + last, {'version': current['version'], 'visibility': 'shared', 'sharing_confirmed': True}, 'PUT').status_code, 200)
+        self.assertEqual(self.clients['colleague'].get('/api/merged/record/' + original['id']).status_code, 200)
+        self.assertEqual(self.get(path, 'colleague')['selections'], [{'id': 'selection-one', 'unavailable': True}])
+        self.assertEqual(self.get(path)['selections'][0]['basis']['snapshot']['abstract'], 'MID-CHAIN-FROZEN')
+
+    def test_merged_adopted_attachment_restores_with_old_id_and_exact_file(self):
+        from platform_app.maintenance import create_backup
+        rid = self.call('/api/records', {'title': 'Adopted origin', 'kind': 'journal_article', 'abstract': 'Frozen abstract'}).json['id']
+        csrf = self.clients['researcher'].get('/api/session').json['csrf']
+        self.assertEqual(self.clients['researcher'].put('/api/records/' + rid, data={
+            'data': json.dumps({'version': 1, 'sharing_confirmed': True}),
+            'file': (io.BytesIO(b'FROZEN-ADOPTED-FILE'), 'basis.txt')}, headers={'X-CSRF-Token': csrf}).status_code, 200)
+        original, issue, record = self.get('/api/records/' + rid), self.issue(), self.compilation()
+        path = self.base + '/compilations/' + record['id']
+        saved = self.call(path, {'version': 0, 'record_version': record['version'], 'issue_ids': [issue['id']],
+            'selections': [self.selected(issue, original)]}, 'PUT').json
+        url = saved['selections'][0]['basis']['snapshot']['attachments'][0]['url']
+        keep = self.call('/api/records', {'title': 'Survivor', 'kind': 'journal_article'}).json['id']
+        self.assertEqual(self.call('/api/merge', {'type': 'record', 'keep_id': keep, 'duplicate_id': rid,
+            'keep_version': 1, 'duplicate_version': original['version'], 'confirmed': True}, user='admin').status_code, 200)
+        target = restore_backup(create_backup(self.app.config['DATA_DIR']), Path(self.temp.name) / 'merged-restored')
+        client = self.login('colleague', create_app(target, testing=True, embedded_worker=False))
+        self.assertEqual(client.get(path).json['selections'][0]['basis']['record_id'], rid)
+        with client.get(url) as response:
+            self.assertEqual(response.data, b'FROZEN-ADOPTED-FILE')
+
+    def test_history_restore_creates_revision_and_rejects_stale_profile_issue_and_selection(self):
+        metric = {'id': 'metric', 'kind': 'impact_factor', 'name': 'Ordinary IF', 'year': '2024', 'value': '0', 'evidence': 'Synthetic metric'}
+        self.assertEqual(self.call(self.base + '/profile', {'version': 0, 'founded': '1980年代', 'metrics': [metric]}, 'PUT').status_code, 200)
+        self.assertEqual(self.call(self.base + '/profile', {'version': 1, 'founded': 'Wrong', 'metrics': []}, 'PUT').status_code, 200)
+        restored = self.call(self.base + '/profile/restore', {'version': 2, 'history_version': 1}, user='colleague')
+        self.assertEqual(restored.status_code, 200, restored.json)
+        self.assertEqual((restored.json['version'], restored.json['founded'], restored.json['metrics']), (3, '1980年代', [metric | {'released_year': '', 'raw_label': '', 'note': ''}]))
+        self.assertEqual(self.call(self.base + '/profile/restore', {'version': 2, 'history_version': 1}).status_code, 409)
+        issue = self.issue()
+        path = self.base + '/issues/' + issue['id']
+        self.assertEqual(self.call(path, {**issue, 'sections': []}, 'PUT').status_code, 200)
+        recovered = self.call(path + '/restore', {'version': 2, 'history_version': 1}, user='colleague')
+        self.assertEqual(recovered.status_code, 200, recovered.json)
+        self.assertEqual(recovered.json['sections'], issue['sections'])
+        self.assertEqual([i['version'] for i in self.get(path + '/history')['items']], [3, 2, 1])
+        original = self.get('/api/records/' + self.call('/api/records', {'title': 'Basis', 'kind': 'report', 'abstract': 'Frozen original'}).json['id'])
+        record = self.compilation()
+        path = self.base + '/compilations/' + record['id']
+        first = self.call(path, {'version': 0, 'record_version': record['version'], 'issue_ids': [issue['id']], 'selections': [self.selected(issue, original)]}, 'PUT').json
+        self.assertEqual(self.call(path, {**first, 'selections': []}, 'PUT').status_code, 200)
+        updated = self.call('/api/records/' + original['id'], {'version': original['version'], 'abstract': 'New original'}, 'PUT')
+        self.assertEqual(updated.status_code, 200)
+        recovered = self.call(path + '/restore', {'version': 2, 'history_version': 1, 'record_version': record['version']}, user='colleague')
+        self.assertEqual(recovered.status_code, 200, recovered.json)
+        self.assertEqual(recovered.json['selections'][0]['basis'], first['selections'][0]['basis'])
+        self.assertTrue(recovered.json['selections'][0]['needs_review'])
+        self.assertEqual(recovered.json['version'], 3)
+        self.assertEqual(self.call(path + '/restore', {'version': 2, 'history_version': 1, 'record_version': record['version']}).status_code, 409)
+        self.assertEqual(self.call('/api/records/' + record['id'], {'version': record['version'], 'title': 'Concurrent manuscript change'}, 'PUT').status_code, 200)
+        self.assertEqual(self.call(path + '/restore', {'version': 3, 'history_version': 1, 'record_version': record['version']}).status_code, 409)
+
+    def test_selection_history_restore_retains_current_authorization_and_restricted_basis(self):
+        issue = self.issue()
+        original = self.get('/api/records/' + self.call('/api/records', {'title': 'Basis', 'kind': 'report', 'abstract': 'Frozen original'}).json['id'])
+        record = self.compilation(kind='compilation')
+        path = self.base + '/compilations/' + record['id']
+        first = self.call(path, {'version': 0, 'record_version': record['version'], 'issue_ids': [issue['id']], 'selections': [self.selected(issue, original)]}, 'PUT').json
+        self.assertEqual(self.call(path, {**first, 'selections': []}, 'PUT').status_code, 200)
+        payload = {'version': 2, 'history_version': 1, 'record_version': record['version']}
+        for user in ['colleague', 'admin']:
+            self.assertEqual(self.call(path + '/restore', payload, user=user).status_code, 403)
+        self.assertEqual(self.call('/api/records/' + original['id'], {'version': original['version'], 'visibility': 'restricted'}, 'PUT').status_code, 200)
+        self.assertEqual(self.call(path + '/restore', payload).status_code, 200)
+        self.assertEqual(self.get(path, 'colleague')['selections'], [{'id': 'selection-one', 'unavailable': True}])
+
+    def test_merged_parent_files_restore_but_forged_adopted_attachment_chain_is_rejected(self):
+        import hashlib
+        import sqlite3
+        from platform_app.maintenance import create_backup
+
+        def attach(rid, content):
+            row = self.get('/api/records/' + rid)
+            csrf = self.clients['researcher'].get('/api/session').json['csrf']
+            response = self.clients['researcher'].put('/api/records/' + rid, data={
+                'data': json.dumps({'version': row['version'], 'sharing_confirmed': True}),
+                'file': (io.BytesIO(content), 'original.txt')}, headers={'X-CSRF-Token': csrf})
+            self.assertEqual(response.status_code, 200, response.json)
+            return self.get('/api/records/' + rid)
+
+        original = attach(self.call('/api/records', {'title': 'Old original', 'kind': 'report', 'abstract': 'Frozen'}).json['id'], b'old original bytes')
+        parent = attach(self.compilation()['id'], b'old manuscript bytes')
+        issue = self.issue()
+        path = self.base + '/compilations/' + parent['id']
+        doc = self.call(path, {'version': 0, 'record_version': parent['version'], 'issue_ids': [issue['id']], 'selections': [self.selected(issue, original)]}, 'PUT').json
+        keep = attach(self.call('/api/records', {'title': 'New original', 'kind': 'report'}).json['id'], b'other survivor file')
+        for old, survivor in [(original, keep), (parent, self.compilation(title='Manuscript survivor'))]:
+            self.assertEqual(self.call('/api/merge', {'type': 'record', 'keep_id': survivor['id'], 'duplicate_id': old['id'],
+                'keep_version': survivor['version'], 'duplicate_version': old['version'], 'confirmed': True}, user='admin').status_code, 200)
+        backup = create_backup(self.app.config['DATA_DIR'])
+        restored = self.login('colleague', create_app(restore_backup(backup, Path(self.temp.name) / 'all-merged-restored'), testing=True, embedded_worker=False))
+        snapshot = restored.get(path + '/history').json['items'][0]['snapshot']
+        self.assertEqual(snapshot['record_snapshot']['id'], parent['id'])
+        with restored.get(doc['selections'][0]['basis']['snapshot']['attachments'][0]['url']) as response:
+            self.assertEqual(response.data, b'old original bytes')
+        with restored.get('/api/attachments/' + parent['attachments'][0]['id']) as response:
+            self.assertEqual(response.data, b'old manuscript bytes')
+        with zipfile.ZipFile(backup) as archive:
+            originals = {n: archive.read(n) for n in archive.namelist()}
+        for name in ['mismatched-owner', 'forged-adopted-file']:
+            files = dict(originals)
+            database = Path(self.temp.name) / (name + '.sqlite3')
+            database.write_bytes(files['platform.sqlite3'])
+            db = sqlite3.connect(database)
+            if name == 'mismatched-owner':
+                db.execute('UPDATE attachments SET record_id=? WHERE id=?', (parent['id'], original['attachments'][0]['id']))
+            else:
+                value = json.loads(db.execute('SELECT data_json FROM journal_compilations WHERE id=?', (parent['id'],)).fetchone()[0])
+                value['selections'][0]['basis']['snapshot']['attachment_ids'] = [keep['attachments'][0]['id']]
+                db.execute('UPDATE journal_compilations SET data_json=? WHERE id=?', (json.dumps(value), parent['id']))
+                history = {**value, 'id': parent['id'], 'source_id': self.journal, 'version': 1,
+                    'actor_id': doc['actor_id'], 'updated_at': doc['updated_at']}
+                db.execute("UPDATE journal_archive_history SET snapshot_json=? WHERE kind='compilation' AND target_id=?", (json.dumps(history), parent['id']))
+            db.commit()
+            db.close()
+            files['platform.sqlite3'] = database.read_bytes()
+            manifest = json.loads(files['manifest.json'])
+            manifest['files']['platform.sqlite3'] = {'bytes': len(files['platform.sqlite3']), 'sha256': hashlib.sha256(files['platform.sqlite3']).hexdigest()}
+            files['manifest.json'] = json.dumps(manifest).encode()
+            corrupt = Path(self.temp.name) / (name + '.zip')
+            with zipfile.ZipFile(corrupt, 'w') as archive:
+                for key, value in files.items():
+                    archive.writestr(key, value)
+            target = Path(self.temp.name) / (name + '-rejected')
+            with self.assertRaisesRegex(ValueError, '历史附件'):
+                restore_backup(corrupt, target)
+            self.assertFalse(target.exists())
+
     def test_cross_issue_compilation_freezes_original_versions_and_keeps_author_policy(self):
         original_id = self.call('/api/records', {'title': 'Synthetic original', 'kind': 'journal_article', 'serial_id': self.journal,
                          'abstract': 'Original abstract version one.', 'body_html': '<p>Original full text one.</p>'}).json['id']

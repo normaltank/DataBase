@@ -106,6 +106,15 @@ def fetch(evidence, adapter):
     return page_snapshot(document, adapter), dict(status='available')
 
 
+def latest_snapshot(automatic):
+    """Snapshots are deduplicated; observation order is a separate pointer."""
+    snapshots = automatic.get('snapshots', [])
+    latest = automatic.get('upstream', {}).get('latest_snapshot_id')
+    if latest:
+        return next((item for item in snapshots if item['id'] == latest), None)
+    return snapshots[-1] if snapshots else None
+
+
 def observe(automatic, before, snapshot, error, check):
     """Called inside the owning record revision transaction; returns a change."""
     old = automatic.get('upstream', {})

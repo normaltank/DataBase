@@ -253,8 +253,8 @@ def substantive_input(snapshot):
 
 def searchable_text(row):
     raw = json.loads(row['raw_json'] or '{}')
-    snapshots = raw.get('automatic_acquisition',{}).get('snapshots',[])
-    return snapshots[-1]['page_text'] if snapshots else ''
+    snapshot = upstream_maintenance.latest_snapshot(raw.get('automatic_acquisition',{}))
+    return snapshot['page_text'] if snapshot else ''
 
 
 def validate_backup(db):
