@@ -7,6 +7,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest.mock import patch
 
 from tests import test_ai_budget as budget
+from tests.synthetic_ai import prepared_https_context
 
 
 class AIDeadlineTests(unittest.TestCase):
@@ -22,6 +23,7 @@ class AIDeadlineTests(unittest.TestCase):
     def test_slow_drip_expires_retains_hold_and_never_settles_late(self):
         self.synthetic()
         stopped = threading.Event()
+        blocked = threading.Event()
 
         class Drip(BaseHTTPRequestHandler):
             received = 0
@@ -34,6 +36,8 @@ class AIDeadlineTests(unittest.TestCase):
                 self.rfile.read(int(self.headers['Content-Length']))
                 self.send_response(200)
                 self.end_headers()
+                self.wfile.flush()
+                blocked.set()
                 try:
                     while not stopped.wait(.03):
                         self.wfile.write(b' ')
@@ -48,18 +52,21 @@ class AIDeadlineTests(unittest.TestCase):
         self.addCleanup(server.shutdown)
         self.addCleanup(stopped.set)
         rid = self.record(title='Deadline synthetic original')
-        started = time.monotonic()
-        with patch.dict('os.environ', {'DEEPSEEK_BASE_URL': f'https://127.0.0.1:{server.server_port}'}), patch('platform_app.ai_gateway.MAX_SECONDS', .25, create=True):
+        job = self.call(f'/api/records/{rid}/translations', {'version': 1, 'request_id': 'first'})
+        self.assertEqual(job.status_code, 201, job.json)
+        with prepared_https_context(), patch.dict('os.environ', {'DEEPSEEK_BASE_URL': f'https://127.0.0.1:{server.server_port}'}), patch('platform_app.ai_gateway.MAX_SECONDS', .25, create=True):
+            started = time.monotonic()
             # The fallback stop lets the red test finish on the unfixed gateway.
             timer = threading.Timer(1.5, stopped.set)
             timer.start()
             try:
-                result = self.run_job(rid)
+                result = self.call(f"/api/translations/{job.json['id']}/run")
             finally:
                 timer.cancel()
                 timer.join()
         elapsed = time.monotonic() - started
         self.assertLess(elapsed, 1.0)
+        self.assertTrue(blocked.is_set(), 'Supplier must reach the slow-drip fixture')
         self.assertEqual(result.json['status'], 'failed')
         state = self.get('/api/admin/ai', 'admin').json
         self.assertEqual(state['attempts'][0]['status'], 'unknown')
@@ -75,6 +82,8 @@ class AIDeadlineTests(unittest.TestCase):
     def test_delayed_headers_late_success_and_oversize_stay_unknown(self):
         self.synthetic()
         release = threading.Event()
+        reached = threading.Event()
+        finished = threading.Event()
 
         class Supplier(BaseHTTPRequestHandler):
             mode = 'headers'
@@ -87,6 +96,7 @@ class AIDeadlineTests(unittest.TestCase):
                 raw = json.dumps({'model': 'deepseek-flash', 'usage': {'prompt_tokens': 23, 'completion_tokens': 7, 'total_tokens': 30}, 'choices': [{'finish_reason': 'stop', 'message': {'content': '{"title":"valid late result","abstract":""}'}}]}).encode()
                 try:
                     if self.mode == 'headers':
+                        reached.set()
                         release.wait(2)
                     if self.mode == 'size':
                         raw += b' ' * (256 * 1024)
@@ -96,11 +106,16 @@ class AIDeadlineTests(unittest.TestCase):
                     if self.mode == 'late':
                         self.wfile.write(raw[:1])
                         self.wfile.flush()
+                        reached.set()
                         release.wait(2)
                         raw = raw[1:]
+                    if self.mode == 'size':
+                        reached.set()
                     self.wfile.write(raw)
                 except OSError:
                     pass
+                finally:
+                    finished.set()
 
         server = ThreadingHTTPServer(('127.0.0.1', 0), Supplier)
         threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -110,11 +125,18 @@ class AIDeadlineTests(unittest.TestCase):
         for mode in ('headers', 'late', 'size'):
             Supplier.mode = mode
             release.clear()
+            reached.clear()
+            finished.clear()
             rid = self.record(title='Synthetic ' + mode)
-            start = time.monotonic()
-            with patch.dict('os.environ', {'DEEPSEEK_BASE_URL': f'https://127.0.0.1:{server.server_port}'}), patch('platform_app.ai_gateway.MAX_SECONDS', .25):
-                result = self.run_job(rid, 'deadline-' + mode)
+            # Queue creation and OS certificate loading prepare the fixture;
+            # the bound still covers the entire public run request and ledger.
+            job = self.call(f'/api/records/{rid}/translations', {'version': 1, 'request_id': 'deadline-' + mode})
+            self.assertEqual(job.status_code, 201, job.json)
+            with prepared_https_context(), patch.dict('os.environ', {'DEEPSEEK_BASE_URL': f'https://127.0.0.1:{server.server_port}'}), patch('platform_app.ai_gateway.MAX_SECONDS', .25):
+                start = time.monotonic()
+                result = self.call(f"/api/translations/{job.json['id']}/run")
             self.assertLess(time.monotonic() - start, 1)
+            self.assertTrue(reached.is_set(), 'Supplier must reach the ' + mode + ' fixture')
             self.assertEqual(result.json['status'], 'failed')
             state = self.get('/api/admin/ai', 'admin').json
             self.assertEqual(state['attempts'][0]['status'], 'unknown')
@@ -122,9 +144,39 @@ class AIDeadlineTests(unittest.TestCase):
             self.assertGreater(state['held_units'], 0)
             release.set()
             # A late valid body cannot turn this completed failure into success.
-            time.sleep(.05)
+            self.assertTrue(finished.wait(2), 'Released supplier must finish')
             self.assertEqual(self.get('/api/admin/ai', 'admin').json['attempts'][0]['status'], 'unknown')
             self.call('/api/admin/ai/attempts/' + state['attempts'][0]['id'] + '/resolve', {'charged': '0', 'basis': 'Synthetic supplier invoice confirms zero'}, user='admin')
+
+    def test_expired_https_preparation_cannot_send_late(self):
+        self.synthetic()
+        import ssl
+        context = ssl._create_default_https_context()
+        entered = threading.Event()
+
+        def slow_context():
+            entered.set()
+            # This phase is deliberately longer than the total deadline;
+            # it must not be confused with a supplier-blocking fixture.
+            time.sleep(.2)
+            return context
+
+        with patch('ssl._create_default_https_context', side_effect=slow_context), patch('platform_app.ai_gateway.MAX_SECONDS', .1):
+            result = self.run_job(self.record(title='Expired HTTPS preparation'))
+        self.assertTrue(entered.is_set())
+        self.assertEqual(result.json['status'], 'failed')
+        self.assertEqual(budget.Provider.requests, [])
+        state = self.get('/api/admin/ai', 'admin').json
+        self.assertEqual(state['attempts'][0]['status'], 'unknown')
+        self.assertEqual(state['charged_units'], 0)
+        self.assertGreater(state['held_units'], 0)
+        held = state['held_units']
+        self.assertEqual(self.run_job(self.record(title='Blocked after expired preparation'), 'preparation-no-resend').json['status'], 'failed')
+        state = self.get('/api/admin/ai', 'admin').json
+        self.assertEqual(len(state['attempts']), 1)
+        self.assertEqual(state['attempts'][0]['status'], 'unknown')
+        self.assertEqual(state['held_units'], held)
+        self.assertEqual(budget.Provider.requests, [])
 
     def test_expired_dns_lookup_cannot_send_late_or_spawn_unbounded_resolvers(self):
         self.synthetic()
@@ -201,7 +253,7 @@ class AIDeadlineTests(unittest.TestCase):
             finally:
                 handshake_times.append(time.monotonic() - started)
 
-        with patch.dict('os.environ', env), patch('platform_app.ai_gateway.MAX_SECONDS', .25), patch.object(ssl.SSLSocket, 'do_handshake', timed_handshake):
+        with prepared_https_context(), patch.dict('os.environ', env), patch('platform_app.ai_gateway.MAX_SECONDS', .25), patch.object(ssl.SSLSocket, 'do_handshake', timed_handshake):
             result = self.run_job(rid)
         self.assertTrue(accepted.is_set())
         self.assertEqual(len(handshake_times), 1)
