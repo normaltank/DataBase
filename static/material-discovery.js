@@ -37,9 +37,10 @@ async function materialLoad(panel){
     panel._materialData=data;
     // Query selection can change even when the distribution counts do not.
     // Patch native controls every time; module-owned canvases stay in place.
-    materialRender(panel);
+    // Clear stale errors before rendering restores the current selection status.
     if(panel._materialStale)for(const target of panel.querySelectorAll('[data-material-time-status],[data-material-globe-status]'))target.textContent='';
     panel._materialStale=false;
+    materialRender(panel);
   }catch(error){
     if(!materialCurrent(panel,epoch,account,load,hash))return;
     if(panel._materialData&&![401,403,404].includes(error.status)){panel._materialStale=true;for(const target of panel.querySelectorAll('[data-material-time-status],[data-material-globe-status]'))target.textContent='读取失败，保留上次分布与输入。可重试：'+error.message;}
