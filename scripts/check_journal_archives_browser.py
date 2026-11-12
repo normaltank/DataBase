@@ -70,7 +70,7 @@ def main():
                     tab.on('pageerror', lambda error: errors.append(str(error)))
                 login(page, base, 'researcher')
                 page.goto(base + '/#sources?group=journal')
-                page.get_by_role('link', name='Synthetic archive journal', exact=True).click()
+                page.locator(f'[data-book-id="{fixture.journal}"] a').click()
                 expect(page.get_by_role('heading', name='Synthetic archive journal', exact=True)).to_be_visible()
                 page.get_by_role('link', name='维护期刊信息与指标', exact=True).click()
                 page.get_by_label('创刊时间（保留实际精度）', exact=True).fill('1980年代（合成）')
