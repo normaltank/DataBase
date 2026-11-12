@@ -6,7 +6,7 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 from tests import test_ingestion as ingestion_fixture
-from tests.synthetic_ai import ENV
+from tests.synthetic_ai import ENV, prepared_https_context
 
 
 class AutomaticProcessingTests(unittest.TestCase):
@@ -272,6 +272,7 @@ class AutomaticProcessingTests(unittest.TestCase):
         self.run_worker()
         self.call('/api/admin/ai/config', {'cap': '1', 'currency': 'USD'}, user='admin')
         stop = threading.Event()
+        blocked = threading.Event()
 
         class Supplier(BaseHTTPRequestHandler):
             count = 0
@@ -286,6 +287,8 @@ class AutomaticProcessingTests(unittest.TestCase):
                 self.end_headers()
                 try:
                     if self.count == 1:
+                        self.wfile.flush()
+                        blocked.set()
                         while not stop.wait(.03):
                             self.wfile.write(b' ')
                             self.wfile.flush()
@@ -301,7 +304,7 @@ class AutomaticProcessingTests(unittest.TestCase):
         self.addCleanup(server.shutdown)
         self.addCleanup(stop.set)
         env = {**ENV, 'DEEPSEEK_API_KEY': 'synthetic-only', 'DEEPSEEK_BASE_URL': f'https://127.0.0.1:{server.server_port}'}
-        with patch.dict('os.environ', env), patch.object(ssl.SSLContext, 'wrap_socket', lambda context, sock, *a, **k: sock):
+        with prepared_https_context(), patch.dict('os.environ', env), patch.object(ssl.SSLContext, 'wrap_socket', lambda context, sock, *a, **k: sock):
             started = time.monotonic()
             with patch('platform_app.ai_gateway.MAX_SECONDS', .25):
                 first = run_pending(self.app.config['DATA_DIR'], limit=4)
@@ -310,6 +313,7 @@ class AutomaticProcessingTests(unittest.TestCase):
             state = self.clients['admin'].get('/api/admin/ai').json
             self.assertEqual(state['attempts'][0]['status'], 'unknown')
             self.assertGreater(state['held_units'], 0)
+            self.assertTrue(blocked.is_set(), 'Supplier must reach the blocked response fixture')
             self.assertEqual(Supplier.count, 1)
             stop.set()
             self.call('/api/admin/ai/attempts/' + state['attempts'][0]['id'] + '/resolve', {'charged': '0', 'basis': 'Synthetic supplier confirmed timeout invoice zero'}, user='admin')
