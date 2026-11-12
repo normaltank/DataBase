@@ -27,7 +27,7 @@ SOURCE_FILES = {
     'docs/portable-preview.md', 'portable/__init__.py', 'portable/launch.py',
     'portable/terminal.py', 'portable/ai_settings.py', 'portable/ai_configure.py', 'portable/worker.py', 'portable/public_collection.py', 'portable/trial.py',
     'portable/ai-configure.bat', 'portable/ai-enable.bat', 'portable/ai-disable.bat',
-    'portable/demo_seed.py', 'portable/public_batch.py', 'portable/runtime-lock.json', 'portable/quick-start.html', 'portable/lan-start.bat', 'portable/lan-configure.bat',
+    'portable/demo_seed.py', 'portable/public_batch.py', 'portable/runtime-lock.json', 'portable/quick-start.html', 'portable/lan-start.bat', 'portable/lan-configure.bat', 'portable/lan-diagnose.bat',
     'portable/samples/cee17-preview.json',
     'portable/samples/fictional-article.pdf',
     'scripts/build_portable.py', 'scripts/verify_portable.py', 'scripts/check_portable_preview.py', 'scripts/check_lan_release.py',
@@ -124,7 +124,7 @@ def build(args):
         target = staging / name
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, target)
-    for action in ('start', 'stop', 'lan-start', 'lan-configure', 'ai-configure', 'ai-enable', 'ai-disable'):
+    for action in ('start', 'stop', 'lan-start', 'lan-configure', 'lan-diagnose', 'ai-configure', 'ai-enable', 'ai-disable'):
         # BAT files use only ASCII and CRLF, so Windows code pages cannot corrupt commands.
         (staging / f'{action}.bat').write_bytes((ROOT / f'portable/{action}.bat').read_text(encoding='utf-8').replace('\r\n', '\n').replace('\n', '\r\n').encode('ascii'))
     shutil.copyfile(ROOT / 'portable/quick-start.html', staging / '使用说明.html')
