@@ -936,6 +936,8 @@ def create_app(data_dir=None, testing=False, *, initialization_mode='demo', embe
     journal_collaboration.register(app, SimpleNamespace(db=db, user=user, body=body, records=records, data_dir=data_dir))
     from . import journal_results
     journal_results.register(app, SimpleNamespace(db=db, user=user, body=body, records=records, data_dir=data_dir))
+    from . import journal_archives
+    journal_archives.register(app, SimpleNamespace(db=db, user=user, body=body, records=records, data_dir=data_dir))
     from . import collaboration_library
     collaboration_library.register(app, SimpleNamespace(db=db, user=user, data_dir=data_dir))
     return app
