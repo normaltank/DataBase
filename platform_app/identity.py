@@ -88,6 +88,10 @@ def source_merge_dependents(db, duplicate_id):
 def rewrite_source_graph(db, keep, duplicate, validate_source):
     """Rewrite and validate the source graph inside the revision owner's transaction."""
     kid, did = keep["id"], duplicate["id"]
+    if db.execute("SELECT 1 FROM sqlite_master WHERE name='journal_profiles'").fetchone():
+        from .journal_archives import TABLES
+        if any(db.execute(f'SELECT 1 FROM {table} WHERE source_id=? LIMIT 1', (did,)).fetchone() for table in TABLES.values()):
+            abort(409, '待合并来源已有期刊年度指标、原刊卷期或选编依据，请保留为当前身份并先核对结构，避免丢失版本关系。')
     names = aliases(keep["aliases"], duplicate["aliases"], duplicate["name"], duplicate["original_name"], did)
     db.execute("UPDATE sources SET aliases=? WHERE id=?", (names, kid))
     outgoing = json.loads(keep["relationships"]) + json.loads(duplicate["relationships"])

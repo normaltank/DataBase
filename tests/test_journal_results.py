@@ -199,7 +199,7 @@ class JournalResultsTests(unittest.TestCase):
 
     def test_schema27_migration_preserves_old_record_permission_and_adoption(self):
         from platform_app.web import create_app
-        from platform_app.store import connect
+        from platform_app.store import connect, CURRENT_SCHEMA_VERSION
         response = self.call('/api/collaboration/journals',{'journal_name':'原有私人成果','coverage':'旧跨期','content_kind':'compilation','visibility':'restricted'})
         wid = response.json['id']
         path = '/api/collaboration/journals/'+wid
@@ -208,6 +208,8 @@ class JournalResultsTests(unittest.TestCase):
         before = self.clients['researcher'].get(path).json
         with closing(connect(self.data_dir/'platform.sqlite3')) as db,db:
             old_records = [tuple(r) for r in db.execute('SELECT * FROM records ORDER BY id')]
+            from tests.fixtures.legacy_schema import remove_post29_tables
+            remove_post29_tables(db)
             for table in ['maintenance_evidence','maintenance_steps','maintenance_jobs']:
                 db.execute('DROP TABLE '+table)
             db.execute('ALTER TABLE people DROP COLUMN orcid')
@@ -217,7 +219,7 @@ class JournalResultsTests(unittest.TestCase):
         app = create_app(self.data_dir,testing=True,embedded_worker=False)
         reader = self.login('researcher',app)
         colleague = self.login('colleague',app)
-        self.assertEqual(reader.get('/health').json['schema'],29)
+        self.assertEqual(reader.get('/health').json['schema'],CURRENT_SCHEMA_VERSION)
         self.assertEqual(reader.get(path).json,before)
         self.assertEqual(colleague.get(path).status_code,404)
         with closing(connect(self.data_dir/'platform.sqlite3')) as db:
