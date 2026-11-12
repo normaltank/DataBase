@@ -23,6 +23,18 @@ def legacy_automatic_fields(item):
             "classified_kind": item["kind"]}
 
 
+def legacy_empty_fulltext_fields():
+    """No saved original, adopted body or acquired upstream is inferred on upgrade.
+
+    The historical record and nested summaries remain fully compared. These
+    literal fields belong only to the newly added detail projection; legacy
+    records still have no automatic_acquisition/upstream object at all.
+    """
+    return {'original_file_candidates': [], 'saved_originals': [],
+            'fulltext': {'available': False, 'can_request': False, 'original': None, 'inputs': [],
+                         'reason': '尚未取得可用作品正文，不能发起全文翻译。', 'versions': []}}
+
+
 def legacy_record_response(before, records):
     """Fixed public response additions to the frozen v5 record fixture."""
     def reading_fields(item):
@@ -33,6 +45,7 @@ def legacy_record_response(before, records):
                 "created_at": records[item["id"]]["created_at"]}
     new_defaults = {"research_subjects": []} if before["kind"] == "research_note" else {}
     new_defaults.update(reading_fields(before))
+    new_defaults.update(legacy_empty_fulltext_fields())
     new_defaults.update(chinese_title="", chinese_abstract="", adopted_translation_id="", translations=[], translation_history=[])
     new_defaults.update(volume="", issue="", pages="", issn="", attachment_matches=[], can_manage_access=True, last_verified=None, review_history=[], attachments=[
         {**attachment, "index": {"status": "unindexed", "message": "尚未建立索引"}}

@@ -43,6 +43,51 @@ def txt(name, text):
     return name, ('【完全虚构的演示样例，不是研究结论】\n' + text + '\n').encode('utf-8')
 
 
+def seed_journal_archive(researcher, sid, original_id, work_id):
+    """Extend existing fictional identities; add no sources, articles or reports."""
+    prefix = '/api/journals/' + sid
+    evidence = '【完全虚构的演示数据】https://example.invalid/demo/journal-archive'
+    call(researcher, prefix + '/profile', {'version': 0, 'founded': '20世纪末（虚构示例，保留时间精度）',
+        'frequency': '一年两期（虚构）', 'frequency_evidence': evidence,
+        'publisher_text': '演示出版方（未关联机构）', 'publisher_evidence': evidence,
+        'metrics': [
+            {'id': 'demo-impact-2024', 'kind': 'impact_factor', 'name': '普通影响因子（虚构操作示例）', 'value': '0', 'year': '2024', 'evidence': evidence},
+            {'id': 'demo-five-2025', 'kind': 'five_year', 'name': '五年影响因子（虚构操作示例）', 'value': '1.5', 'year': '2025', 'released_year': '2026', 'evidence': evidence},
+            {'id': 'demo-unknown', 'kind': 'original', 'name': '来源原词待核实（虚构）', 'value': '', 'year': '', 'raw_label': '某收录体系2/3区（虚构混合表述）', 'evidence': evidence}],
+        'rankings': [{'id': 'demo-ranking-2025', 'year': '2025', 'edition': '虚构演示版本', 'evidence': evidence, 'subjects': [
+            {'level': 'major', 'original_name': 'Fictional community studies', 'chinese_name': '虚构社区学科', 'quartile': '2'},
+            {'level': 'minor', 'original_name': 'Fictional reading', 'chinese_name': '虚构阅读学科', 'quartile': '2'},
+            {'level': 'minor', 'original_name': 'Fictional public space', 'chinese_name': '虚构公共空间学科', 'quartile': '3'}]}]}, method='PUT')
+    original = researcher.get('/api/records/' + original_id).json
+    issues = []
+    for number in ('1', '2—3'):
+        issues.append(call(researcher, prefix + '/issues', {'version': 0,
+            'label': '演示｜原刊第' + number + '期（完全虚构）', 'year': '2026', 'number': number,
+            'special_note': '虚构合刊' if number == '2—3' else '',
+            'coverage': 'complete' if number == '1' else 'partial', 'catalogue_evidence': evidence,
+            'coverage_note': '仅展示结构，不代表真实期刊完整目次。', 'sections': [
+                {'id': 'demo-research-' + number.replace('—', '-'), 'title': '研究文章（虚构栏目）', 'entries': [
+                    {'id': 'demo-original-' + number.replace('—', '-'), 'title': original['original_title'],
+                     'chinese_title': original['title'], 'authors': original['authors'], 'record_id': original_id,
+                     'kind': 'Research article（虚构）', 'relation_evidence': evidence, 'url': original['url']}]},
+                {'id': 'demo-reviews-' + number.replace('—', '-'), 'title': '书评（虚构栏目）', 'entries': [
+                    {'id': 'demo-review-' + number.replace('—', '-'), 'title': 'Fictional book review without an acquired article', 'kind': 'Book review'}]}]}))
+    work = researcher.get('/api/collaboration/journals/' + work_id).json
+    record = researcher.get('/api/records/' + work['record_id']).json
+    selection = {'id': 'demo-selected-original', 'issue_id': issues[0]['id'], 'entry_id': 'demo-original-1',
+        'kind': 'abstract_translation', 'compiler': '演示编译署名',
+        'body_html': '<p>【完全虚构的演示译文】本条用于演示中文主要内容与原文摘要版本对应，不构成研究结论。</p>',
+        'basis': {'record_id': original_id, 'record_version': original['version'], 'locator': '虚构原文摘要，第1段'}}
+    data = {'version': 0, 'record_version': record['version'], 'issue_ids': [i['id'] for i in issues],
+        'compiled_on': '2026-10', 'released_on': '2026-11', 'credits': '演示编译／审校署名，不改变账号授权',
+        'coverage_note': '既有跨期整体稿与文件版本继续保留；结构化选编仅覆盖部分目次。', 'selections': [selection]}
+    call(researcher, prefix + '/compilations/' + record['id'], data, method='PUT')
+    call(researcher, prefix + '/compilations/' + record['id'], {**data, 'version': 1, 'credits': '演示编译／审校署名（第二版，保留第一版）'}, method='PUT')
+    call(researcher, '/api/records/' + original_id, {'version': original['version'],
+        'abstract': original['abstract'] + ' Fictional revision two; old compilation still cites revision one.'}, method='PUT')
+    return {'issue_ids': [i['id'] for i in issues], 'record_id': record['id']}
+
+
 def seed_profile_examples(app, person_ids, researcher, colleague):
     """Author-created fictional evidence, no network, queued execution or AI attempts."""
     import html
@@ -245,9 +290,10 @@ def seed(app):
     from portable.public_batch import seed_public_batch
     public_batch = seed_public_batch(app)
     seed_profile_examples(app, people, researcher, lead)
+    journal_archive = seed_journal_archive(researcher, sources[2], articles[2], wid)
     payload = {'format': 2, 'synthetic': False, 'fictional_collaboration': True, 'accounts': ['researcher', 'colleague', 'admin'],
         'source_ids': sources, 'person_ids': people, 'article_ids': articles,
-        'complete_topic': tid, 'active_topic': active, 'journal': wid, 'journal_result': result_id, 'files': files, 'public_batch': public_batch}
+        'complete_topic': tid, 'active_topic': active, 'journal': wid, 'journal_result': result_id, 'journal_archive': journal_archive, 'files': files, 'public_batch': public_batch}
     (Path(app.config['DATA_DIR']) / 'demo-seed.json').write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
     return payload
 

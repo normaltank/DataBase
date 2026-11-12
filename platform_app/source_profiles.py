@@ -52,6 +52,8 @@ def values(db, data, base=None):
     values["scope_status"] = values["scope_status"] or "candidate"
     if base:
         note_subjects.validate_source_type(db, base["id"], values["kind"])
+        from .journal_archives import validate_source_type
+        validate_source_type(db, base['id'], values['kind'])
     try:
         source_catalog.validate_metadata(db, data, values, base)
     except (ValueError, TypeError) as error:

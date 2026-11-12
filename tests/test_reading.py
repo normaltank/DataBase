@@ -80,11 +80,13 @@ class ReadingTests(unittest.TestCase):
     def test_missing_malformed_and_unsafe_external_links_are_not_reading_entries(self):
         rid = self.record(abstract="摘要不代表已保存正文", body_html="<p><br></p>")
         bad = ["javascript:alert(1)", "data:text/html,test", "file:///D:/private/file.pdf", "//example.org/file", "https://user:pass@example.org/file", "https://@example.org/file", "https://example.org:bad/file", "https://example.org:99999/file", "https://exa mple.org/file", "https://example.org/pa\nth", "https://example.org\\@other.org/file", "https:///missing-host", "http://[bad", ""]
+        bad += ['http://[bad/file.pdf', 'https://user:pass@example.org/file.pdf', 'https://exa mple.org/file.pdf', 'javascript:open.pdf']
         for link in bad:
             with self.subTest(link=link):
                 self.fixture_values(rid, url=link, raw_json=json.dumps({"imported_attachments": [{"url": link}, None, {"url": []}, {"local_path": "D:/private/file.pdf"}]}))
                 access = self.detail(rid)["reading_access"]
                 self.assertEqual(access, {"original_url": "", "official_files": [], "platform_files": [], "has_body": False})
+                self.assertEqual(self.detail(rid)['original_file_candidates'], [])
                 self.assertNotIn("原文地址：", self.copy(rid)["text"])
         for imported in [None, {}, "https://example.org/file", [None, {}, {"url": None}]]:
             self.fixture_values(rid, raw_json=json.dumps({"imported_attachments": imported}))

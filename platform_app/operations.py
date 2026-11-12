@@ -260,9 +260,14 @@ def register(app, ctx):
         # General content export includes shared journal archives only when no
         # record/person/collection selection narrows its declared scope.
         result_archives = journal_results.export_projection(result_service) if not request.args else []
+        from . import journal_archives
+        archive_service = journal_archives.JournalArchives(db(), user(), ctx.records(), ctx.data_dir)
+        journal_archives_export = journal_archives.export_projection(archive_service, [s['id'] for s in sources], set(records))
+        journal_covers = journal_archives.prepare_export_files(db(), journal_archives_export, attachments)
         payload = {"format": "research-content-v1", "exported_at": now(), "selected_ids": [r["id"] for r in selected],
                    "records": list(records.values()), "sources": sources, "collections": collections, "attachments": list(attachments.values()),
                    "people": people, "avatars": list(avatars.values()), "journal_works": journal_works, "journal_results": result_archives}
+        payload['journal_archives'] = journal_archives_export
         from .archive_suggestions import export_projection as archive_export
         try:
             payload['archive_suggestions'] = archive_export(db(), [source['id'] for source in sources],
@@ -422,6 +427,9 @@ def register(app, ctx):
                 index += '<li><a href="' + source_paths[source["id"]] + '">' + html.escape(source["name"]) + '</a></li>'
                 content = '<p><a href="../index.html">返回目录</a></p>' + source["introduction_html"]
                 content += reviews.html(source)
+                for journal in journal_archives_export:
+                    if journal['id'] == source['id']:
+                        content += journal_archives.export_html(journal, paths)
                 for key, label in [("id", "稳定编号"), ("original_name", "原名"), ("aliases", "别名"), ("website", "官网"), ("notes", "原始备注"), ("country_evidence", "国家依据"), ("host_evidence", "主办依据"), ("international_evidence", "国际定位依据")]:
                     content += prose(label, source[key])
                 for item in records.values():
@@ -432,7 +440,7 @@ def register(app, ctx):
             for collection in collections:
                 index += "<section><h2>" + html.escape(collection["name"]) + "</h2>" + prose("研究问题", collection["research_question"]) + collection["comparison_html"] + prose("阶段判断", collection["stage_judgment"]) + "</section>"
             archive.writestr("index.html", page("研究资料内容导出", index + scope_html))
-            for group, folder, label in [(attachments, "uploads", "附件"), (avatars, "avatars", "头像"), (final_files, "handoffs", "编译定稿")]:
+            for group, folder, label in [(attachments, "uploads", "附件"), (avatars, "avatars", "头像"), (final_files, "handoffs", "编译定稿"), (journal_covers, 'journal-covers', '期刊封面')]:
                 for entry in group.values():
                     try:
                         data = (ctx.data_dir / folder / entry["stored_name"]).read_bytes()

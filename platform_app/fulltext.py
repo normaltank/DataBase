@@ -61,10 +61,13 @@ def candidates(row):
     if row['kind'] in workflow.CONTENT_KINDS:
         return []
     raw = json.loads(row['raw_json'] or '{}')
-    urls = [row['url']] if Path(urlsplit(row['url']).path).suffix.lower() in FILE_TYPES.values() else []
+    # Imported legacy URLs may be malformed. Validate before parsing a path;
+    # a broken link must neither crash reading nor become an actionable file.
+    primary = intake.normalize_url(row['url']) if workflow.safe_link(row['url']) else ''
+    urls = [primary] if primary and Path(urlsplit(primary).path).suffix.lower() in FILE_TYPES.values() else []
     for snapshot in raw.get('automatic_acquisition',{}).get('snapshots',[]):
         urls += snapshot.get('pdf_links',[])
-    return list(dict.fromkeys(intake.normalize_url(url) for url in urls if intake.normalize_url(url)))
+    return list(dict.fromkeys(intake.normalize_url(url) for url in urls if workflow.safe_link(url) and intake.normalize_url(url)))
 
 
 def material(row):

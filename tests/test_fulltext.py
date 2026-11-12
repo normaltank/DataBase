@@ -173,7 +173,8 @@ class FulltextTests(unittest.TestCase):
         self.assertFalse(db.execute("SELECT 1 FROM sqlite_master WHERE name='fulltext_jobs'").fetchone())
         with db:db.execute('DROP TRIGGER reject30')
         db.close()
-        self.assertEqual(create_app(legacy,testing=True).test_client().get('/health').json['schema'],30)
+        from platform_app.store import CURRENT_SCHEMA_VERSION
+        self.assertEqual(create_app(legacy,testing=True).test_client().get('/health').json['schema'],CURRENT_SCHEMA_VERSION)
 
     def test_merged_pdf_keeps_original_job_input_and_resumes_without_duplicate_charge(self):
         from platform_app.maintenance import create_backup,restore_backup
