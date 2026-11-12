@@ -2,6 +2,7 @@
 import argparse
 import base64
 import hashlib
+import io
 import json
 import logging
 import sys
@@ -42,6 +43,13 @@ def main():
         client = login(app, 'researcher')
         name = '演示｜长题名国际社会与区域研究评论 International Review of Fictional Regional Studies'
         journal = call(client, '/api/sources', {'name': name, 'kind': 'journal'})
+        from PIL import Image
+        picture = io.BytesIO()
+        Image.new('RGB', (120, 160), '#29487a').save(picture, format='PNG')
+        uploaded = call(client, '/api/journals/' + journal['id'] + '/covers', file=('synthetic-cover.png', picture.getvalue()))
+        call(client, '/api/journals/' + journal['id'] + '/profile', {'version': 0, 'cover': {
+            'file_id': uploaded['id'], 'evidence': 'Program-created fictional cover for bookshelf regression.',
+            'illustrative': True, 'note': 'Synthetic image; not an original issue or result.'}}, method='PUT')
         results = []
         content = txt('虚构成果.txt', '完全虚构的书架验收原件；不是研究材料。')
         for i, (year, issue) in enumerate([(2026, '第1—2期'), (2025, '特刊：青年与地方文化'), (2026, '第3期')]):
@@ -64,7 +72,7 @@ def main():
             extension.mkdir(exist_ok=True)
             (extension / 'manifest.json').write_text(json.dumps({'manifest_version': 3, 'name': 'Synthetic bookshelf zoom', 'version': '1.0', 'permissions': ['tabs'], 'background': {'service_worker': 'worker.js'}}))
             (extension / 'worker.js').write_text('chrome.runtime.onInstalled.addListener(()=>{});')
-            browser = p.chromium.launch_persistent_context(str(args.out / 'browser-profile'), executable_path=p.chromium.executable_path, headless=False, ignore_default_args=['--disable-extensions'], args=['--headless=new', f'--disable-extensions-except={extension}', f'--load-extension={extension}'], viewport={'width': 1366, 'height': 900}, has_touch=True)
+            browser = p.chromium.launch_persistent_context(str(args.out / 'browser-profile'), executable_path=p.chromium.executable_path, headless=False, ignore_default_args=['--disable-extensions'], args=['--headless=new', f'--disable-extensions-except={extension}', f'--load-extension={extension}'], viewport={'width': 1366, 'height': 768}, has_touch=True)
             page = browser.pages[0]
             browser.route('**/*', lambda route: route.continue_() if route.request.url.startswith(base) else (report['external_requests'].append(route.request.url), route.abort())[-1])
             page.on('pageerror', lambda e: errors.append(str(e)))
@@ -91,22 +99,32 @@ def main():
             page.wait_for_timeout(300)
             capture(page, args.out / 'journal-1366.png')
             for width in (390, 320):
-                page.set_viewport_size({'width': width, 'height': 900})
+                page.set_viewport_size({'width': width, 'height': 844})
                 assert page.evaluate('document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1')
                 capture(page, args.out / f'journal-{width}.png')
-            page.set_viewport_size({'width': 1366, 'height': 900})
+            page.set_viewport_size({'width': 1366, 'height': 768})
             page.goto(base + '/#compilations')
             expect(page.locator('[data-bookshelf="center"]')).to_be_visible()
             capture(page, args.out / 'center-1366.png')
-            page.set_viewport_size({'width': 390, 'height': 900})
+            page.set_viewport_size({'width': 390, 'height': 844})
             assert page.evaluate('document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1'), 'center phone overflow'
             capture(page, args.out / 'center-390.png')
             page.goto(base + '/#sources?group=journal')
             expect(page.locator('[data-bookshelf="sources"]')).to_be_visible()
             assert page.evaluate('document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1'), 'sources phone overflow'
             capture(page, args.out / 'sources-390.png')
-            page.set_viewport_size({'width': 1366, 'height': 900})
+            first_source=page.locator('[data-bookshelf-view="shelf"] [data-book-id]').first.bounding_box()
+            assert first_source['y']+first_source['height'] <= 844, first_source
+            report['source_first_viewport']=first_source
+            page.set_viewport_size({'width':320,'height':844})
+            assert page.evaluate('document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1')
+            capture(page,args.out / 'sources-320.png')
+            page.set_viewport_size({'width': 1366, 'height': 768})
             capture(page, args.out / 'sources-1366.png')
+            page.set_viewport_size({'width':390,'height':844})
+            page.get_by_label('刊名分区', exact=True).select_option('other')
+            expect(page.get_by_label('刊名分区', exact=True)).to_have_value('other')
+            page.set_viewport_size({'width':1366,'height':768})
             page.locator('[data-bookshelf-select="letters"][data-value="other"]').click()
             expect(page.locator('[data-bookshelf-select="letters"][data-value="other"]')).to_have_attribute('aria-pressed','true')
             source_ids = page.locator('[data-bookshelf-view="shelf"] [data-book-id]').evaluate_all('(els)=>els.map(e=>e.dataset.bookId).sort()')
@@ -119,11 +137,24 @@ def main():
             expect(page.locator('[data-bookshelf-view="list"] [data-object-id]')).to_have_count(2)
             assert 'shelf_letters' not in page.url
             page.get_by_role('button', name='书架', exact=True).click()
-            page.locator(f'[data-book-id="{fixture["journal"]}"] a').click()
-            expect(page.locator('.source-page')).to_be_visible()
-            page.get_by_role('link', name='← 返回来源目录', exact=True).click()
+            covered = page.locator(f'[data-book-id="{fixture["journal"]}"]')
+            expect(covered.locator('[data-bookshelf-cover-image]')).to_be_visible()
+            expect(covered).to_contain_text('示意图，不代表本期')
+            cover_url = covered.locator('img').get_attribute('src')
+            assert page.request.get(base + cover_url).status == 200
+            covered.locator('a').click()
+            expect(page.locator('[data-ja-source]')).to_be_visible()
+            page.get_by_role('link', name='返回期刊目录', exact=True).click()
             expect(page.locator('[data-bookshelf="sources"]')).to_be_visible()
             expect(page.locator('.source-search input[name="q"]')).to_have_value('演示')
+            # A saved local image must degrade to a labeled text cover on failure.
+            page.route('**/api/journals/*/covers/*', lambda route: route.abort())
+            page.reload()
+            page.locator(f'[data-book-id="{fixture["journal"]}"] .bookshelf-open').scroll_into_view_if_needed()
+            expect(page.locator(f'[data-book-id="{fixture["journal"]}"] [data-bookshelf-cover-image]')).to_have_count(0)
+            expect(page.locator(f'[data-book-id="{fixture["journal"]}"]')).to_contain_text('文字封面 · 图片暂不可用')
+            page.unroute('**/api/journals/*/covers/*')
+            report['checks'].append('evidence-backed archive image, explicit illustrative use, image-failure text cover')
             report['checks'].append('source alphabet partitions use recorded title, list same subset, global search exits partition, real archive return and refresh')
             # Distinct domain objects: institutions never become journal books.
             page.goto(base + '/#sources?group=institution')
@@ -198,10 +229,16 @@ def main():
             page.locator('[data-bookshelf-select="journal"][data-value="id:' + fixture['journal'] + '"]').click()
             expect(page.locator('[data-book-id]')).to_have_count(2)
             capture(page, args.out / 'center-journal-selected-1366.png')
-            page.set_viewport_size({'width':390,'height':900})
+            page.set_viewport_size({'width':390,'height':844})
             assert page.evaluate('document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1')
             capture(page, args.out / 'center-journal-selected-390.png')
-            page.set_viewport_size({'width':1366,'height':900})
+            first_result=page.locator('[data-bookshelf-view="shelf"] [data-book-id]').first.bounding_box()
+            assert first_result['y']+first_result['height'] <= 844, first_result
+            report['center_first_viewport']=first_result
+            page.set_viewport_size({'width':320,'height':844})
+            assert page.evaluate('document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1')
+            capture(page,args.out / 'center-journal-selected-320.png')
+            page.set_viewport_size({'width':1366,'height':768})
             shelf_ids = page.locator('[data-bookshelf-view="shelf"] [data-book-id]').evaluate_all('(els)=>els.map(e=>e.dataset.bookId).sort()')
             page.get_by_role('button', name='列表', exact=True).click()
             list_ids = page.locator('[data-jr-row]').evaluate_all('(els)=>els.map(e=>e.dataset.jrRow).sort()')
@@ -240,6 +277,16 @@ def main():
             assert page.evaluate('document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1')
             capture(page, args.out / 'center-native200.png', native_zoom=True)
             report['native_zoom'] = actual
+            page.goto(base + '/#sources?group=journal')
+            expect(page.locator('[data-bookshelf="sources"]')).to_be_visible()
+            assert page.evaluate('document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1')
+            capture(page,args.out / 'sources-native200.png', native_zoom=True)
+            page.goto(base + selected_hash)
+            expect(page.locator('[data-bookshelf="journal-results"]')).to_be_visible()
+            assert page.evaluate('document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1')
+            capture(page,args.out / 'journal-native200.png', native_zoom=True)
+            page.goto(base + '/#compilations?shelf_journal=id:' + fixture['journal'])
+            expect(page.locator('[data-bookshelf="center"]')).to_be_visible()
             zoom.evaluate('async url=>{const t=(await chrome.tabs.query({})).find(t=>t.url.startsWith(url));await chrome.tabs.setZoom(t.id,1)}', base)
             page.emulate_media(reduced_motion='reduce')
             page.get_by_role('button', name='列表', exact=True).click()
@@ -275,6 +322,11 @@ def main():
     except Exception as exc:
         report['ok'] = False
         report['failure'] = str(exc)
+        try:
+            report['overflow'] = page.locator('body *').evaluate_all('(els)=>els.filter(e=>e.getBoundingClientRect().right>innerWidth+1).map(e=>({tag:e.tagName,cls:e.className,right:e.getBoundingClientRect().right})).slice(0,20)')
+            capture(page, args.out / 'failure.png')
+        except Exception:
+            pass
         (args.out / 'result.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
         raise
     finally:

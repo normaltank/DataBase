@@ -2,7 +2,7 @@
 
 Mode: Operate. Primary target: static/bookshelf.js. Related: static/bookshelf.css,
 static/sources.js, static/journal-results.js, static/workbench.js,
-frontend/desk-motion.js, templates/index.html. Scope: issue #153 frozen 1.0.
+frontend/desk-motion.js, templates/index.html. Scope: issue #153 frozen 1.1.
 User pinned a modern library bookshelf, minimalist readable working content and
 direct implementation. This is a code-led extension of the existing desk.
 
@@ -19,6 +19,8 @@ return to the same conditions, unfinished search, focus and position.
 
 FIRST VIEWPORT: Existing horizontal shell, real page heading and filters, explicit
 shelf/list control. Center results has direct journal and topic shelf destinations.
+Selected partitions show only their current subset; phone selectors keep the first
+book visible without reducing its text. Complete long journal context expands.
 Institutions remain directory rows, never imitation journal books.
 
 FORM: Brief-pinned library arrangement; no direction roll or image comp claimed.
