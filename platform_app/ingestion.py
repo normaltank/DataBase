@@ -11,10 +11,11 @@ from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
 from pathlib import Path
+from urllib.parse import quote
 
 from flask import abort, jsonify, send_file
 
-from . import discovery, identity, intake, store, workflow, source_adapters, journal_metadata
+from . import discovery, identity, intake, store, workflow, source_adapters, journal_metadata, upstream_maintenance
 
 SCHEMA_VERSION = 17
 SYSTEM_ID = 'system-public-ingestion'
@@ -230,6 +231,11 @@ def acquisition_projection(row):
     result = dict(result)
     result['snapshots'] = [{k:v for k,v in snapshot.items() if k != 'raw_base64'} |
         dict(download_url='/api/records/'+row['id']+'/snapshots/'+snapshot['id']) for snapshot in result.get('snapshots',[])]
+    if result.get('upstream'):
+        result['upstream'] = dict(result['upstream'])
+        result['upstream']['notice_evidence'] = [{k:v for k,v in proof.items() if k!='raw_base64'} |
+            dict(download_url='/api/records/'+row['id']+'/upstream/notices/'+proof['sha256'])
+            for proof in result['upstream'].get('notice_evidence',[])]
     return result
 
 
@@ -260,6 +266,7 @@ def validate_backup(db):
         acquired = record_raw.get('automatic_acquisition')
         if not acquired:
             continue
+        upstream_maintenance.validate(acquired)
         for snapshot in acquired.get('snapshots',[]):
             try:
                 content = base64.b64decode(snapshot['raw_base64'],validate=True)
@@ -276,9 +283,10 @@ def validate_backup(db):
                     raise ValueError()
                 if snapshot['content_kind']=='bibliographic_metadata':
                     adapter = next((a for a in journal_metadata.ADAPTERS if a['id']==snapshot['adapter']),None)
-                    if not adapter or not snapshot['url'].startswith(adapter['feed']+'?'):
+                    if not adapter or not (snapshot['url'].startswith(adapter['feed']+'?') or
+                            snapshot.get('extraction_version')==2 and snapshot['url']=='https://api.crossref.org/works/'+quote(snapshot['doi'],safe='')):
                         raise ValueError()
-                    expected = journal_metadata.snapshot(dict(url=snapshot['url'],bytes=content),adapter,snapshot['doi'],snapshot['retrieved_at'])
+                    expected = journal_metadata.snapshot(dict(url=snapshot['url'],bytes=content),adapter,snapshot['doi'],snapshot['retrieved_at'],snapshot.get('extraction_version',1))
                     if expected != snapshot:
                         raise ValueError()
                 adapter = next((a for a in source_adapters.ADAPTERS if a['id'] != 'liia-opinions-v1' and source_adapters.article_url(a, snapshot['url'])), None)
@@ -306,7 +314,9 @@ def validate_backup(db):
             raise ValueError('采集任务状态无效。')
         if run['feed_bytes'] is not None and hashlib.sha256(run['feed_bytes']).hexdigest() != run['feed_sha256']:
             raise ValueError('采集 RSS 原字节校验失败。')
+        journal_metadata.validate_checkpoint(json.loads(run['coverage_json']).get('cursor',{}))
     for row in db.execute('SELECT * FROM ingestion_sources'):
+        journal_metadata.validate_checkpoint(json.loads(row['cursor']) if row['cursor'] else {})
         if row['enabled'] not in {0,1} or not 1 <= row['frequency_hours'] <= 720 or row['initial_days'] != 30 or row['inclusion_rule'] not in {'research_only','all_opinions'}:
             raise ValueError('采集来源配置无效。')
         days = json.loads(row['coverage_json']).get('backfill_days',30)
@@ -395,6 +405,16 @@ def _save_feed(db, run, document, result, adapter):
         db.execute('BEGIN IMMEDIATE')
         if not _owns(db,run):
             raise intake.AcquisitionError('取得后任务租约失效；未提交题录。')
+        # Bind bounded rechecks to this run before processing entries. Restart
+        # resumes these same entries rather than selecting another batch.
+        rechecks = [] if coverage.get('sample_only') else upstream_maintenance.pending_entries(
+            db, discovery.source_for(db,run['source_id']), {i['evidence']['entry_id'] for i in result['items']})
+        coverage['recheck'] = dict(selected=len(rechecks), limit=upstream_maintenance.RECHECK_LIMIT,
+            minimum_days=upstream_maintenance.RECHECK_DAYS, scope='每轮至多三篇到期旧材料；未选中或未登记的变动仍可能漏检')
+        for evidence in rechecks:
+            db.execute('''INSERT OR IGNORE INTO ingestion_entries(id,run_id,source_id,entry_id,evidence_json,reason)
+                VALUES (?,?,?,?,?,?)''',(uuid.uuid4().hex,run['id'],run['source_id'],evidence['entry_id'],
+                json.dumps(evidence,ensure_ascii=False),'到期旧材料有界重查；保留本地内容与旧版本'))
         for item in result['items']:
             evidence = item['evidence']
             title = item['fields']['title'].casefold()
@@ -439,11 +459,24 @@ def run_pending(data_dir, limit=1, stopping=lambda: False, *, source_ids=None, j
                     _renew(db,run)
                     with db:
                         db.execute("UPDATE ingestion_entries SET stage='acquiring',attempts=attempts+1,error='' WHERE id=?",(entry['id'],))
-                    snapshot, error = None, ''
+                    snapshot, error, check = None, '', {}
                     try:
                         evidence = json.loads(entry['evidence_json'])
                         adapter = source_adapters.for_source(discovery.source_for(db, run['source_id']))
-                        if adapter['mode'] == 'crossref':
+                        if evidence.get('recheck_record_id'):
+                            current = identity.resolve(db,'records',evidence['recheck_record_id'])
+                            if (not current or current['visibility']!='shared' or current['kind'] in workflow.CONTENT_KINDS
+                                    or adapter['mode']=='crossref' and intake.normalize_doi(current['doi'])!=intake.normalize_doi(evidence['fields']['doi'])
+                                    or adapter['mode']!='crossref' and discovery.article_key(current['url'])!=discovery.article_key(evidence['fields']['url'])):
+                                with db:
+                                    db.execute("UPDATE ingestion_entries SET stage='blocked',reason='原材料已变化或受限，未继续重查' WHERE id=?",(entry['id'],))
+                                totals['blocked'] += 1
+                                continue
+                            snapshot, check = upstream_maintenance.fetch(evidence, adapter)
+                            if check.get('notice_error'):
+                                error = check['notice_error']
+                                backoff = network_backoff(check.pop('notice_failure',None))
+                        elif adapter['mode'] == 'crossref':
                             raw_run = db.execute('SELECT * FROM ingestion_runs WHERE id=?',(run['id'],)).fetchone()
                             coverage = json.loads(raw_run['coverage_json'])
                             document = dict(bytes=raw_run['feed_bytes'],url=coverage['request_url'])
@@ -454,9 +487,11 @@ def run_pending(data_dir, limit=1, stopping=lambda: False, *, source_ids=None, j
                     except (intake.AcquisitionError,ValueError) as failure:
                         error = str(failure)
                         backoff = network_backoff(failure)
+                        status = failure.http_status if isinstance(failure,intake.AcquisitionError) else None
+                        check = dict(status='removed' if status in {404,410} else 'access_limited' if status==403 else 'check_failed',http_status=status)
                     try:
                         actor = dict(id=SYSTEM_ID,role='system',name='系统 · 公开来源采集')
-                        outcome = RecordRevisions(db,actor,data_dir/'uploads').ingest_public(entry['id'],run['lease_token'],snapshot,error)
+                        outcome = RecordRevisions(db,actor,data_dir/'uploads').ingest_public(entry['id'],run['lease_token'],snapshot,error,check)
                         if outcome in totals:
                             totals[outcome] += 1
                     except Exception as failure:
@@ -490,8 +525,8 @@ def run_pending(data_dir, limit=1, stopping=lambda: False, *, source_ids=None, j
                         if backoff:
                             coverage_data['network_backoff'] = backoff
                         db.execute('''UPDATE ingestion_sources SET next_run=?,last_success=?,last_error=?,coverage_json=?,cursor=? WHERE source_id=?''',
-                            (backoff['retry_at'] if backoff else later(30 if coverage_data.get('cursor',{}).get('pending') else configuration(db,run['source_id'])['frequency_hours']*3600),
-                             configuration(db,run['source_id'])['last_success'] if backoff else store.now(),error,
+                            (backoff['retry_at'] if backoff else later(3600 if failed else 30 if coverage_data.get('cursor',{}).get('pending') and coverage_data.get('cursor',{}).get('replays',0)<3 else configuration(db,run['source_id'])['frequency_hours']*3600),
+                             configuration(db,run['source_id'])['last_success'] if failed or backoff or coverage_data.get('coverage_uncertain') or not coverage_data.get('window_complete',True) else store.now(),error,
                              json.dumps(coverage_data,ensure_ascii=False),configuration(db,run['source_id'])['cursor'] if failed or backoff or coverage_data.get('sample_only') else json.dumps(coverage_data.get('cursor',{})),run['source_id']))
             except Exception as failure:
                 db.rollback()
@@ -546,7 +581,7 @@ def sample_journals(data_dir, source_ids):
                     adapter = source_adapters.for_source(source) if source else None
                     config = db.execute('SELECT * FROM ingestion_sources WHERE source_id=? AND enabled=1',(sid,)).fetchone()
                     if not source or source['id']!=sid or not adapter or adapter['mode']!='crossref' or not config:
-                        raise ValueError('试采仅接受明确启用的本轮三个期刊来源。')
+                        raise ValueError('试采仅接受明确启用的固定Crossref期刊来源。')
                     if adapter['id'] in adapters:
                         raise ValueError('同一期刊只能指定一个来源身份。')
                     adapters.add(adapter['id'])
@@ -603,6 +638,15 @@ def remember_manual_request(db, config, key):
 
 
 def register(app, ctx):
+    upstream_maintenance.register(app,ctx)
+    @app.get('/api/records/<rid>/upstream/notices/<sha>')
+    def upstream_notice_original(rid,sha):
+        row = ctx.records().get(rid)
+        raw = json.loads(row['raw_json'] or '{}')
+        proof = next((p for p in raw.get('automatic_acquisition',{}).get('upstream',{}).get('notice_evidence',[]) if p['sha256']==sha),None)
+        if not proof:
+            abort(404,'上游声明原件不存在。')
+        return send_file(io.BytesIO(base64.b64decode(proof['raw_base64'])),mimetype='application/json',as_attachment=True,download_name=sha+'.json')
     @app.route('/api/ingestion/local', methods=['GET', 'PUT'])
     def public_collection_control():
         ctx.admin()
@@ -617,13 +661,13 @@ def register(app, ctx):
         if set(data) != {'enabled','source_ids'} or type(data['enabled']) is not bool or not isinstance(data['source_ids'],list):
             abort(400, '请填写本机启用状态和明确的期刊来源名单。')
         ids = data['source_ids']
-        if len(ids)>3 or not all(isinstance(s,str) for s in ids) or len(set(ids))!=len(ids) or data['enabled'] and not ids:
-            abort(400, '开启本机采集前请选择一至三个期刊。')
+        if len(ids)>4 or not all(isinstance(s,str) for s in ids) or len(set(ids))!=len(ids) or data['enabled'] and not ids:
+            abort(400, '开启本机采集前请选择一至四个已接入期刊。')
         for sid in ids:
             source = identity.resolve(ctx.db(),'sources',sid)
             adapter = source_adapters.for_source(source) if source else None
             if not source or source['id']!=sid or not adapter or adapter['mode']!='crossref':
-                abort(400, '本机公开采集名单仅接受本轮接入的三个期刊。')
+                abort(400, '本机公开采集名单仅接受已接入的固定Crossref期刊。')
         try:
             return jsonify(configure(data['enabled'],ids))
         except (ValueError,OSError):
@@ -702,11 +746,12 @@ def register(app, ctx):
         heartbeat = ctx.db().execute("SELECT value FROM settings WHERE key='ingestion_worker_heartbeat'").fetchone()
         local_status = app.config.get('PUBLIC_COLLECTION_STATUS')
         return jsonify(items=[dict(name=r['name'], **configuration(ctx.db(), r['id'])) for r in rows],
+                       exceptions=upstream_maintenance.exception_projection(ctx.db(),ctx.records()),
                        unavailable=[dict(source_id=r['id'], name=r['name'], reason='尚未接入固定采集，不能启用或安排巡检。') for r in sources if not discovery.supported(r)],
                        worker_heartbeat=heartbeat[0] if heartbeat else '',
                        public_collection=local_status() if callable(local_status) else None,
                        journals=[dict(name=a['chinese_name'], original_name=a['name'], kind='journal', website=a['website'], issn='; '.join(a['issns']), adapter=a['id'],
-                           registered=any(source_adapters.for_source(s) and source_adapters.for_source(s)['id']==a['id'] for s in sources)) for a in journal_metadata.ADAPTERS])
+                           registered=any(source_adapters.for_source(s) and source_adapters.for_source(s)['id']==a['id'] for s in sources)) for a in journal_metadata.ADAPTERS if a['id']!='bje-crossref-v1'])
 
     @app.get('/api/sources/<sid>/ingestion')
     def ingestion_configuration(sid):

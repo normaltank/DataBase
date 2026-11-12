@@ -370,7 +370,7 @@ class RecordRevisions:
         self._history(rid, "编译工作成果留档，作者确认沿原规则")
         return rid
 
-    def ingest_public(self, entry_id, lease_token, snapshot, page_error=''):
+    def ingest_public(self, entry_id, lease_token, snapshot, page_error='', check=None):
         """Commit trusted queued evidence, identity, snapshot and work state together.
 
         This is a worker boundary, never a member request option. Evidence must
@@ -378,7 +378,7 @@ class RecordRevisions:
         Existing records receive new provenance only; their fields and review
         state remain under the ordinary editing boundary.
         """
-        from . import ingestion, translations, source_adapters
+        from . import ingestion, translations, source_adapters, upstream_maintenance
         if self.actor['id'] != ingestion.SYSTEM_ID or self.actor['role'] != 'system':
             raise ValueError('后台取得只能由专属系统主体提交。')
         with self._transaction():
@@ -391,7 +391,7 @@ class RecordRevisions:
             adapter = source_adapters.for_source(source)
             if acquired['source_id'] != source['id'] or acquired['feed_url'] != adapter['feed'] or acquired['adapter'] != adapter['id']:
                 raise ValueError('取得依据不属于固定来源。')
-            found = discovery.saved_record(self.db,acquired['entry_id'])
+            found = identity.resolve(self.db,'records',acquired['recheck_record_id']) if acquired.get('recheck_record_id') else discovery.saved_record(self.db,acquired['entry_id'])
             if found is None:
                 for previous in self.db.execute('SELECT * FROM records'):
                     if (discovery.article_key(previous['url']) == discovery.article_key(acquired['fields']['url']) or
@@ -399,7 +399,7 @@ class RecordRevisions:
                             intake.normalize_doi(previous['doi']) == intake.normalize_doi(snapshot['metadata']['fields']['doi'])):
                         found = identity.resolve(self.db,'records',previous['id'])
                         break
-            if found is not None and (not self.visible(found) or found['visibility'] != 'shared'):
+            if found is not None and (not self.visible(found) or found['visibility'] != 'shared' or found['kind'] in workflow.CONTENT_KINDS):
                 self.db.execute("UPDATE ingestion_entries SET stage='blocked',record_id=NULL,error=?,reason=? WHERE id=?",
                     ('已有受限重复，未改动或披露其信息。','交管理员按原权限检查重复',entry_id))
                 return 'blocked'
@@ -420,6 +420,14 @@ class RecordRevisions:
                 row = found
                 rid = row['id']
             raw = json.loads(row['raw_json'] or '{}')
+            automatic = raw.setdefault('automatic_acquisition',dict(actor_id=ingestion.SYSTEM_ID,adapter=adapter['id'],
+                chinese_status='pending_configuration',snapshots=[],attempts=[]))
+            snapshots = automatic.setdefault('snapshots',[])
+            before = snapshots[-1] if snapshots else None
+            if not json.loads(run['coverage_json']).get('sample_only') and upstream_maintenance.same_observation(before,snapshot):
+                # Preserve the first raw response for this identical work.
+                # The new response itself remains on the durable run.
+                snapshot = before
             evidence_items = raw.setdefault('discovery_evidence',[])
             evidence = dict(acquired,acquisition_id=acquired['entry_id'],saved_at=now(),
                 processing_actor=ingestion.SYSTEM_ID,processing_version=ingestion.ADAPTER if adapter['id']=='liia-opinions-v1' else adapter['id'],
@@ -431,12 +439,10 @@ class RecordRevisions:
                 e.get('article_snapshot_id') == evidence.get('article_snapshot_id') for e in evidence_items)
             if evidence_changed:
                 evidence_items.append(evidence)
-            automatic = raw.setdefault('automatic_acquisition',dict(actor_id=ingestion.SYSTEM_ID,adapter=adapter['id'],
-                chinese_status='pending_configuration',snapshots=[],attempts=[]))
-            snapshots = automatic.setdefault('snapshots',[])
             snapshot_changed = snapshot is not None and not any(s['sha256']==snapshot['sha256'] for s in snapshots)
             if snapshot_changed:
                 snapshots.append(snapshot)
+            upstream_changed = upstream_maintenance.observe(automatic,before,snapshot,page_error,check or {})
             # A verified Crossref response can fill a missing publication link on
             # the same shared article; existing human relations and ACLs stand.
             journal_link = bool(found is not None and row['kind']=='journal_article' and not row['serial_id']
@@ -445,7 +451,7 @@ class RecordRevisions:
                 and acquired['fields'].get('serial_id')==source['id']
                 and intake.normalize_doi(row['doi'])==snapshot.get('doi')
                 and set(acquired['raw'].get('ISSN',[])) & set(adapter['issns']))
-            changed = found is None or evidence_changed or snapshot_changed or bool(page_error) or journal_link
+            changed = found is None or evidence_changed or snapshot_changed or bool(page_error) or journal_link or upstream_changed
             if changed:
                 automatic.setdefault('attempts',[]).append(dict(run_id=run['id'],retrieved_at=now(),error=page_error,
                     outcome='page_failed' if page_error else 'page_saved',snapshot_id=snapshot['id'] if snapshot else None))
@@ -458,6 +464,10 @@ class RecordRevisions:
             elif changed:
                 self._initial_history(rid)
                 self._finish(row,values,'系统取得依据：补齐有据刊物关联，保留人工字段与核对状态' if journal_link else '系统取得依据：保留人工字段与核对状态')
+            else:
+                # The observation clock advances without inventing a content
+                # revision for an unchanged page or work.
+                self.db.execute('UPDATE records SET raw_json=? WHERE id=?',(values['raw_json'],rid))
             current = self.db.execute('SELECT * FROM records WHERE id=?',(rid,)).fetchone()
             self.db.execute('''INSERT INTO automatic_processing(record_id,source_version,input_hash,created_at)
                 VALUES (?,?,?,?) ON CONFLICT(record_id) DO UPDATE SET source_version=excluded.source_version,input_hash=excluded.input_hash''',
@@ -548,6 +558,15 @@ class RecordRevisions:
             if old["kind"] in workflow.CONTENT_KINDS and (self.db.execute("SELECT 1 FROM record_links WHERE original_id=?", (rid,)).fetchone() or self.db.execute("SELECT 1 FROM records WHERE evidence_record_id=?", (rid,)).fetchone()):
                 abort(409, "此资料现已被成果或摘录引用，不能恢复为研究内容类型。")
             values = {k: old[k] for k in RECORD_FIELDS + ["attachment_ids", "evidence_version", "evidence_snapshot_json", "raw_json", "adopted_translation_id"] if k in old}
+            # Restoring authored content cannot undo a later observation of the
+            # upstream work or discard its acquired originals and notice proofs.
+            current_raw = json.loads(current['raw_json'] or '{}')
+            if current_raw.get('automatic_acquisition'):
+                restored_raw = json.loads(values.get('raw_json') or '{}')
+                for key in ('automatic_acquisition','discovery_evidence'):
+                    if key in current_raw:
+                        restored_raw[key] = current_raw[key]
+                values['raw_json'] = json.dumps(restored_raw,ensure_ascii=False)
             # Pre-12/15 snapshots lack these formal content fields. Restore their
             # empty/unknown values without changing the immutable old snapshot.
             for key in ["volume", "issue", "pages", "issn", "chinese_title", "chinese_abstract", "adopted_translation_id"]:

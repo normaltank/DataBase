@@ -1,4 +1,4 @@
-"""Three fixed Crossref journals: one bounded response per durable run."""
+"""Fixed Crossref journals: bounded responses and durable window checkpoints."""
 import base64
 import hashlib
 import json
@@ -10,6 +10,7 @@ from urllib.parse import urlencode
 from . import intake, store, workflow
 
 JOURNALS = (
+    ('bje', 'Baltic Journal of Economics', '波罗的海经济学杂志', '1406-099X', '2334-4385', 'www.tandfonline.com', '/journals/rbec20'),
     ('eep', 'East European Politics', '东欧政治', '2159-9165', '2159-9173', 'www.tandfonline.com', '/journals/fjcs21'),
     ('jbnes', 'Journal of Balkan and Near Eastern Studies', '巴尔干与近东研究', '1944-8953', '1944-8961', 'www.tandfonline.com', '/journals/cjsb20'),
     ('eup', 'European Union Politics', '欧盟政治', '1465-1165', '1741-2757', 'journals.sagepub.com', '/home/eup'),
@@ -23,7 +24,92 @@ ADAPTERS = tuple(dict(id=key+'-crossref-v1', name=name, chinese_name=zh, kinds={
 ROWS = 25
 
 
-def request_plan(config, sample=0):
+def validate_checkpoint(state):
+    if state.get('kind')!='bje_maintenance':
+        return
+    try:
+        dates={key:datetime.fromisoformat(state[key]).date() for key in ('start','end','cycle_start','cycle_end')}
+        valid=(state['basis'] in {'online','created','indexed'} and type(state['pending']) is bool
+            and dates['cycle_start']<=dates['start']<=dates['end']<=dates['cycle_end']
+            and (dates['end']-dates['start']).days<7
+            and isinstance(state['next_cursor'],str) and 1<=len(state['next_cursor'])<=20000
+            and type(state['processed']) is int and 0<=state['processed']<=10000
+            and type(state['replays']) is int and state['replays']>=0
+            and isinstance(state['seen'],list) and len(state['seen'])<=10000
+            and len(state['seen'])==len(set(state['seen']))
+            and all(isinstance(d,str) and intake.normalize_doi(d)==d for d in state['seen'])
+            and (state['first_total'] is None or type(state['first_total']) is int and state['first_total']>=0))
+        if state.get('successful_end'):
+            valid=valid and datetime.fromisoformat(state['successful_end']).date()<=dates['cycle_end']
+        if not valid:raise ValueError()
+    except (ValueError,TypeError,KeyError):
+        raise ValueError('BJE分阶段日期窗口或继续位置无效。') from None
+
+
+def maintenance_plan(config):
+    """Persistent, seven-day windows; online and created are separate requests.
+
+    Cursors have no TTL and do not describe a stable snapshot. Only a complete
+    cycle changes successful_end; every continuation preserves its query.
+    """
+    today = datetime.fromisoformat(store.now()).date()
+    old = json.loads(config['cursor']) if config['cursor'] else {}
+    validate_checkpoint(old)
+    if old.get('kind') == 'bje_maintenance' and old.get('pending'):
+        state = dict(old)
+    else:
+        bootstrap = old.get('kind') != 'bje_maintenance' or not old.get('successful_end')
+        start = (today-timedelta(days=config['backfill_days']-1)).isoformat() if bootstrap else (
+            datetime.fromisoformat(old['successful_end']).date()-timedelta(days=1)).isoformat()
+        state = dict(kind='bje_maintenance', basis='online' if bootstrap else 'indexed',
+            cycle_start=start, cycle_end=today.isoformat(), start=start,
+            end=min(today, datetime.fromisoformat(start).date()+timedelta(days=6)).isoformat(),
+            successful_end=old.get('successful_end',''), next_cursor='*', processed=0,
+            seen=[], first_total=None, pending=True, replays=0)
+    filters = {'online':'online-pub', 'created':'created', 'indexed':'index'}
+    key = filters[state['basis']]
+    params = dict(filter=f"type:journal-article,from-{key}-date:{state['start']},until-{key}-date:{state['end']}",
+                  rows=ROWS, cursor=state['next_cursor'])
+    return params, {key:state[key] for key in ('start','end','basis')}, state
+
+
+def maintenance_checkpoint(state, items, total, position):
+    state = dict(state)
+    prior = state.get('seen', [])
+    dois = [intake.normalize_doi(item.get('DOI')) for item in items]
+    seen = set(prior)
+    uncertain = (state.get('first_total') not in (None, total) or any(doi in seen for doi in dois)
+                 or len(set(dois)) != len(dois))
+    seen.update(dois)
+    state['first_total'] = total if state.get('first_total') is None else state['first_total']
+    state['processed'] += len(items)
+    terminal = len(items) < ROWS
+    uncertain = uncertain or terminal and state['processed'] != state['first_total']
+    if len(seen)>10000:
+        raise intake.AcquisitionError('单窗口超过有界去重上限；保持成功水位，需缩小窗口。')
+    if not terminal and (not isinstance(position,str) or not position or len(position)>20000 or position==state['next_cursor']):
+        uncertain = True
+    if uncertain:
+        state.update(next_cursor='*',processed=0,seen=[],first_total=None,replays=state.get('replays',0)+1)
+        return state, True
+    if not terminal:
+        state.update(next_cursor=position,seen=sorted(seen))
+        return state, False
+    if state['end'] < state['cycle_end']:
+        start = datetime.fromisoformat(state['end']).date()+timedelta(days=1)
+        state.update(start=start.isoformat(),end=min(datetime.fromisoformat(state['cycle_end']).date(),start+timedelta(days=6)).isoformat())
+    elif state['basis']=='online':
+        state.update(basis='created',start=state['cycle_start'],end=min(datetime.fromisoformat(state['cycle_end']).date(),
+            datetime.fromisoformat(state['cycle_start']).date()+timedelta(days=6)).isoformat())
+    else:
+        state.update(pending=False,successful_end=state['cycle_end'])
+    state.update(next_cursor='*',processed=0,seen=[],first_total=None,replays=0)
+    return state, False
+
+
+def request_plan(config, sample=0, adapter=None):
+    if adapter and adapter['id']=='bje-crossref-v1' and not sample:
+        return maintenance_plan(config)
     today = datetime.fromisoformat(store.now()).date()
     previous = json.loads(config['cursor']) if config['cursor'] else {}
     if sample:
@@ -51,12 +137,13 @@ def recover_rejected_cursor(config, failure):
     """
     previous=json.loads(config['cursor']) if config['cursor'] else {}
     if (isinstance(failure,intake.AcquisitionError) and failure.http_status==400
-            and previous.get('kind')=='crossref_indexed' and previous.get('pending') and previous.get('next_cursor')!='*'):
-        return dict(previous,next_cursor='*',processed=0,recovery_reason='后续分页返回HTTP400；保留原索引窗口重新读取')
+            and previous.get('kind') in {'crossref_indexed','bje_maintenance'} and previous.get('pending') and previous.get('next_cursor')!='*'):
+        return dict(previous,next_cursor='*',processed=0,seen=[],first_total=None,replays=previous.get('replays',0)+1,
+                    recovery_reason='后续分页返回HTTP400；保留原日期窗口重新读取')
     return None
 
 
-def metadata(item, adapter):
+def metadata(item, adapter, extraction_version=2):
     doi = intake.normalize_doi(item.get('DOI'))
     if (not doi or item.get('type') != 'journal-article' or
             not set(item.get('ISSN', [])) & set(adapter['issns'])):
@@ -65,36 +152,40 @@ def metadata(item, adapter):
     fields, authors, identifiers, hints, provenance, raw, warnings = intake.registry_metadata(document, doi, 'Crossref')
     fields.update(kind='journal_article')
     # Keep the original publication precision; online/print/issued remain in raw.
-    for key in ('published-on', 'published-online', 'published-print', 'published', 'issued'):
+    dates = ('published-on', 'published-online', 'published-print', 'published', 'issued')
+    for key in dates + (('created', 'indexed', 'deposited') if extraction_version >= 2 else ()):
         if key in item:
             raw.setdefault('date_fields', {})[key] = item[key]
     return dict(fields=fields, authors=authors, identifiers=identifiers, hints=hints,
                 provenance=provenance, raw=raw, warnings=warnings)
 
 
-def snapshot(document, adapter, doi, retrieved_at):
+def snapshot(document, adapter, doi, retrieved_at, extraction_version=2):
     try:
         payload = json.loads(document['bytes'])
-        items = payload['message']['items']
+        items = payload['message']['items'] if 'items' in payload['message'] else [payload['message']]
         matches = [item for item in items if intake.normalize_doi(item.get('DOI')) == doi]
         if not matches or any(item!=matches[0] for item in matches[1:]):
             raise ValueError()
-        meta = metadata(matches[0], adapter)
+        meta = metadata(matches[0], adapter, extraction_version)
     except (ValueError, TypeError, KeyError, AttributeError):
         raise intake.AcquisitionError('Crossref原响应与单篇DOI无法绑定。') from None
     content = document['bytes']
     sha = hashlib.sha256(content).hexdigest()
     html, text = workflow.clean_rich('<p>'+escape(meta['fields'].get('abstract', ''))+'</p>' if meta['fields'].get('abstract') else '')
-    return dict(id=sha, url=document['url'], retrieved_at=retrieved_at, sha256=sha, bytes=len(content),
+    result = dict(id=sha, url=document['url'], retrieved_at=retrieved_at, sha256=sha, bytes=len(content),
                 raw_base64=base64.b64encode(content).decode(), content_type='application/json', encoding='utf-8',
                 adapter=adapter['id'], page_html=html, page_text=text, metadata=meta, pdf_links=[],
                 sidebar_credit=meta['fields'].get('authors',''), sidebar_credit_raw=meta['fields'].get('authors',''),
                 content_kind='bibliographic_metadata', work_body_available=False, work_body=None, work_body_basis='',
                 doi=doi, reason='Crossref公开JSON题录；摘要仅在实际返回时保存，未取得论文全文。')
+    if extraction_version >= 2:
+        result['extraction_version'] = extraction_version
+    return result
 
 
 def fetch_page(adapter, config, source_id, sample=0):
-    params, window, progress = request_plan(config, sample)
+    params, window, progress = request_plan(config, sample, adapter)
     url = adapter['feed']+'?'+urlencode(params)
     document = intake.fetch_document(url, time.monotonic()+intake.MAX_SECONDS)
     if document['url'] != url or document['content_type'] not in {'application/json', 'application/vnd.crossref-api-message+json'}:
@@ -129,15 +220,23 @@ def fetch_page(adapter, config, source_id, sample=0):
         processed = progress.get('processed', 0)+len(items)
         pending = not sample and len(items) == params['rows'] and processed < total
         position = message.get('next-cursor', '')
-        if pending and (not isinstance(position, str) or not position or len(position)>20000 or position == params.get('cursor')):
+        if progress.get('kind')!='bje_maintenance' and pending and (not isinstance(position, str) or not position or len(position)>20000 or position == params.get('cursor')):
             raise ValueError()
     except (KeyError, TypeError, ValueError, AttributeError, RecursionError):
         raise intake.AcquisitionError('Crossref题录结构或分页位置无效；未推进水位。') from None
+    uncertain = False
     cursor = {} if sample else dict(kind='crossref_indexed', **window, pending=bool(pending),
         processed=processed if pending else 0, next_cursor=position if pending else '*')
+    if progress.get('kind')=='bje_maintenance':
+        cursor, uncertain = maintenance_checkpoint(progress, items, total, position)
+        pending = cursor['pending']
     return document, dict(items=result, returned=len(items), total_results=total, window=window,
         request_url=url, retrieved_at=stamp, sha256=hashlib.sha256(document['bytes']).hexdigest(),
         earliest=min((x['fields'].get('published_on','') for x in result), default=''),
-        exclusions=excluded, warnings=[adapter['scope']], scope=adapter['scope'],
+        exclusions=excluded, warnings=[adapter['scope'],
+            '在线发表与首次登记窗口分别取并集；缺在线日期由created补线索。indexed是索引变动，不能当成近期发表；未登记或超出窗口的资料仍可能漏收。'] + (
+            ['分页重复或计数变动：覆盖不确定，保留成功水位并重叠重查。'] if uncertain else []), scope=adapter['scope'],
         coverage_complete=False, window_complete=not pending and not sample,
+        coverage_uncertain=uncertain,
+        zero_interpretation='零条只表示本次日期段未返回条目，不证明期刊没有更新。' if not items else '',
         sample_only=bool(sample), cursor=cursor, backfill_days=config['backfill_days'])
