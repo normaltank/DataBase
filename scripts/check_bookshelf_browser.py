@@ -3,6 +3,7 @@ import argparse
 import base64
 import hashlib
 import io
+import importlib.metadata
 import json
 import logging
 import sys
@@ -74,6 +75,13 @@ def main():
             (extension / 'worker.js').write_text('chrome.runtime.onInstalled.addListener(()=>{});')
             browser = p.chromium.launch_persistent_context(str(args.out / 'browser-profile'), executable_path=p.chromium.executable_path, headless=False, ignore_default_args=['--disable-extensions'], args=['--headless=new', f'--disable-extensions-except={extension}', f'--load-extension={extension}'], viewport={'width': 1366, 'height': 768}, has_touch=True)
             page = browser.pages[0]
+            version_session=browser.new_cdp_session(page)
+            report['browser_version']=version_session.send('Browser.getVersion')
+            version_session.detach()
+            report['python_version']=sys.version
+            report['playwright_version']=importlib.metadata.version('playwright')
+            report['csp']=page.request.get(base).headers.get('content-security-policy')
+            assert report['csp'] == "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
             browser.route('**/*', lambda route: route.continue_() if route.request.url.startswith(base) else (report['external_requests'].append(route.request.url), route.abort())[-1])
             page.on('pageerror', lambda e: errors.append(str(e)))
             page.goto(base)
