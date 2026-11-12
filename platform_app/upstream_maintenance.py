@@ -122,6 +122,8 @@ def observe(automatic, before, snapshot, error, check):
             changed_fields.append('original_content')
         if a.get('authors')!=b.get('authors'):
             changed_fields.append('authors_identifiers')
+    if changed_fields:
+        upstream.update(last_change_at=store.now(), last_changed_fields=changed_fields)
     if snapshot:
         upstream['latest_snapshot_id'] = snapshot['id']
     if check.get('notice_evidence'):
@@ -141,17 +143,23 @@ def observe(automatic, before, snapshot, error, check):
         ([upstream['status']] if upstream['status']!='available' else []) +
         (['notice_check_failed'] if upstream['notice_error'] else []) +
         (['notice_coverage_limited'] if upstream.get('notice_coverage_limited') else [])))
+    prior=old.get('exception',{})
+    carry_change=bool(not changed_fields and prior and not prior.get('resolved') and 'changed' in prior['reasons'])
+    if carry_change:
+        reasons=sorted(set(reasons+['changed']))
+        changed_fields=prior['fields']
+    before_id=prior.get('before_snapshot_id') if carry_change else before['id'] if before else None
+    after_id=prior.get('after_snapshot_id') if carry_change else snapshot['id'] if snapshot else None
     new_problem = (changed_fields or old.get('status','available')!=upstream['status']
         or old.get('notices',[])!=upstream['notices'] or old.get('notice_error','')!=upstream['notice_error']
         or old.get('notice_coverage_limited',False)!=upstream.get('notice_coverage_limited',False))
     if reasons and new_problem:
-        signature = hashlib.sha256(json.dumps([reasons, snapshot['id'] if snapshot and changed_fields else None,
+        signature = hashlib.sha256(json.dumps([reasons, after_id if changed_fields else None,
             upstream['notices']],sort_keys=True).encode()).hexdigest()
         prior = upstream.get('exception', {})
         if prior.get('signature') != signature:
             upstream['exception'] = dict(signature=signature, reasons=reasons, fields=changed_fields,
-                before_snapshot_id=before['id'] if before else None,
-                after_snapshot_id=snapshot['id'] if snapshot else None, created_at=store.now(), resolved=False)
+                before_snapshot_id=before_id, after_snapshot_id=after_id, created_at=store.now(), resolved=False)
     elif not reasons:
         prior=upstream.get('exception',{})
         temporary={'removed','access_limited','check_failed','notice_check_failed','notice_coverage_limited'}

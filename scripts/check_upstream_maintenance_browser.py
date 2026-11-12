@@ -195,6 +195,8 @@ def main():
                 recovered=context.request.get(base+'/api/records/'+original).json()
                 assert recovered['automatic_acquisition']['upstream']['status']=='available'
                 assert len(recovered['automatic_acquisition']['snapshots'])==2
+                problem=recovered['automatic_acquisition']['upstream']['exception']
+                assert problem['reasons']==['changed'] and not problem['resolved'],problem
                 extension=out/'zoom-extension';extension.mkdir()
                 (extension/'manifest.json').write_text(json.dumps({'manifest_version':3,'name':'Synthetic upstream zoom check','version':'1.0','permissions':['tabs'],'background':{'service_worker':'worker.js'}}),encoding='utf-8')
                 (extension/'worker.js').write_text('chrome.runtime.onInstalled.addListener(()=>{});',encoding='utf-8')

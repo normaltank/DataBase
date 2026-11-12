@@ -104,6 +104,7 @@ class UpstreamMaintenanceTests(unittest.TestCase):
         upstream=detail['automatic_acquisition']['upstream']
         self.assertEqual(upstream['notices'][0]['kind'],'retraction')
         self.assertIn('title',upstream['exception']['fields'])
+        self.assertIn('title',upstream['last_changed_fields'])
         self.assertEqual(len(detail['automatic_acquisition']['snapshots']),2)
         problems=self.clients['admin'].get('/api/ingestion/exceptions').json
         self.assertEqual([p['record_id'] for p in problems['items']],[rid])
