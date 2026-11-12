@@ -5,7 +5,7 @@ import uuid
 import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
-from . import ai_gateway, ingestion, store, translations, workflow, source_adapters
+from . import ai_gateway, ingestion, store, translations, workflow, source_adapters, upstream_maintenance
 
 LEASE_SECONDS = 120
 RULE = 'public-chinese-v1'
@@ -33,7 +33,10 @@ def material(db, row, task='translation'):
     automatic=raw.get('automatic_acquisition',{})
     if automatic.get('actor_id')!=ingestion.SYSTEM_ID:
         return None
-    evidence=next((e for e in reversed(raw.get('discovery_evidence',[]))
+    snapshot = upstream_maintenance.latest_snapshot(automatic) or {}
+    evidence_items = raw.get('discovery_evidence', [])
+    observed = [e for e in evidence_items if e.get('article_snapshot_id') == snapshot.get('id')]
+    evidence=next((e for e in reversed(observed or evidence_items)
         if e.get('processing_actor')==ingestion.SYSTEM_ID and e.get('processing_version') in
             {ingestion.ADAPTER, *(a['id'] for a in source_adapters.ADAPTERS)}),None)
     if not evidence or not db.execute('SELECT 1 FROM ingestion_sources i JOIN sources s ON s.id=i.source_id WHERE i.source_id=? AND i.enabled=1 AND s.merged_into IS NULL',(evidence.get('source_id'),)).fetchone():
@@ -46,8 +49,6 @@ def material(db, row, task='translation'):
         return None
     value={'title':title,'abstract':abstract,'rule_version':RULE}
     if task!='translation':
-        snapshots=automatic.get('snapshots',[])
-        snapshot=snapshots[-1] if snapshots else {}
         body=ingestion.substantive_input(snapshot)
         value.update(body=body['text'] if body else '',snapshot_id=snapshot.get('id','') if body else '',
                      snapshot_sha256=snapshot.get('sha256','') if body else '',body_basis=snapshot.get('work_body_basis','') if body else '')

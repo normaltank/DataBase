@@ -49,6 +49,7 @@ class SourceAdapterTests(unittest.TestCase):
     call = base.AssistedIntakeTests.call
 
     def test_upstream_return_to_observed_body_uses_a_without_erasing_a_or_b(self):
+        from platform_app.automatic_processing import run_pending
         root = 'https://www.gssc.lt/en/'
         sid = self.source(root, 'institution')
         path = '/api/sources/' + sid + '/ingestion'
@@ -58,6 +59,7 @@ class SourceAdapterTests(unittest.TestCase):
             if n:
                 self.assertEqual(self.call(path + '/run', {}, user='admin').status_code, 200)
             self.worker(root, xml=GSSC_LIST, page=body, stamp=f'2026-11-{3+n*8:02}T12:00:00+00:00')
+            run_pending(self.app.config['DATA_DIR'], limit=0)
             rid = self.clients['researcher'].get('/api/records').json['items'][0]['id']
             detail = self.clients['researcher'].get('/api/records/' + rid).json
             observations.append(detail)
@@ -66,6 +68,10 @@ class SourceAdapterTests(unittest.TestCase):
         self.assertEqual(len(snapshots), 2)
         self.assertIn('INTERMEDIATE B policy body.', snapshots[1]['page_text'])
         self.assertEqual(observations[2]['fulltext']['original']['snapshot_id'], snapshots[0]['id'])
+        classifications = [item for item in observations[2]['automatic_tasks'] if item['task'] == 'classification' and not item['stale']]
+        self.assertEqual(len(classifications), 1)
+        self.assertEqual(classifications[0]['input']['body'], 'Evidence\n\nActual synthetic policy body.\n\nSecond body paragraph.')
+        self.assertEqual(self.clients['researcher'].get('/api/records?q=INTERMEDIATE%20B').json['total'], 0)
 
     def test_returned_body_reuses_translation_human_edit_and_retains_unknown_charge(self):
         from pathlib import Path
