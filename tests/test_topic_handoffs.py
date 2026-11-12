@@ -217,6 +217,8 @@ class HandoffTests(unittest.TestCase):
             request_data=json.loads(end['request_json']);request_data['basis_token']=topic_review.fingerprint(saved)
             db.execute('UPDATE topic_closure_events SET basis_json=?,incomplete_json=?,request_json=?,request_hash=? WHERE id=?',(json.dumps(saved,ensure_ascii=False),json.dumps(gaps,ensure_ascii=False),json.dumps(request_data,ensure_ascii=False),topic_review.fingerprint({'action':'end','data':request_data}),end['id']))
             db.execute('ALTER TABLE people DROP COLUMN orcid')
+            from tests.fixtures.legacy_schema import remove_post29_tables
+            remove_post29_tables(db)
             later_tables = ('maintenance_evidence','maintenance_steps','maintenance_jobs','journal_result_requests', 'journal_result_events', 'journal_result_versions',
                             'journal_result_series', 'journal_results', *reversed(topic_handoffs.TABLES))
             for table in later_tables:
@@ -241,7 +243,8 @@ class HandoffTests(unittest.TestCase):
         with closing(connect(destination/'platform.sqlite3')) as db:
             self.assertEqual(before,{t:[tuple(r) for r in db.execute(f'SELECT * FROM {t} ORDER BY 1')] for t in tables})
         lead=self.login('researcher',upgraded)
-        self.assertEqual(lead.get('/health').json['schema'], 29)
+        from platform_app.store import CURRENT_SCHEMA_VERSION
+        self.assertEqual(lead.get('/health').json['schema'], CURRENT_SCHEMA_VERSION)
         b=lead.get(f'/api/collaboration/topics/{tid}/handoffs').json
         self.assertEqual(b['lifecycle_events'][0]['basis'],saved)
         self.assertEqual(b['stage_events'][0]['meeting_id'],meeting['id'])

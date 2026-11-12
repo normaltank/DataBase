@@ -131,8 +131,24 @@ def lan(one, two, env, evidence, result):
     assert state['urls'] and all('127.0.0.1' not in url for url in state['urls'])
     base, local = state['urls'][0], f"http://127.0.0.1:{state['port']}"
     first, second, tid, uid, samples = practice(base)
+    command(one, env, 'lan-start', '--no-browser')
+    refreshed = json.loads((one / '.portable/server.json').read_text(encoding='utf-8'))
+    assert (refreshed['instance'], refreshed['port']) == (state['instance'], state['port'])
+    assert first.request('/api/session')['user']['id'] == uid
+    diagnostic_run = subprocess.run([str(one / 'runtime/python.exe'), '-I', '-B',
+        str(one / 'portable/launch.py'), 'lan-diagnose'], cwd=one, env=env,
+        capture_output=True, text=True, encoding='utf-8', timeout=30)
+    assert diagnostic_run.returncode == 0, diagnostic_run.stderr
+    diagnostic = json.loads(diagnostic_run.stdout)
+    assert diagnostic['service']['owned_instance'] and diagnostic['service']['loopback']['status'] == 'ok'
+    assert diagnostic['interface_self_tests'] and all(item['status'] == 'ok' for item in diagnostic['interface_self_tests'])
+    assert not diagnostic['phone_verified'] and diagnostic['external_network_cause'] == 'undetermined'
+    assert json.loads((one / '.portable/server.json').read_text(encoding='utf-8')) == refreshed
+    (evidence / 'lan-diagnostic-local-only.json').write_text(json.dumps(diagnostic, ensure_ascii=False, indent=2), encoding='utf-8')
     rejected(first, '/api/trial/host', {})
     rejected(first, '/__portable/stop', {}, extra_headers={'X-Portable-Token': state['token']}, expected=404)
+    rejected(first, '/__portable/refresh', {}, extra_headers={'X-Portable-Token': state['token']}, expected=404)
+    rejected(first, '/health', extra_headers={'Host': 'evil.invalid'}, expected=400)
     rejected(first, '/health', extra_headers={'X-Forwarded-For': '127.0.0.1'}, expected=400)
     rejected(first, '/api/logout', {}, extra_headers={'Origin': 'http://evil.invalid'})
     host_jar = http.cookiejar.CookieJar()
@@ -149,14 +165,18 @@ def lan(one, two, env, evidence, result):
     assert first.request('/api/session')['user']['id'] == uid
     assert second.request('/api/collaboration/topics/' + tid)['id'] == tid
     command(one, env, 'stop')
-    with socket.socket() as conflict:
-        conflict.bind(('127.0.0.1', state['port']))
-        conflict.listen()
-        command(one, env, 'lan-start', '--no-browser')
-        alternate = json.loads((one / '.portable/server.json').read_text(encoding='utf-8'))
-        assert alternate['port'] != state['port'] and alternate['port'] != 8848
-        command(one, env, 'stop')
-        assert conflict.fileno() >= 0
+    for exclusive in (False, True):
+        occupied = int((one / '.portable/last-port-lan').read_text())
+        with socket.socket() as conflict:
+            if exclusive and os.name == 'nt':
+                conflict.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+            conflict.bind(('127.0.0.1', occupied))
+            conflict.listen()
+            command(one, env, 'lan-start', '--no-browser')
+            alternate = json.loads((one / '.portable/server.json').read_text(encoding='utf-8'))
+            assert alternate['port'] != occupied and alternate['port'] != 8848
+            command(one, env, 'stop')
+            assert conflict.fileno() >= 0
     command(two, env, 'lan-start', '--no-browser')
     recovered = json.loads((two / '.portable/server.json').read_text(encoding='utf-8'))
     reader = HTTP(recovered['urls'][0])
@@ -164,6 +184,7 @@ def lan(one, two, env, evidence, result):
     assert len([w for w in reader.request('/api/collaboration/works?scope=all')['items'] if w.get('trial_sample')]) == len(samples)
     rejected(reader, '/api/collaboration/topics/' + tid, expected=404)
     result['checks'].extend(['actual host IPv4: password-free LAN configuration/admission; independent identities, period creation/upload; read-only samples',
+                             'repeat LAN start preserves instance/port/identity; bounded read-only diagnostics distinguish host self-test from unverified phone',
                              'loopback maintenance versus LAN visitor and replayed-cookie boundary; CSRF/Origin/forwarding and stop control; zero provider attempts',
                              'stable port/identity on restart; owned port conflict fallback; backup to new directory preserves private period access and seed visibility'])
     result['ok'] = True

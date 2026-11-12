@@ -27,6 +27,8 @@
   <script src="{{ asset('sections.js') }}" defer></script>
   <link rel="stylesheet" href="{{ asset('sections.css') }}">
   <script src="{{ asset('sources.js') }}" defer></script>
+  <script src="{{ asset('journal-archives.js') }}" defer></script>
+  <link rel="stylesheet" href="{{ asset('journal-archives.css') }}">
   <script src="{{ asset('archive-suggestions.js') }}" defer></script>
   <link rel="stylesheet" href="{{ asset('archive-suggestions.css') }}">
   <script src="{{ asset('source-picker.js') }}" defer></script>
@@ -37,6 +39,7 @@
   <script src="{{ asset('ris.js') }}" defer></script>
   <script src="{{ asset('discovery.js') }}" defer></script>
   <script src="{{ asset('ingestion.js') }}" defer></script>
+  <script src="{{ asset('fulltext.js') }}" defer></script>
   <script src="{{ asset('maintenance-trace.js') }}" defer></script>
   <link rel="stylesheet" href="{{ asset('maintenance-trace.css') }}">
   <script src="{{ asset('maintenance-agent.js') }}" defer></script>
@@ -87,6 +90,8 @@
   <link rel="stylesheet" href="{{ asset('object-actions.css') }}">
   <link rel="stylesheet" href="{{ asset('desk.css') }}">
   <script src="{{ asset('desk.js') }}" defer></script>
+  <link rel="stylesheet" href="{{ asset('bookshelf.css') }}">
+  <script src="{{ asset('bookshelf.js') }}" defer></script>
 </head>
 <body data-demo-login="{{ 'true' if config.DEMO_LOGIN else 'false' }}">
   <div id="app"><div class="boot">正在打开平台…</div></div>

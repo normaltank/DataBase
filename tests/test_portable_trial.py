@@ -85,6 +85,14 @@ class PortableTrialTests(unittest.TestCase):
         journal = client.get('/api/collaboration/journals/' + sample['journal'])
         self.assertEqual(journal.status_code, 200, journal.json)
         self.assertFalse(journal.json['can_edit'])
+        journal_path = '/api/journals/' + sample['source_ids'][2]
+        archive_detail = client.get(journal_path).json
+        self.assertFalse(archive_detail['can_edit'])
+        self.assertEqual(len(archive_detail['issues']), 2)
+        self.assertEqual(len(archive_detail['profile']['metrics']), 3)
+        self.assertTrue(archive_detail['compilations'][0]['selections'][0]['needs_review'])
+        self.assertEqual(self.call(client, journal_path + '/profile', {'version': 1}, method='PUT').status_code, 403)
+        self.assertEqual(self.call(client, journal_path + '/issues', {'version': 0, 'label': 'cannot-edit-sample'}).status_code, 403)
         self.assertTrue(any(w.get('trial_sample') for w in client.get('/api/collaboration/works?scope=all').json['items']))
         archive = create_backup(self.data)
         target = Path(self.tmp.name) / 'restored'
@@ -92,6 +100,7 @@ class PortableTrialTests(unittest.TestCase):
         restored = create_app(target, testing=True, embedded_worker=False, portable_trial=True).test_client()
         restored.get('/api/session')
         self.assertEqual(restored.get(prefix).status_code, 200)
+        self.assertEqual(len(restored.get(journal_path).json['issues']), 2)
         self.assertEqual(restored.get('/api/collaboration/topics/' + own).status_code, 404)
 
     def test_host_is_local_only_and_public_demo_password_never_grants_admin(self):

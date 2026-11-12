@@ -37,7 +37,7 @@ def verify(read, names, require_intro=True):
     expected = set(manifest['files']) | {'manifest.json'}
     if set(names) != expected:
         raise ValueError('Package inventory differs from manifest')
-    fixed = SOURCE_FILES | {'start.bat', 'stop.bat', 'lan-start.bat', 'lan-configure.bat', 'ai-configure.bat', 'ai-enable.bat', 'ai-disable.bat', '使用说明.html', 'THIRD-PARTY-NOTICES.txt', 'manifest.json'}
+    fixed = SOURCE_FILES | {'start.bat', 'stop.bat', 'lan-start.bat', 'lan-configure.bat', 'lan-diagnose.bat', 'ai-configure.bat', 'ai-enable.bat', 'ai-disable.bat', '使用说明.html', 'THIRD-PARTY-NOTICES.txt', 'manifest.json'}
     introductions = set(names) & {'项目介绍.pdf', '项目介绍.html'}
     if len(introductions) > 1:
         raise ValueError('Choose exactly one project introduction.')

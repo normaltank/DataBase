@@ -34,6 +34,8 @@ def create_backup(data_dir):
                         if snapshot_db.execute("SELECT 1 FROM sqlite_master WHERE name='handoff_files'").fetchone() else [])
             avatars = ([dict(r) for r in snapshot_db.execute("SELECT stored_name,sha256,bytes FROM person_avatars")]
                        if snapshot_db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='person_avatars'").fetchone() else [])
+            covers = ([dict(r) for r in snapshot_db.execute('SELECT stored_name,sha256,bytes FROM journal_covers')]
+                      if snapshot_db.execute("SELECT 1 FROM sqlite_master WHERE name='journal_covers'").fetchone() else [])
             setting = snapshot_db.execute("SELECT value FROM settings WHERE key='thinktank_import_v1'").fetchone()
         finally:
             snapshot_db.close()
@@ -62,6 +64,14 @@ def create_backup(data_dir):
             if len(content) != original["bytes"] or hashlib.sha256(content).hexdigest() != original["sha256"]:
                 raise ValueError("交接原件与登记信息不一致。")
             payloads["handoffs/" + name] = content
+        for cover in covers:
+            name = cover['stored_name']
+            if not re.fullmatch(r'[a-f0-9]{32}\.(jpg|png|webp)', name):
+                raise ValueError('期刊封面路径无效。')
+            content = (data_dir / 'journal-covers' / name).read_bytes()
+            if len(content) != cover['bytes'] or hashlib.sha256(content).hexdigest() != cover['sha256']:
+                raise ValueError('期刊封面与登记信息不一致。')
+            payloads['journal-covers/' + name] = content
         for name, content in payloads.items():
             manifest["files"][name] = {"sha256": hashlib.sha256(content).hexdigest(), "bytes": len(content)}
         partial = destination.with_suffix(".tmp")
@@ -95,7 +105,8 @@ def restore_backup(archive_path, target_dir):
                 if (name not in ["platform.sqlite3", "manifest.json", "import-report.json"]
                         and not re.fullmatch(r"uploads/[a-f0-9]{32}\.(pdf|docx|txt|md)", name)
                         and not re.fullmatch(r"handoffs/[a-f0-9]{32}\.(pdf|docx|txt|md)", name)
-                        and not re.fullmatch(r"avatars/[a-f0-9]{32}\.(jpg|png|webp)", name)):
+                        and not re.fullmatch(r"avatars/[a-f0-9]{32}\.(jpg|png|webp)", name)
+                        and not re.fullmatch(r"journal-covers/[a-f0-9]{32}\.(jpg|png|webp)", name)):
                     raise ValueError("备份包含未允许的文件路径。")
             manifest = json.loads(archive.read("manifest.json"))
             if manifest.get("format") != "research-commons-v1" or set(names) != set(manifest["files"]) | {"manifest.json"} or "platform.sqlite3" not in names:
@@ -115,9 +126,15 @@ def restore_backup(archive_path, target_dir):
             from .store import CURRENT_SCHEMA_VERSION
             if version not in {str(v) for v in range(1, CURRENT_SCHEMA_VERSION + 1)}:
                 raise ValueError("数据库版本不匹配。")
+            if int(version) >= 31:
+                from .journal_archives import validate_backup as validate_journals
+                validate_journals(db, manifest)
             if int(version) >= 29:
                 from .maintenance_agent import validate_backup as validate_agent
                 validate_agent(db)
+            if int(version) >= 30:
+                from .fulltext import validate_backup as validate_fulltext
+                validate_fulltext(db,stage)
             if int(version) >= 24:
                 from .archive_suggestions import validate_backup as validate_archive_suggestions
                 validate_archive_suggestions(db)
