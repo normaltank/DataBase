@@ -423,7 +423,7 @@ class RecordRevisions:
             automatic = raw.setdefault('automatic_acquisition',dict(actor_id=ingestion.SYSTEM_ID,adapter=adapter['id'],
                 chinese_status='pending_configuration',snapshots=[],attempts=[]))
             snapshots = automatic.setdefault('snapshots',[])
-            before = snapshots[-1] if snapshots else None
+            before = upstream_maintenance.latest_snapshot(automatic)
             if not json.loads(run['coverage_json']).get('sample_only') and upstream_maintenance.same_observation(before,snapshot):
                 # Preserve the first raw response for this identical work.
                 # The new response itself remains on the durable run.

@@ -73,9 +73,10 @@ def candidates(row):
 def material(row):
     if row['kind'] in workflow.CONTENT_KINDS or row['merged_into']:
         return None
-    snapshots = json.loads(row['raw_json'] or '{}').get('automatic_acquisition',{}).get('snapshots',[])
+    from .upstream_maintenance import latest_snapshot
+    automatic = json.loads(row['raw_json'] or '{}').get('automatic_acquisition',{})
     # A newer no-body response must not cause an older snapshot to masquerade as current.
-    snapshot = snapshots[-1] if snapshots else {}
+    snapshot = latest_snapshot(automatic) or {}
     body = ingestion.substantive_input(snapshot)
     if not body or not isinstance(body['text'],str) or len(body['text'])>500000:
         return None

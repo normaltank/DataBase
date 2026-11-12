@@ -18,9 +18,9 @@ function jaCover(cover,fallback=false){
   if(cover.unavailable)return '<p class="muted">封面附件当前不可读取。</p>';
   return `<figure class="ja-cover">${cover.file?`<img src="${esc(cover.url)}" alt="期刊封面" loading="lazy">`:cover.url?`<a href="${esc(cover.url)}">${esc(cover.attachment_name||'封面附件')}</a>`:''}<figcaption>${fallback?'沿用期刊封面 · ':''}${cover.illustrative?'示意图，不代表本期':'已登记封面'}${cover.issue_id?' · 对应原刊卷期 '+esc(cover.issue_id):''}${cover.external_url?'<p>'+externalLink(cover.external_url,'外部图片线索（尚未保存文件）')+'</p>':''}<p>${esc(cover.note)}</p><details><summary>封面出处</summary><p class="prose">${esc(cover.evidence)}</p></details></figcaption></figure>`;
 }
-function jaProfileRead(s,p){
+function jaProfileRead(s,p,history=false){
   const metrics=p.metrics||[],rankings=p.rankings||[];
-  return `<div class="ja-introduction">${jaCover(p.cover)}<div>${s.introduction_html?`<div class="rich-prose">${readRich(s.introduction_html)}</div>`:'<p class="muted">期刊介绍待补充。</p>'}${jaFacts([['创刊',p.founded],['发行周期',p.frequency],['聚焦领域',s.research_scope],['纸本 ISSN',p.print_issn],['电子 ISSN',p.electronic_issn],['旧未分类标识',s.issn],['出版方原始名称',p.publisher_text]])}</div></div><details><summary>基本信息依据</summary>${evidenceHtml(p.frequency_evidence)}${evidenceHtml(p.publisher_evidence)}<p>主办机构：${sourceName(s.host_id)||'待补充'}</p><p>出版机构：${sourceName(s.publisher_id)||'待补充'}</p></details><section class="ja-section"><div class="between wrap"><h2>年度指标</h2>${jaLink('维护期刊信息与指标',{ja_edit:'profile',ja_issue:'',ja_compilation:''})}</div>${metrics.length?`<div class="ja-metrics">${metrics.map(m=>`<article><h3>${esc(m.name)}</h3><p class="ja-metric-value">${jaValue(m.value,'缺失')}<span>${jaValue(m.year,'年度未知')}</span></p><p class="small muted">${esc(jaMetricKinds[m.kind]||m.kind)}${m.released_year?' · 发布于 '+esc(m.released_year):''}</p>${m.raw_label?'<p>来源原词：'+esc(m.raw_label)+'</p>':''}<details><summary>出处与核对说明</summary>${evidenceHtml(m.evidence)}<p class="prose">${esc(m.note)}</p></details></article>`).join('')}</div>`:'<p class="muted">尚未登记年度指标。</p>'}${rankings.map(r=>`<section class="ja-ranking"><h3>中科院分区 · ${jaValue(r.year,'年度未知')} ${esc(r.edition)}</h3><ul>${r.subjects.map(x=>`<li>${x.level==='major'?'大类':'小类'}：${esc(x.chinese_name||x.original_name)}${x.chinese_name&&x.original_name?' / '+esc(x.original_name):''} · ${x.quartile?esc(x.quartile)+'区':'分区待核实'}${x.evidence?' · '+esc(x.evidence):''}</li>`).join('')}</ul>${r.raw_label?'<p>原始标注：'+esc(r.raw_label)+'</p>':''}<details><summary>版本出处</summary>${evidenceHtml(r.evidence)}<p>${esc(r.note)}</p></details></section>`).join('')}${p.indexing?'<p class="prose">收录与原始表述：'+esc(p.indexing)+'</p>':''}<p class="small muted">数值保留所据年度和口径；缺项与零值分别显示。</p></section>`;
+  return `<div class="ja-introduction">${jaCover(p.cover)}<div>${s.introduction_html?`<div class="rich-prose">${readRich(s.introduction_html)}</div>`:'<p class="muted">期刊介绍待补充。</p>'}${jaFacts([['创刊',p.founded],['发行周期',p.frequency],['聚焦领域',s.research_scope],['纸本 ISSN',p.print_issn],['电子 ISSN',p.electronic_issn],['旧未分类标识',s.issn],['出版方原始名称',p.publisher_text]])}</div></div><details><summary>基本信息依据</summary>${evidenceHtml(p.frequency_evidence)}${evidenceHtml(p.publisher_evidence)}<p>主办机构：${sourceName(s.host_id)||'待补充'}</p><p>出版机构：${sourceName(s.publisher_id)||'待补充'}</p></details><section class="ja-section"><div class="between wrap"><h2>年度指标</h2>${history?'':jaLink('维护期刊信息与指标',{ja_edit:'profile',ja_issue:'',ja_compilation:''})}</div>${metrics.length?`<div class="ja-metrics">${metrics.map(m=>`<article><h3>${esc(m.name)}</h3><p class="ja-metric-value">${jaValue(m.value,'缺失')}<span>${jaValue(m.year,'年度未知')}</span></p><p class="small muted">${esc(jaMetricKinds[m.kind]||m.kind)}${m.released_year?' · 发布于 '+esc(m.released_year):''}</p>${m.raw_label?'<p>来源原词：'+esc(m.raw_label)+'</p>':''}<details><summary>出处与核对说明</summary>${evidenceHtml(m.evidence)}<p class="prose">${esc(m.note)}</p></details></article>`).join('')}</div>`:'<p class="muted">尚未登记年度指标。</p>'}${rankings.map(r=>`<section class="ja-ranking"><h3>中科院分区 · ${jaValue(r.year,'年度未知')} ${esc(r.edition)}</h3><ul>${r.subjects.map(x=>`<li>${x.level==='major'?'大类':'小类'}：${esc(x.chinese_name||x.original_name)}${x.chinese_name&&x.original_name?' / '+esc(x.original_name):''} · ${x.quartile?esc(x.quartile)+'区':'分区待核实'}${x.evidence?' · '+esc(x.evidence):''}</li>`).join('')}</ul>${r.raw_label?'<p>原始标注：'+esc(r.raw_label)+'</p>':''}<details><summary>版本出处</summary>${evidenceHtml(r.evidence)}<p>${esc(r.note)}</p></details></section>`).join('')}${p.indexing?'<p class="prose">收录与原始表述：'+esc(p.indexing)+'</p>':''}<p class="small muted">数值保留所据年度和口径；缺项与零值分别显示。</p></section>`;
 }
 function jaIssueRead(s,issue,profile,history=false){
   return `<div class="ja-issue-heading">${jaCover(issue.cover?.evidence?issue.cover:profile.cover,!issue.cover?.evidence)}<div><h1>${esc(issue.label||[issue.year,issue.volume&&'卷 '+issue.volume,issue.number&&'期 '+issue.number].filter(Boolean).join(' · '))}</h1><p class="original-title">${esc(s.name)}</p>${jaFacts([['原刊年份',issue.year],['卷',issue.volume],['期',issue.number],['原刊出版日期',issue.published_on],['专刊／合刊',issue.special_note]])}<p class="ja-coverage">${jaCoverage[issue.coverage]||'覆盖范围未核实'}${issue.checked_on?' · 核对于 '+esc(issue.checked_on):''}</p><p class="prose">${esc(issue.coverage_note)}</p><details><summary>原目次依据</summary>${evidenceHtml(issue.catalogue_evidence)}</details></div></div><section class="ja-section"><div class="between wrap"><h2>目次</h2>${history?'':jaLink('维护卷期与目次',{ja_edit:'issue',ja_history:''})}</div>${(issue.sections||[]).map(section=>`<section class="ja-toc-section"><h3>${esc(section.title||'未分栏目')}</h3><ol>${section.entries.map(entry=>`<li id="ja-entry-${entry.id}" data-ja-entry="${entry.id}"><article><h4>${esc(entry.chinese_title||entry.title)}</h4>${entry.chinese_title?'<p class="original-title">'+esc(entry.title)+'</p>':''}<p class="small">${esc(entry.authors||'署名待补充')}${entry.pages?' · '+esc(entry.pages):''}${entry.article_number?' · 文章编号 '+esc(entry.article_number):''}</p><div class="row wrap">${entry.kind?'<span class="small muted">'+esc(entry.kind)+'</span>':''}${entry.record_id?jaButton('阅读已入库资料','read-record',`data-id="${esc(entry.record_id)}" data-entry="${entry.id}"`):'<span class="small muted">'+(entry.record_unavailable?'关联资料当前不可读':'尚未关联入库资料')+'</span>'}${entry.url?externalLink(entry.url,'原文链接'):''}${history?'':jaButton('选编中文内容','select-entry',`data-entry="${entry.id}"`)}</div><details><summary>题录与关联依据</summary>${jaFacts([['DOI',entry.doi],['原始单位',entry.affiliations],['归属依据',entry.relation_evidence],['题录差异说明',entry.conflict_note]])}</details></article></li>`).join('')}</ol></section>`).join('')||'<p class="muted">尚未登记目次；缺少摘要或全文不影响登记。</p>'}</section>`;
@@ -38,18 +38,22 @@ function jaCompilationRead(record,doc,history=false){
   return `<header><h1>${esc(record.title)}</h1><p class="small muted">${esc(record.coverage)} · ${esc(record.authors||'署名待补充')} · ${esc(kinds[record.kind])}</p>${history?'':`<div class="row wrap">${record.can_edit&&doc.can_edit!==false?jaLink('编写选编内容与原文依据',{ja_edit:'compilation',ja_history:''}):''}${record.can_edit?linkButton('编辑整体正文与附件','edit-record',record.id):''}${record.can_edit?linkButton('正文历史','history','record:'+record.id):''}</div>`}</header>${jaFacts([['编译时间',doc.compiled_on],['中心发布日期',doc.released_on],['覆盖说明',doc.coverage_note],['编译／审校署名',doc.credits]])}<section class="ja-section">${record.body_html?`<div class="rich-prose">${readRich(record.body_html)}</div>`:'<p class="muted">整体译稿可先保存，结构关联可随后补齐。</p>'}${(record.attachments||[]).map(a=>`<a class="detail-link" href="/api/attachments/${encodeURIComponent(a.id)}">${esc(a.name)}</a>`).join('')}</section><section class="ja-section"><h2>选编内容</h2>${(doc.selections||[]).map(jaSelectionRead).join('')||'<p class="muted">尚未编写选编内容。</p>'}</section>`;
 }
 async function journalArchivePage(s){
+  const account=state.me?.id,generation=state.loadId,hash=location.hash,params=new URLSearchParams(state.params);
+  const current=()=>account===state.me?.id&&generation===state.loadId&&hash===location.hash;
   const data=await api('/api/journals/'+encodeURIComponent(s.id));
-  const iid=state.params.get('ja_issue'),rid=state.params.get('ja_compilation'),edit=state.params.get('ja_edit'),historyKind=state.params.get('ja_history');
+  if(!current())return '';
+  const iid=params.get('ja_issue'),rid=params.get('ja_compilation'),edit=params.get('ja_edit'),historyKind=params.get('ja_history');
   const issue=iid?data.issues.find(i=>i.id===iid):null;
   let record=null,doc=null;
   if(rid){[record,doc]=await Promise.all([api('/api/records/'+encodeURIComponent(rid)),api(`/api/journals/${encodeURIComponent(s.id)}/compilations/${encodeURIComponent(rid)}`)]);}
-  jaContext={s,data,issue,record,doc};
+  if(!current())return '';
+  jaContext={s,data,issue,record,doc,account,generation,hash,params};
   const base=jaLink('返回期刊档案',{ja_issue:'',ja_compilation:'',ja_edit:'',ja_history:'',ja_entry:''},'back-link');
   let content='';
   if(historyKind){
     const kind=historyKind==='profile'?'profile':historyKind==='issue'?'issues/'+iid:'compilations/'+rid;
     const history=await api(`/api/journals/${encodeURIComponent(s.id)}/${kind}/history`);
-    content=`<h1>修改历史</h1>${history.items.map(event=>`<details class="ja-history"><summary>版本 ${event.version} · ${esc(event.actor_name)} · ${dateTime(event.created_at)}</summary>${historyKind==='profile'?jaProfileRead(s,event.snapshot):historyKind==='issue'?jaIssueRead(s,event.snapshot,data.profile,true):jaCompilationRead(record,event.snapshot,true)}</details>`).join('')||'<p>暂无修改历史。</p>'}`;
+    content=`<h1>修改历史</h1><div data-ja-restore-status role="status"></div><p class="small muted">恢复会形成新版本；原有历史、引用依据和当前授权继续保留。本机草稿不会被替换。</p>${history.items.map(event=>`<details class="ja-history"><summary>版本 ${event.version} · ${esc(event.actor_name)} · ${dateTime(event.created_at)}</summary>${historyKind==='profile'?jaProfileRead(s,event.snapshot,true):historyKind==='issue'?jaIssueRead(s,event.snapshot,data.profile,true):jaCompilationRead(record,event.snapshot,true)}${data.can_edit&&(!record||(record.can_edit&&doc.can_edit!==false))?jaButton(historyKind==='profile'?'恢复此版期刊信息与指标':historyKind==='issue'?'恢复此版卷期与目次':'恢复此版选编与依据','restore-history',`data-kind="${historyKind}" data-history-version="${event.version}"`):''}</details>`).join('')||'<p>暂无修改历史。</p>'}`;
   }else if(edit&&(!data.can_edit||(record&&(!record.can_edit||doc.can_edit===false))))content='<p class="notice">当前内容只供阅读，请沿用原有授权或建立自己的练习档案。</p>'+(record?jaCompilationRead(record,doc,true):jaProfileRead(s,data.profile));
   else if(edit==='profile')content=jaProfileForm(s,data.profile);
   else if(edit==='issue')content=jaIssueForm(issue||{});
@@ -62,6 +66,7 @@ async function journalArchivePage(s){
   else if(issue)content=jaIssueRead(s,issue,data.profile)+jaLink('卷期与目次历史',{ja_history:'issue'});
   else content=`<header class="ja-heading"><h1>${esc(s.name)}</h1>${s.original_name&&s.original_name!==s.name?'<p class="original-title">'+esc(s.original_name)+'</p>':''}<div class="row wrap">${s.website?externalLink(s.website,'期刊官网'):''}${linkButton('维护名称、介绍与机构关系','edit-source',s.id)}${jaLink('信息与指标历史',{ja_history:'profile'})}</div></header>${jaProfileRead(s,data.profile)}<section class="ja-section"><div class="between wrap"><h2>原刊卷期</h2>${jaLink('登记原刊卷期',{ja_edit:'issue',ja_issue:''})}</div><div class="ja-index">${data.issues.map(i=>`<article>${jaLink(i.label||[i.year,i.volume,i.number].filter(Boolean).join(' · '),{ja_issue:i.id,ja_compilation:'',ja_edit:''},'ja-index-title')}<p class="small muted">${jaCoverage[i.coverage]} · ${i.sections?.reduce((n,s)=>n+s.entries.length,0)||0} 条目次</p></article>`).join('')||'<p class="muted">尚未登记。成果期次和近期文章不会自动成为原刊卷期。</p>'}</div></section><section class="ja-section"><div class="between wrap"><h2>目录译稿与选编</h2><div class="row wrap">${jaLink('新建目录译稿',{ja_edit:'new-compilation'})}${jaLink('接续已有译稿或成果',{ja_edit:'attach-compilation'})}</div></div><div class="ja-index">${data.compilations.map(c=>`<article>${jaLink(c.title,{ja_compilation:c.id,ja_issue:'',ja_edit:''},'ja-index-title')}<p class="small muted">${esc(c.coverage)} · 关联 ${c.issue_ids?.length||0} 期 · ${c.selections?.length||0} 条选编</p></article>`).join('')||'<p class="muted">可先保存跨期整体译稿，再补充目次与原文对应。</p>'}</div></section><details class="ja-section"><summary>同刊资料、旧目录译稿与成果</summary>${await journalSourceResults(s)}${await sourceContentSection(s,'published','刊载资料')}${await sourceContentSection(s,'translations','原有目录译稿')}${await sourceContentSection(s,'outputs','中心成果')}</details><details class="ja-section"><summary>主办、出版与国别依据</summary>${jaFacts([['主办国别',countryText(s)],['出版机构国家',s.publisher_countries?.join(' / ')],['国际定位',internationalLabels[s.international_status]],['其他名称',s.aliases]])}${evidenceHtml(s.host_evidence)}${evidenceHtml(s.international_evidence)}</details>`;
   if(!iid&&!rid&&!edit&&!historyKind){content+=await noteSubjectProfile('journal',s.id,Number(state.params.get('note_page')||1));content+='<details class="ja-section"><summary>公共档案维护与依据</summary>'+linkButton('公共档案修改历史','history','source:'+s.id)+maintenanceActionHtml('source',s)+await maintenanceFeedbackHtml('source',s)+reviewPanel(s)+sourceCollectionStatus(s)+(typeof archivedLinks==='function'?archivedLinks('source',s):'')+'</details>';}
+  if(!current())return '';
   return `<article class="journal-archive" data-ja-source="${esc(s.id)}">${iid||rid||edit||historyKind?base:`<a class="back-link" data-action="source-directory-back" href="${esc(jaUrl({id:'',ja_issue:'',ja_compilation:'',ja_edit:'',ja_history:'',ja_entry:''}))}">返回期刊目录</a>`}${content}</article>`;
 }
 function jaCoverForm(cover={}){
@@ -84,50 +89,65 @@ function jaNewCompilationForm(data={}){return `<h1>新建目录译稿</h1><form 
 function jaCollect(root){const result={};for(const el of root.querySelectorAll(':scope > .ja-form-grid > .field > input,:scope > .ja-form-grid > .field > textarea,:scope > .ja-form-grid > .field > select,:scope > .field > input'))result[el.name]=el.value;return result;}
 function jaCollectCover(form){const box=form.querySelector('[data-ja-cover]');if(!box)return {};const data={};for(const el of box.querySelectorAll('[name]'))data[el.name.replace('cover_','')]=el.type==='checkbox'?el.checked:el.value;return ['file_id','attachment_id','external_url'].some(k=>data[k])?data:{};}
 function jaPayload(form){
+  const context=form._jaContext||jaContext;
   syncRichForm(form);const kind=form.dataset.jaForm,data={...jaCollect(form),version:Number(form.dataset.version)};
-  if(kind==='new-compilation')return {...Object.fromEntries(new FormData(form)),kind:'directory_translation',related_source_ids:[jaContext.s.id],visibility:'shared'};
+  if(kind==='new-compilation')return {...Object.fromEntries(new FormData(form)),kind:'directory_translation',related_source_ids:[context.s.id],visibility:'shared'};
   if(kind==='profile'){
     data.metrics=[...form.querySelectorAll('[data-ja-metric]')].map(row=>({...jaCollect(row),id:row.dataset.id}));
     data.rankings=[...form.querySelectorAll('[data-ja-ranking]')].map(row=>({...jaCollect(row),id:row.dataset.id,subjects:[...row.querySelectorAll('[data-ja-subject]')].map(jaCollect)}));
   }else if(kind==='issue')data.sections=[...form.querySelectorAll('[data-ja-section]')].map(section=>({id:section.dataset.id,title:section.querySelector('[name=section_title]').value,entries:[...section.querySelectorAll('[data-ja-entry-row]')].map(row=>({...Object.fromEntries([...row.querySelectorAll('[name]')].map(el=>[el.name,el.value])),id:row.dataset.id}))}));
   else if(kind==='compilation'){
-    data.record_version=jaContext.record.version;data.issue_ids=[...form.querySelectorAll('[name=issue_ids]:checked')].map(el=>el.value);
+    data.record_version=context.record.version;data.issue_ids=[...form.querySelectorAll('[name=issue_ids]:checked')].map(el=>el.value);
     data.selections=[...form.querySelectorAll('[data-ja-selection]')].map(row=>{const values=Object.fromEntries([...row.querySelectorAll('[name]')].map(el=>[el.name,el.value]));const [issue_id,entry_id]=values.entry_key.split(':');return {id:row.dataset.id,issue_id,entry_id,kind:values.kind,compiler:values.compiler,original_abstract:values.original_abstract,body_html:row.querySelector('[data-rich-field] textarea').value,basis:{record_id:values.record_id,url:values.url,source_version:values.source_version,locator:values.locator,record_version:values.record_version?Number(values.record_version):null}};});
   }
   if(kind==='profile'||kind==='issue')data.cover=jaCollectCover(form);
   return data;
 }
-function jaDraftKey(){return [state.me?.id,jaContext?.s.id,state.params.get('ja_edit'),state.params.get('ja_issue')||state.params.get('ja_compilation')||'new'].join(':');}
-function jaRememberDraft(form){try{const payload=jaPayload(form);sessionStorage.setItem('journal-draft:'+jaDraftKey(),JSON.stringify(payload));jaDrafts.set(jaDraftKey(),payload);const status=form.querySelector('[data-ja-draft-status]');if(status)status.textContent='草稿已保存在当前浏览器会话';return true;}catch{const status=form.querySelector('[data-ja-draft-status]');if(status)status.textContent='草稿尚未保存，请保持本页打开。';return false;}}
+function jaDraftKey(form){const c=form?._jaContext||jaContext;return [c.account,c.s.id,c.params.get('ja_edit'),c.params.get('ja_issue')||c.params.get('ja_compilation')||'new'].join(':');}
+function jaContextCurrent(c){return c&&c.account===state.me?.id&&c.generation===state.loadId&&c.hash===location.hash&&document.querySelector('[data-ja-source]')?.dataset.jaSource===c.s.id;}
+function jaRememberDraft(form){try{const payload=jaPayload(form);sessionStorage.setItem('journal-draft:'+jaDraftKey(form),JSON.stringify(payload));jaDrafts.set(jaDraftKey(form),payload);const status=form.querySelector('[data-ja-draft-status]');if(status)status.textContent='草稿已保存在当前浏览器会话';return true;}catch{const status=form.querySelector('[data-ja-draft-status]');if(status)status.textContent='草稿尚未保存，请保持本页打开。';return false;}}
 function jaFormReady(){
   const form=document.querySelector('[data-ja-form]');if(!form)return;
-  form.dataset.jaAccount=state.me.id;form._jaRecordVersion=jaContext.record?.version;
-  let draft=jaDrafts.get(jaDraftKey());try{draft=draft||JSON.parse(sessionStorage.getItem('journal-draft:'+jaDraftKey())||'null');}catch{}
+  form._jaContext=jaContext;form.dataset.jaAccount=state.me.id;form._jaRecordVersion=jaContext.record?.version;
+  let draft=jaDrafts.get(jaDraftKey(form));try{draft=draft||JSON.parse(sessionStorage.getItem('journal-draft:'+jaDraftKey(form))||'null');}catch{}
   if(draft){const bar=document.createElement('div');bar.className='notice';bar.innerHTML='有一份本机草稿。'+jaButton('恢复本机草稿','restore-draft')+jaButton('舍弃本机草稿','discard-draft');form.prepend(bar);form._jaDraft=draft;}
 }
 document.addEventListener('click',async event=>{
   const link=event.target.closest('[data-ja-link]');if(link){const form=document.querySelector('[data-ja-form]');if(form?.dataset.saving==='true'){event.preventDefault();return;}if(form&&!jaRememberDraft(form)){event.preventDefault();return;}jaPositions.set(location.hash,{account:state.me.id,y:scrollY});}
   const b=event.target.closest('[data-ja]');if(!b)return;
-  const action=b.dataset.ja,form=b.closest('form');
+  const action=b.dataset.ja,form=b.closest('form'),context=form?._jaContext||jaContext;
+  if(!jaContextCurrent(context))return;
   if(form?.dataset.saving==='true')return;
   try{
-    if(action==='add-metric')form.querySelector('[data-ja-metrics]').insertAdjacentHTML('beforeend',jaMetricRow());
+    if(action==='restore-history'){
+      if(b.dataset.saving==='true')return;b.dataset.saving='true';b.disabled=true;
+      const kind=b.dataset.kind,latest=kind==='profile'?context.data.profile:kind==='issue'?context.issue:context.doc;
+      const base='/api/journals/'+encodeURIComponent(context.s.id),path=kind==='profile'?'/profile':kind==='issue'?'/issues/'+context.issue.id:'/compilations/'+context.record.id;
+      const status=document.querySelector('[data-ja-restore-status]');
+      try{
+        await api(base+path+'/restore',{method:'POST',body:{version:latest.version,history_version:Number(b.dataset.historyVersion),record_version:context.record?.version}});
+        if(!b.isConnected||!jaContextCurrent(context))return;
+        toast('已恢复为新版本，历史与本机草稿继续保留');await route();
+      }catch(error){if(b.isConnected&&jaContextCurrent(context)){status.innerHTML='<p class="notice">'+esc(error.message)+'</p>'+(error.status===409?jaButton('读取最新历史后重新对照','reload-history'):'');}}
+      finally{if(b.isConnected){delete b.dataset.saving;b.disabled=false;}}
+    }else if(action==='reload-history'){await route();}
+    else if(action==='add-metric')form.querySelector('[data-ja-metrics]').insertAdjacentHTML('beforeend',jaMetricRow());
     else if(action==='add-ranking')form.querySelector('[data-ja-rankings]').insertAdjacentHTML('beforeend',jaRankingRow());
     else if(action==='add-subject')b.closest('[data-ja-ranking]').querySelector('[data-ja-subjects]').insertAdjacentHTML('beforeend',jaSubjectRow());
     else if(action==='add-section')form.querySelector('[data-ja-sections]').insertAdjacentHTML('beforeend',jaSectionRow());
     else if(action==='add-entry')b.closest('[data-ja-section]').querySelector('[data-ja-entries]').insertAdjacentHTML('beforeend',jaEntryRow());
-    else if(action==='add-selection')form.querySelector('[data-ja-selections]').insertAdjacentHTML('beforeend',jaSelectionRow({},jaContext.data.issues));
+    else if(action==='add-selection')form.querySelector('[data-ja-selections]').insertAdjacentHTML('beforeend',jaSelectionRow({},context.data.issues));
     else if(action==='remove-row')b.closest('fieldset').remove();
     else if(action==='move-up'||action==='move-down'){const row=b.closest('fieldset'),other=action==='move-up'?row.previousElementSibling:row.nextElementSibling;if(other)action==='move-up'?other.before(row):other.after(row);}
     else if(action==='draft')jaRememberDraft(form);
     else if(action==='restore-draft'){
       const d=form._jaDraft,kind=form.dataset.jaForm;
-      const html=kind==='profile'?jaProfileForm(jaContext.s,d):kind==='issue'?jaIssueForm(d):kind==='compilation'?jaCompilationForm(jaContext.record,d,jaContext.data.issues):jaNewCompilationForm(d);
-      if(html){form.closest('.journal-archive').innerHTML=jaLink('返回期刊档案',{ja_edit:'',ja_issue:'',ja_compilation:''},'back-link')+html;const restored=document.querySelector('[data-ja-form]');restored.dataset.jaAccount=state.me.id;restored._jaDirty=true;}
-    }else if(action==='discard-draft'){sessionStorage.removeItem('journal-draft:'+jaDraftKey());jaDrafts.delete(jaDraftKey());b.parentElement.remove();}
+      const html=kind==='profile'?jaProfileForm(context.s,d):kind==='issue'?jaIssueForm(d):kind==='compilation'?jaCompilationForm(context.record,d,context.data.issues):jaNewCompilationForm(d);
+      if(html){form.closest('.journal-archive').innerHTML=jaLink('返回期刊档案',{ja_edit:'',ja_issue:'',ja_compilation:''},'back-link')+html;const restored=document.querySelector('[data-ja-form]');restored._jaContext=context;restored.dataset.jaAccount=state.me.id;restored._jaDirty=true;}
+    }else if(action==='discard-draft'){sessionStorage.removeItem('journal-draft:'+jaDraftKey(form));jaDrafts.delete(jaDraftKey(form));b.parentElement.remove();}
     else if(action==='read-record'){jaPositions.set(location.hash,{account:state.me.id,y:scrollY,entry:b.dataset.entry});await openRecord(b.dataset.id);}
     else if(action==='select-entry'){
-      const choices=jaContext.data.compilations.filter(c=>c.can_edit);
+      const choices=context.data.compilations.filter(c=>c.can_edit);
       const links=choices.map(c=>jaLink(c.title,{ja_compilation:c.id,ja_issue:'',ja_edit:'compilation',ja_entry:b.dataset.entry},'detail-link')).join('');
       modal('选择目录译稿',links||'<p>请先在期刊档案建立或接续一份目录译稿。</p>');
     }else if(action==='search-record'){
@@ -137,10 +157,11 @@ document.addEventListener('click',async event=>{
       row.querySelector('[data-ja-record-results]').innerHTML=data.items.filter(r=>!isResearchContent(r.kind)).map(r=>jaButton(r.title+' · '+r.id,'choose-record',`data-id="${esc(r.id)}"`)).join('')||'<p>未找到可关联的原始资料；可先保存未入库目次。</p>';
     }else if(action==='choose-record'){const row=b.closest('[data-ja-entry-row]');row.querySelector('[name=record_id]').value=b.dataset.id;row.querySelector('[data-ja-record-results]').textContent='已选：'+b.textContent;}
     else if(action==='load-latest'){
-      const kind=form.dataset.jaForm,base='/api/journals/'+encodeURIComponent(jaContext.s.id);
-      const latest=kind==='profile'?(await api(base)).profile:kind==='issue'?await api(base+'/issues/'+jaContext.issue.id):await api(base+'/compilations/'+jaContext.record.id);
-      form.querySelector('[data-ja-conflict]').innerHTML='<details open><summary>最新保存内容（当前输入继续保留）</summary>'+(kind==='profile'?jaProfileRead(jaContext.s,latest):kind==='issue'?jaIssueRead(jaContext.s,latest,jaContext.data.profile,true):jaCompilationRead(jaContext.record,latest,true))+'</details><p>逐项对照后，可以将当前输入作为新版本保存。</p>'+jaButton('我已对照，继续编辑当前输入','accept-latest',`data-version="${latest.version}" data-record-version="${latest.record_version||''}"`);
-    }else if(action==='accept-latest'){form.dataset.version=b.dataset.version;if(b.dataset.recordVersion)jaContext.record.version=Number(b.dataset.recordVersion);delete form.dataset.conflict;form.querySelector('[data-ja-conflict]').innerHTML='<p class="notice">已对照；下一次保存会形成新版本，旧稿继续留存。</p>';}
+      const kind=form.dataset.jaForm,base='/api/journals/'+encodeURIComponent(context.s.id);
+      const latest=kind==='profile'?(await api(base)).profile:kind==='issue'?await api(base+'/issues/'+context.issue.id):await api(base+'/compilations/'+context.record.id);
+      if(!form.isConnected||!jaContextCurrent(context))return;
+      form.querySelector('[data-ja-conflict]').innerHTML='<details open><summary>最新保存内容（当前输入继续保留）</summary>'+(kind==='profile'?jaProfileRead(context.s,latest):kind==='issue'?jaIssueRead(context.s,latest,context.data.profile,true):jaCompilationRead(context.record,latest,true))+'</details><p>逐项对照后，可以将当前输入作为新版本保存。</p>'+jaButton('我已对照，继续编辑当前输入','accept-latest',`data-version="${latest.version}" data-record-version="${latest.record_version||''}"`);
+    }else if(action==='accept-latest'){form.dataset.version=b.dataset.version;if(b.dataset.recordVersion)context.record.version=Number(b.dataset.recordVersion);delete form.dataset.conflict;form.querySelector('[data-ja-conflict]').innerHTML='<p class="notice">已对照；下一次保存会形成新版本，旧稿继续留存。</p>';}
   }catch(error){const target=form?.querySelector('.form-error');if(target)target.textContent=error.message;else toast(error.message);}
 });
 document.addEventListener('input',event=>{const form=event.target.closest('[data-ja-form]');if(form){form._jaDirty=true;jaRememberDraft(form);}});
@@ -148,23 +169,24 @@ document.addEventListener('change',event=>{const form=event.target.closest('[dat
 document.addEventListener('submit',async event=>{
   const form=event.target.closest('[data-ja-form]');if(!form)return;event.preventDefault();
   if(form.dataset.saving==='true'||form.dataset.conflict)return;
-  if(form.dataset.jaAccount!==state.me?.id)return;
+  const context=form._jaContext;
+  if(form.dataset.jaAccount!==state.me?.id||!jaContextCurrent(context))return;
   form.dataset.saving='true';const button=form.querySelector('[type=submit]');button.disabled=true;
   const account=state.me.id,hash=location.hash,error=form.querySelector('.form-error');error.textContent='';
   try{
-    const kind=form.dataset.jaForm,data=jaPayload(form),base='/api/journals/'+encodeURIComponent(jaContext.s.id);
+    const kind=form.dataset.jaForm,data=jaPayload(form),base='/api/journals/'+encodeURIComponent(context.s.id);
     const upload=form.querySelector('[data-ja-cover-upload]')?.files[0];
-    if(upload&&form._jaCoverUpload!==upload){const files=new FormData();files.set('file',upload);const cover=await api(base+'/covers',{method:'POST',body:files});if(!form.isConnected||account!==state.me?.id)return;form.querySelector('[name=cover_file_id]').value=cover.id;form.querySelector('[name=cover_attachment_id]').value='';form.querySelector('[name=cover_external_url]').value='';form._jaCoverUpload=upload;}
+    if(upload&&form._jaCoverUpload!==upload){const files=new FormData();files.set('file',upload);const cover=await api(base+'/covers',{method:'POST',body:files});if(!form.isConnected||!jaContextCurrent(context)||account!==state.me?.id)return;form.querySelector('[name=cover_file_id]').value=cover.id;form.querySelector('[name=cover_attachment_id]').value='';form.querySelector('[name=cover_external_url]').value='';form._jaCoverUpload=upload;}
     if(kind==='profile'||kind==='issue')data.cover=jaCollectCover(form);
     let result;
     if(kind==='new-compilation'){
       result=await api('/api/records',{method:'POST',body:data});
     }else{
-      const path=kind==='profile'?'/profile':kind==='issue'?'/issues'+(jaContext.issue?'/'+jaContext.issue.id:''):'/compilations/'+jaContext.record.id;
-      result=await api(base+path,{method:kind==='issue'&&!jaContext.issue?'POST':'PUT',body:data});
+      const path=kind==='profile'?'/profile':kind==='issue'?'/issues'+(context.issue?'/'+context.issue.id:''):'/compilations/'+context.record.id;
+      result=await api(base+path,{method:kind==='issue'&&!context.issue?'POST':'PUT',body:data});
     }
     if(!form.isConnected||account!==state.me?.id||hash!==location.hash)return;
-    sessionStorage.removeItem('journal-draft:'+jaDraftKey());jaDrafts.delete(jaDraftKey());form._jaDirty=false;
+    sessionStorage.removeItem('journal-draft:'+jaDraftKey(form));jaDrafts.delete(jaDraftKey(form));form._jaDirty=false;
     toast('已保存，历史版本继续保留');
     const changes={ja_edit:'',ja_entry:''};if(kind==='issue')changes.ja_issue=result.id;if(kind==='new-compilation'){changes.ja_compilation=result.id;changes.ja_edit='compilation';}
     const target=new URL(jaUrl(changes),location.href);history.pushState({},'',target.hash);await route();

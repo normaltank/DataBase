@@ -114,6 +114,15 @@ class JournalArchives:
     def can_edit(self, sid):
         return sid not in self.actor.get('trial_sample_journals', [])
 
+    def readable_origin(self, rid, required=False):
+        """Adoption retains every original identity's current access boundary."""
+        row = identity.readable_origin(self.db, rid, self.records.visible)
+        if row:
+            return row
+        if required:
+            abort(404, '所据原文不存在，或当前账号没有查看权限。')
+        return None
+
     def get(self, kind, sid, did, required=False):
         sid = self.source(sid)['id']
         row = self.db.execute(f'SELECT * FROM {TABLES[kind]} WHERE id=? AND source_id=?', (did, sid)).fetchone()
@@ -240,7 +249,7 @@ class JournalArchives:
         record = self.records.get(rid, edit=True)
         for saved in old.get('selections', []):
             if saved['basis'].get('record_id'):
-                self.records.get(saved['basis']['record_id'])
+                self.readable_origin(saved['basis']['record_id'], True)
         if record['kind'] not in {'directory_translation', 'compilation', 'research_report'}:
             abort(400, '请选择目录译稿或现有个人编译成果。')
         if type(data.get('record_version')) is not int or data['record_version'] != record['version']:
@@ -283,7 +292,7 @@ class JournalArchives:
             if same:
                 frozen = copy.deepcopy(before)
                 if frozen.get('record_id'):
-                    self.records.get(frozen['record_id'])
+                    self.readable_origin(frozen['record_id'], True)
             elif requested['record_id']:
                 original = self.records.get(requested['record_id'])
                 if entry['record_id'] and entry['record_id'] != original['id']:
@@ -340,8 +349,8 @@ class JournalArchives:
             visible = []
             for item in value.get('selections', []):
                 basis = item['basis']
-                original = identity.resolve(self.db, 'records', basis.get('record_id', '')) if basis.get('record_id') else None
-                if basis.get('record_id') and (not original or not self.records.visible(original)):
+                original = self.readable_origin(basis['record_id']) if basis.get('record_id') else None
+                if basis.get('record_id') and not original:
                     visible.append({'id': item['id'], 'unavailable': True})
                     value['can_edit'] = False
                     continue
@@ -350,7 +359,8 @@ class JournalArchives:
                 basis['snapshot']['attachments'] = []
                 for aid in basis['snapshot'].get('attachment_ids', []):
                     attached = self.db.execute('SELECT * FROM attachments WHERE id=?', (aid,)).fetchone()
-                    if attached:
+                    owner = self.readable_origin(attached['record_id']) if attached else None
+                    if owner and original and owner['id'] == original['id']:
                         basis['snapshot']['attachments'].append({key: attached[key] for key in ['id', 'name', 'bytes', 'sha256']})
                         basis['snapshot']['attachments'][-1]['url'] = f'/api/journals/{sid}/compilations/{value["id"]}/basis/{item["id"]}/attachments/{aid}?archive_version={value["version"]}'
                 visible.append(item)
@@ -372,14 +382,57 @@ class JournalArchives:
                 values = self.issue_values(sid, data)
             else:
                 values = self.compilation_values(sid, did, data, old)
-            version, stamp = old['version'] + 1, now()
-            self.db.execute(f'''INSERT INTO {TABLES[kind]} VALUES (?,?,?,?,?,?)
-                ON CONFLICT(id) DO UPDATE SET version=excluded.version,data_json=excluded.data_json,
-                actor_id=excluded.actor_id,updated_at=excluded.updated_at''',
-                (did, sid, version, json.dumps(values, ensure_ascii=False), self.actor['id'], stamp))
-            saved = {**values, 'id': did, 'source_id': sid, 'version': version, 'actor_id': self.actor['id'], 'updated_at': stamp}
-            self.db.execute('INSERT INTO journal_archive_history(kind,target_id,source_id,version,actor_id,created_at,snapshot_json) VALUES (?,?,?,?,?,?,?)',
-                            (kind, did, sid, version, self.actor['id'], stamp, json.dumps(saved, ensure_ascii=False)))
+            saved = self.write_revision(kind, sid, did, old['version'] + 1, values)
+        return self.public(kind, saved)
+
+    def write_revision(self, kind, sid, did, version, values):
+        stamp = now()
+        self.db.execute(f'''INSERT INTO {TABLES[kind]} VALUES (?,?,?,?,?,?)
+            ON CONFLICT(id) DO UPDATE SET version=excluded.version,data_json=excluded.data_json,
+            actor_id=excluded.actor_id,updated_at=excluded.updated_at''',
+            (did, sid, version, json.dumps(values, ensure_ascii=False), self.actor['id'], stamp))
+        saved = {**values, 'id': did, 'source_id': sid, 'version': version, 'actor_id': self.actor['id'], 'updated_at': stamp}
+        self.db.execute('INSERT INTO journal_archive_history(kind,target_id,source_id,version,actor_id,created_at,snapshot_json) VALUES (?,?,?,?,?,?,?)',
+                        (kind, did, sid, version, self.actor['id'], stamp, json.dumps(saved, ensure_ascii=False)))
+        return saved
+
+    def restore(self, kind, sid, did, data):
+        sid = self.source(sid)['id']
+        if not self.can_edit(sid):
+            abort(403, '公共期刊演示只供阅读。')
+        with self.db:
+            self.db.execute('BEGIN IMMEDIATE')
+            current = self.get(kind, sid, did, True)
+            if kind == 'compilation':
+                record = self.records.get(did, edit=True)
+                if type(data.get('record_version')) is not int or data['record_version'] != record['version']:
+                    abort(409, '译稿正文或授权已经变化，请对照最新版本；当前输入请保留。')
+            if type(data.get('version')) is not int or data['version'] != current['version']:
+                abort(409, '已有成员保存了新版本；当前输入请保留并对照最新版本。')
+            requested = data.get('history_version')
+            if type(requested) is not int or requested < 1:
+                abort(400, '请选择实际的历史版本。')
+            row = self.db.execute('SELECT snapshot_json FROM journal_archive_history WHERE kind=? AND target_id=? AND source_id=? AND version=?',
+                                  (kind, did, sid, requested)).fetchone()
+            if not row:
+                abort(404, '未找到该对象的历史版本。')
+            target = json.loads(row['snapshot_json'])
+            # Restore content, never historical authorization. Frozen adoption
+            # snapshots are copied, not rebuilt from a now-changed TOC or article.
+            for doc in (current, target):
+                if doc.get('cover'):
+                    self.cover(sid, doc['cover'])
+                for section in doc.get('sections', []):
+                    for entry in section['entries']:
+                        if entry.get('record_id'):
+                            self.readable_origin(entry['record_id'], True)
+                for selection in doc.get('selections', []):
+                    if selection['basis'].get('record_id'):
+                        self.readable_origin(selection['basis']['record_id'], True)
+                for iid in doc.get('issue_ids', []):
+                    self.get('issue', sid, iid, True)
+            values = {key: value for key, value in target.items() if key not in {'id', 'source_id', 'version', 'actor_id', 'updated_at'}}
+            saved = self.write_revision(kind, sid, did, current['version'] + 1, values)
         return self.public(kind, saved)
 
     def history(self, kind, sid, did):
@@ -415,6 +468,22 @@ def validate_backup(db, manifest):
     required = {*TABLES.values(), 'journal_archive_history', 'journal_covers'}
     if not required <= {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}:
         raise ValueError('备份缺少期刊档案结构。')
+
+    def check_adopted_files(snapshot, rid, message):
+        original = identity.resolve(db, 'records', rid)
+        if not original:
+            raise ValueError(message)
+        # Ownership can move in a legitimate merge. The immutable adopted ID,
+        # version and attachment membership still have to exist in its history.
+        revisions = db.execute("SELECT snapshot_json FROM revisions WHERE target_type='record' AND target_id=? AND json_extract(snapshot_json,'$.version')=?", (rid, snapshot['version'])).fetchall()
+        allowed = [json.loads(row[0]) for row in revisions]
+        if not allowed:
+            raise ValueError(message)
+        for aid in snapshot['attachment_ids']:
+            attached = db.execute('SELECT * FROM attachments WHERE id=?', (aid,)).fetchone()
+            owner = identity.resolve(db, 'records', attached['record_id']) if attached else None
+            if not owner or owner['id'] != original['id'] or not any(aid in json.loads(r['attachment_ids']) for r in allowed):
+                raise ValueError(message)
 
     def check_cover(value, sid):
         if not value:
@@ -472,9 +541,7 @@ def validate_backup(db, manifest):
             parent = value['record_snapshot']
             if parent['id'] != did or type(parent['version']) is not int or parent['version'] < 1 or not isinstance(parent['body_html'], str):
                 raise ValueError('选编保存时的整体译稿版本缺失。')
-            for aid in parent['attachment_ids']:
-                if not db.execute('SELECT 1 FROM attachments WHERE id=? AND record_id=?', (aid, did)).fetchone():
-                    raise ValueError('整体译稿历史附件缺失。')
+            check_adopted_files(parent, did, '整体译稿历史附件缺失。')
             for iid in value['issue_ids']:
                 if not db.execute('SELECT 1 FROM journal_issues WHERE id=? AND source_id=?', (iid, sid)).fetchone():
                     raise ValueError('跨期编译的原刊卷期缺失。')
@@ -485,9 +552,7 @@ def validate_backup(db, manifest):
                 if basis['record_id']:
                     if not db.execute('SELECT 1 FROM records WHERE id=?', (basis['record_id'],)).fetchone() or basis['snapshot']['id'] != basis['record_id'] or basis['snapshot']['version'] != basis['record_version']:
                         raise ValueError('选编所据原文版本不完整。')
-                    for aid in basis['snapshot'].get('attachment_ids', []):
-                        if not db.execute('SELECT 1 FROM attachments WHERE id=? AND record_id=?', (aid, basis['record_id'])).fetchone():
-                            raise ValueError('选编所据历史附件缺失。')
+                    check_adopted_files(basis['snapshot'], basis['record_id'], '选编所据历史附件缺失。')
                 elif not workflow.safe_link(basis['url']) or not (basis['source_version'] or basis['locator']):
                     raise ValueError('未入库选编依据缺失。')
                 if item['kind'] == 'abstract_translation' and not basis['snapshot'].get('abstract'):
@@ -585,6 +650,17 @@ def export_html(item, record_paths, relative='../'):
 
 def prepare_export_files(db, archives, attachments):
     covers = {}
+
+    def adopted_files(snapshot):
+        if not snapshot.get('attachment_ids'):
+            return
+        snapshot['files'] = []
+        for aid in snapshot['attachment_ids']:
+            row = db.execute('SELECT * FROM attachments WHERE id=?', (aid,)).fetchone()
+            if row:
+                attachments[aid] = {**dict(row), 'path': 'attachments/' + row['stored_name']}
+                snapshot['files'].append({'id': aid, 'name': row['name'], 'path': attachments[aid]['path']})
+
     def visit(value):
         if isinstance(value, list):
             for item in value:
@@ -596,20 +672,8 @@ def prepare_export_files(db, archives, attachments):
                     item = {**dict(row), 'path': 'journal-covers/' + row['stored_name']}
                     covers[row['id']] = item
                     value['file'] = {**value.get('file', {}), 'path': item['path']}
-            if value.get('snapshot', {}).get('attachment_ids'):
-                value['snapshot']['files'] = []
-                for aid in value['snapshot']['attachment_ids']:
-                    row = db.execute('SELECT * FROM attachments WHERE id=?', (aid,)).fetchone()
-                    if row:
-                        attachments[aid] = {**dict(row), 'path': 'attachments/' + row['stored_name']}
-                        value['snapshot']['files'].append({'id': aid, 'name': row['name'], 'path': attachments[aid]['path']})
-            if value.get('record_snapshot', {}).get('attachment_ids'):
-                value['record_snapshot']['files'] = []
-                for aid in value['record_snapshot']['attachment_ids']:
-                    row = db.execute('SELECT * FROM attachments WHERE id=?', (aid,)).fetchone()
-                    if row:
-                        attachments[aid] = {**dict(row), 'path': 'attachments/' + row['stored_name']}
-                        value['record_snapshot']['files'].append({'id': aid, 'name': row['name'], 'path': attachments[aid]['path']})
+            for field in ('snapshot', 'record_snapshot'):
+                adopted_files(value.get(field, {}))
             if value.get('attachment_id') and not value.get('unavailable'):
                 aid = value['attachment_id']
                 row = db.execute('SELECT * FROM attachments WHERE id=?', (aid,)).fetchone()
@@ -679,9 +743,9 @@ def register(app, ctx):
         selected = next((item for item in doc['selections'] if item['id'] == selection_id), None)
         if not selected or aid not in selected['basis']['snapshot'].get('attachment_ids', []):
             abort(404, '附件不属于这条采用依据。')
-        original = svc.records.get(selected['basis']['record_id'])
+        original = svc.readable_origin(selected['basis']['record_id'], True)
         attached = ctx.db().execute('SELECT * FROM attachments WHERE id=?', (aid,)).fetchone()
-        if not attached or svc.records.get(attached['record_id'])['id'] != original['id']:
+        if not attached or svc.readable_origin(attached['record_id'], True)['id'] != original['id']:
             abort(404)
         from .attachment_search import original_path
         path = original_path(ctx.data_dir, attached)
@@ -701,6 +765,19 @@ def register(app, ctx):
         svc = service()
         canonical = svc.source(sid)['id']
         return jsonify(items=svc.history('profile', canonical, canonical))
+
+    @app.post('/api/journals/<sid>/profile/restore')
+    def journal_profile_restore(sid):
+        svc = service()
+        canonical = svc.source(sid)['id']
+        return jsonify(svc.restore('profile', canonical, canonical, ctx.body()))
+
+    @app.post('/api/journals/<sid>/<kind>/<did>/restore')
+    def journal_archive_restore(sid, kind, did):
+        key = {'issues': 'issue', 'compilations': 'compilation'}.get(kind)
+        if not key:
+            abort(404)
+        return jsonify(service().restore(key, sid, did, ctx.body()))
 
     @app.post('/api/journals/<sid>/covers')
     def journal_cover_upload(sid):

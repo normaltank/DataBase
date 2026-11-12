@@ -42,6 +42,20 @@ def origins(db, table, rid):
     return sorted(found)
 
 
+def readable_origin(db, rid, visible):
+    """Resolving an identity never expands the adopted origin's current ACL."""
+    seen = set()
+    while rid and rid not in seen:
+        seen.add(rid)
+        row = db.execute('SELECT * FROM records WHERE id=?', (rid,)).fetchone()
+        if not row or not visible(row):
+            return None
+        if not row['merged_into']:
+            return row
+        rid = row['merged_into']
+    return None
+
+
 def aliases(*values):
     return "\n".join(dict.fromkeys(line.strip() for value in values for line in str(value or "").splitlines() if line.strip()))
 

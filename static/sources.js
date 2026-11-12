@@ -84,11 +84,14 @@ async function openSource(id,preview=false){
   modal('来源快速预览',html);
 }
 async function sourcePage(id){
+  const sourceGeneration=state.loadId,sourceAccount=state.me?.id,sourceHash=location.hash;
   let s;
   try{s=await api('/api/sources/'+encodeURIComponent(id));}
   catch(error){if(error.status!==404)throw error;return '<section class="source-page"><a class="back-link" href="#sources?'+esc(parameters({id:''}))+'">← 返回来源目录</a><h1>无法打开来源档案</h1><p class="notice">该编号不存在或当前不可访问，请核实链接。</p></section>';}
   if(s.kind==='portal'&&state.page!=='maintenance-sources')return '<h1>'+esc(s.name)+'</h1><p>资料发现网站在数据与维护区管理。</p>'+linkButton('打开维护预览','source-preview',s.id)+linkButton('返回资料发现网站','source-group','maintenance');
+  if(sourceGeneration!==state.loadId||sourceAccount!==state.me?.id||sourceHash!==location.hash)return '';
   const html=await sourceProfile(s,false,id);
+  if(sourceGeneration!==state.loadId||sourceAccount!==state.me?.id||sourceHash!==location.hash)return '';
   state.sourceProfile={requested:id,data:s};
   if(!document.querySelector('#modal-root .overlay'))state.detail={type:'source',data:s};return html;
 }
