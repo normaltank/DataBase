@@ -25,9 +25,9 @@ class LocalPublicSettings:
     def validate(value):
         if (not isinstance(value, dict) or set(value) != {'version','enabled','source_ids'} or value['version'] != 1
                 or type(value['enabled']) is not bool or not isinstance(value['source_ids'], list)
-                or len(value['source_ids']) > 3 or not all(isinstance(s, str) and 1<=len(s)<=200 for s in value['source_ids'])
+                or len(value['source_ids']) > 4 or not all(isinstance(s, str) and 1<=len(s)<=200 for s in value['source_ids'])
                 or len(set(value['source_ids'])) != len(value['source_ids']) or value['enabled'] and not value['source_ids']):
-            raise ValueError('请明确选择一至三个已登记期刊，然后开启本机公开采集。')
+            raise ValueError('请明确选择一至四个已接入期刊，然后开启本机公开采集。')
 
     def configure(self, enabled, source_ids):
         value = dict(version=1, enabled=enabled, source_ids=source_ids)

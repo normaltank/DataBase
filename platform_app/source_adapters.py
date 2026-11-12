@@ -40,6 +40,12 @@ def for_source(source):
         p = urlsplit(intake.normalize_url(source['website']))
         if p.scheme != 'https' or p.port not in {None, 443} or p.query or p.fragment:
             return None
+        # The existing SER-SSE-BJE archive uses its SSE Riga journal page.
+        # Keep that identity and website; collection still uses fixed Crossref.
+        if (source['kind']=='journal' and p.hostname in {'www.sseriga.edu','sseriga.edu'}
+                and p.path.rstrip('/')=='/centres/biceps/bje'
+                and set(re.split(r'[\s;,|]+',source['issn'] or '')) & {'1406-099X','2334-4385'}):
+            return next(a for a in ADAPTERS if a['id']=='bje-crossref-v1')
         return next((a for a in ADAPTERS if source['kind'] in a['kinds'] and p.hostname in a['hosts'] and p.path in a['roots']), None)
     except ValueError:
         return None
