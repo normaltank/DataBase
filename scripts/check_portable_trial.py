@@ -166,6 +166,10 @@ def lan(one, two, env, evidence, result):
     assert second.request('/api/collaboration/topics/' + tid)['id'] == tid
     command(one, env, 'stop')
     with socket.socket() as conflict:
+        if os.name == 'nt':
+            # Windows SO_REUSEADDR permits overlapping wildcard binds unless
+            # the synthetic owner explicitly reserves the port exclusively.
+            conflict.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
         conflict.bind(('127.0.0.1', state['port']))
         conflict.listen()
         command(one, env, 'lan-start', '--no-browser')

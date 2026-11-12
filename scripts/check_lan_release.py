@@ -99,6 +99,8 @@ def check(package, evidence):
         command(one, env, 'stop')
         # An owned conflicting socket must survive launcher fallback and stop.
         with socket.socket() as conflict:
+            if os.name == 'nt':
+                conflict.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
             conflict.bind(('0.0.0.0', state['port']))
             conflict.listen()
             command(one, env, 'lan-start', '--no-browser')
