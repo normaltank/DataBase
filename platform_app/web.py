@@ -510,6 +510,8 @@ def create_app(data_dir=None, testing=False, *, initialization_mode='demo', embe
             obj["research_subjects"] = note_subjects.read(db(), rid, visible)
         obj["translations"] = translations.items(db(), row)
         obj["translation_history"] = translations.human_history(db(), row["id"])
+        from .fulltext import projection as fulltext_projection
+        obj.update(fulltext_projection(db(), row, visible))
         from .topic_finals import record_works
         works = record_works(db(), user(), rid)
         if works:
@@ -908,6 +910,8 @@ def create_app(data_dir=None, testing=False, *, initialization_mode='demo', embe
     if not testing and embedded_worker:
         archive_suggestions.start_worker(data_dir)
     translations.register(app, SimpleNamespace(db=db, user=user, body=body, records=records))
+    from . import fulltext
+    fulltext.register(app, SimpleNamespace(db=db, user=user, body=body, records=records, data_dir=data_dir))
     bulk.register(app, SimpleNamespace(db=db, user=user, body=body, visible=visible, get_collection=get_collection, export_csv=export_csv))
     identity.register(app, db=db, body=body, records=records, validate_source=source_values)
     people.register(app, SimpleNamespace(db=db, user=user, body=body, data_dir=data_dir, records=records))

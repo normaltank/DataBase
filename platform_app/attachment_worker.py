@@ -16,7 +16,7 @@ class LimitReached(Exception):
     pass
 
 
-def extract(path):
+def extract(path, pdf_details=None):
     if path.stat().st_size > MAX_BYTES:
         raise LimitReached()
     segments = []
@@ -74,6 +74,8 @@ def extract(path):
             raise ValueError('Encrypted PDF')
         if len(reader.pages) > MAX_PAGES:
             raise LimitReached()
+        if pdf_details is not None:
+            pdf_details.update(pages_total=len(reader.pages),pages_with_text=[])
         expanded = 0
         for number, page in enumerate(reader.pages, 1):
             contents = page.get_contents()
@@ -81,7 +83,11 @@ def extract(path):
                 expanded += len(contents.get_data())
                 if expanded > MAX_EXPANDED:
                     raise LimitReached()
+            before=len(segments)
             add(f'PDF 第 {number} 页（文件页码）', page.extract_text())
+            if pdf_details is not None and len(segments)>before:
+                segments[-1]['page']=number
+                pdf_details['pages_with_text'].append(number)
     else:
         return 'unsupported', []
     return ('ready' if segments else 'empty'), segments
@@ -89,15 +95,16 @@ def extract(path):
 
 if __name__ == '__main__':
     messages = {'ready': '已建立文字索引', 'empty': '无可提取文字（不支持 OCR）', 'unsupported': '格式不支持', 'limit': '超过索引处理限制', 'failed': '文字提取失败'}
+    details={} if len(sys.argv)>2 and sys.argv[2]=='--fulltext-pdf' else None
     try:
         # A hard address-space ceiling is also available on Unix. Windows uses
         # input, expanded-stream, page, output and parent-enforced time limits.
         if sys.platform != 'win32':
             import resource
             resource.setrlimit(resource.RLIMIT_AS, (512 * 1024 * 1024,) * 2)
-        code, segments = extract(Path(sys.argv[1]))
+        code, segments = extract(Path(sys.argv[1]),details)
     except (LimitReached, MemoryError):
         code, segments = 'limit', []
     except Exception:
         code, segments = 'failed', []
-    sys.stdout.buffer.write(json.dumps({'status': code, 'message': messages[code], 'segments': segments}, ensure_ascii=False).encode('utf-8'))
+    sys.stdout.buffer.write(json.dumps({'status': code, 'message': messages[code], 'segments': segments,**(details or {})}, ensure_ascii=False).encode('utf-8'))
