@@ -75,7 +75,7 @@
       "coverTake": "translateY(-7px) rotateY(-12deg)",
       "switchTarget": "44px",
       "motion": "Anime.js 4.5.0 / 240ms outExpo, scope revert on cancellation; reduced motion direct final state",
-      "composition": "Named journal/year shelves and separate topic/work products; equivalent native list; institutions stay directory rows."
+      "composition": "Only selected journal/year or topic partitions contain books; source title-index partitions and equivalent native lists; institutions stay directory rows."
     }
   },
   "components": [
