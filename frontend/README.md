@@ -8,6 +8,8 @@ entries and reproducibly copy shared styles, the worker and license files.
 
 The fixed entry names are `globe`, `timeline`, `network`, `flow`, `diff`,
 and `desk-motion`.
+`desk-motion` also supplies the short shelf/list and book-to-detail transition;
+the ordinary same-origin bookshelf adapter retains native content on load failure.
 Their source is `frontend/<name>.js` and output is
 `static/vendor/visual/<name>.js`. Missing entries are skipped by the full build;
 a missing requested single entry is an error. Do not change the lock or loader

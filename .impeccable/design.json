@@ -54,6 +54,28 @@
       "reading": "One return and compact article header; comparison under reader tools; retained query/canvas.",
       "profiles": "Introduction and works lead; maintenance/section tools follow content.",
       "discovery": "Large canvas with direct candidates and back-to-exploration scroll destinations, same retained canvas/camera."
+    },
+    "bookshelf": {
+      "scope": "journal and saved results only; issue153",
+      "paper": {
+        "ink": "#edf0fa",
+        "sage": "#eaf3ed",
+        "plum": "#f4eaf0",
+        "blue": "#e9f2f7"
+      },
+      "ink": {
+        "ink": "#273969",
+        "sage": "#28534a",
+        "plum": "#65415d",
+        "blue": "#27516c"
+      },
+      "shelf": "#dce0ed",
+      "coverPerspective": "1000px",
+      "coverRest": "rotateY(-7deg)",
+      "coverTake": "translateY(-7px) rotateY(-12deg)",
+      "switchTarget": "44px",
+      "motion": "Anime.js 4.5.0 / 240ms outExpo, scope revert on cancellation; reduced motion direct final state",
+      "composition": "Named journal/year shelves and separate topic/work products; equivalent native list; institutions stay directory rows."
     }
   },
   "components": [
