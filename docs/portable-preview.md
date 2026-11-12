@@ -30,11 +30,15 @@ python scripts/check_portable_preview.py --package 'C:\明确路径\dist\Zhihui-
 
 旧版已经丢失原研究Cookie、没有可验证返回标记的维护会话不能自动认领旧身份，也不会依据材料、题名或用户编号猜配。需要接续本人旧账号时，可由本机管理员通过既有“账号与负责人资格”核对账号、设置本人新口令，再从“使用已有账号”正常登录；账号停用和业务资格继续按实际状态执行。此为既有账号管理恢复路径，不是开放任意选择身份。程序更新本身不会重置真实成员口令。
 
-LAN采用真实Waitress，Host只接受本机及启动时发现的实际IPv4，拒绝转发头，写入保留Origin／CSRF。窗口列出的校园网IPv4地址供分享，127.0.0.1仅供主机本机，不作为同事访问地址。无需修改端口时直接启动，优先复用上次端口；可停机执行 `lan-configure.bat --port 8851`，0为自动，省略参数保留原设置。此配置不读取口令、不改账号、不启用AI。随机令牌停止控制端点仍要求回环来源；停止只管理本副本。
+LAN采用真实Waitress，Host只接受本机及最近一次启动／刷新时可绑定的本机IPv4，拒绝转发头，写入保留Origin／CSRF。地址列表排除回环、链路本地、组播、保留、文档及基准测试等特殊用途地址，保留普通私网、共享地址和校园公网IPv4；依据为[IANA特殊用途地址表](https://www.iana.org/assignments/iana-ipv4-special-registry/)。这些仍只是本机地址候选，不保证对应网卡与手机互通。127.0.0.1仅供主机本机，不作为同事访问地址。切网或开启热点后，再运行 `lan-start.bat` 会原地刷新允许地址和分享列表、撤销旧地址，保持同一实例、端口和身份，不用先停服务；无可用地址时只保留本机入口，联网后可再次刷新。未执行刷新前仍使用上次地址快照。
+
+无需修改端口时直接启动，优先复用上次端口；可停机执行 `lan-configure.bat --port 8851`，0为自动，省略参数保留原设置。此配置不读取口令、不改账号、不启用AI。随机令牌控制端点（停止／刷新）要求直接回环来源及本机Host，停止只管理本副本。
+
+双击 `lan-diagnose.bat`，或执行 `runtime\python.exe -I -B portable\launch.py lan-diagnose`，可取得不含控制令牌的JSON诊断：本副本是否可认证、回环健康、本机网卡地址及排除理由、最近允许的网址，以及最多16个当前地址的本机HTTP自测（每项0.4秒超时，绕过系统代理）。未认证到本副本时不探测旧端口。诊断不启动／停止服务、不刷新Host、不改账号、AI许可、防火墙、TUN或路由。`phone_verified: false` 表示本命令没有验证手机，`external_network_cause: undetermined` 表示未据此判断外部网络根因；HTTP 400与连接超时分别呈现。诊断含本机地址，转交公开Issue前须脱敏。
 
 同校园网不保证设备互访：校园Wi-Fi客户端隔离、访客网或不同网段规则可能阻断；主机须联网且保持开机不休眠。防火墙只由使用者按程序 `runtime\python.exe`、实际TCP端口和试用网段／具体客户端IP建立受限入站规则，配置文件与校园实际网络一致，结束后禁用／删除。完整中文逐步操作在包根目录[使用说明](../portable/quick-start.html)，软件不修改防火墙、路由器或开放公网。临时LAN HTTP只用于可信网络；正式TLS部署见[服务器发行说明](https://github.com/normaltank/DataBase/blob/main/docs/server-deployment.md)。
 
-实际ZIP检查：`python scripts/check_lan_release.py --package <ZIP>`，验证本机非回环IPv4登录、两成员／私人资料／附件、重启、端口冲突、自身停止和备份新目录恢复；不冒称已在校园两台设备上验证。它和原便携验收都不探测8848。
+源代码回归：`python -m unittest discover -s tests -p test_portable_lan.py -v`，覆盖合成网卡变化、公开CLI及真实回环HTTP，检查新增／撤销地址、实例／身份连续性和控制边界。实际ZIP检查：`python scripts/check_lan_release.py --package <ZIP>`，验证本机非回环IPv4的临时身份／权限、地址刷新、诊断、重启、端口冲突、自身停止和备份新目录恢复；旧账号包保留历史登录分支。两者不证明校园两台设备互访，均不探测8848。
 
 ## 不启用AI的三刊公开采集
 

@@ -13,6 +13,7 @@ import sys
 import threading
 import time
 import urllib.request
+import urllib.error
 
 ROOT = Path(__file__).resolve().parents[1]
 STATE = ROOT / '.portable'
@@ -68,18 +69,24 @@ def read_state():
 
 
 def contact(info, stop=False):
+    return control(info, 'stop' if stop else 'status') is not None
+
+
+def control(info, action):
     if not info:
-        return False
+        return None
     request = urllib.request.Request(
-        f"http://127.0.0.1:{info['port']}/__portable/{'stop' if stop else 'status'}",
-        headers={'X-Portable-Token': info['token']}, method='POST' if stop else 'GET')
+        f"http://127.0.0.1:{info['port']}/__portable/{action}",
+        headers={'X-Portable-Token': info['token']}, method='GET' if action == 'status' else 'POST')
     try:
         # Explicitly ignore any machine-wide proxy configuration.
         with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(request, timeout=2) as response:
             body = json.load(response)
-            return body.get('identity') == IDENTITY and body.get('instance') == info['instance']
+            if body.get('identity') == IDENTITY and body.get('instance') == info['instance']:
+                return body
     except (OSError, ValueError):
-        return False
+        pass
+    return None
 
 
 def write_json(path, value):
@@ -116,13 +123,44 @@ def initialize_data():
 
 
 def lan_addresses():
+    return lan_inventory()['addresses']
+
+
+def lan_inventory():
+    # IANA IPv4 special-purpose registry (2025-10-09): retain RFC1918,
+    # shared space and ordinary campus unicast; exclude protocol/service,
+    # documentation and benchmark addresses from human-shareable URLs.
+    special = tuple(ipaddress.ip_network(value) for value in (
+        '0.0.0.0/8', '192.0.0.0/24', '192.0.2.0/24', '192.31.196.0/24',
+        '192.52.193.0/24', '192.88.99.0/24', '192.175.48.0/24',
+        '198.18.0.0/15', '198.51.100.0/24', '203.0.113.0/24'))
     addresses = set()
-    for entry in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
-        value = entry[4][0]
-        ip = ipaddress.ip_address(value)
-        if not ip.is_loopback and not ip.is_unspecified and not ip.is_link_local:
+    excluded = []
+    try:
+        values = sorted({entry[4][0] for entry in
+                         socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET)})
+    except OSError:
+        return {'addresses': [], 'excluded': [], 'error': 'IPv4 enumeration failed'}
+    for value in values:
+        try:
+            ip = ipaddress.IPv4Address(value)
+        except ValueError:
+            excluded.append({'address': value, 'reason': 'invalid IPv4'})
+            continue
+        if (ip.is_loopback or ip.is_unspecified or ip.is_link_local or ip.is_multicast
+                or ip.is_reserved or any(ip in network for network in special)):
+            excluded.append({'address': value, 'reason': 'special-purpose IPv4'})
+            continue
+        try:
+            # A hostname result alone is not evidence of an assigned interface.
+            # The kernel must allow binding it now; never learn trust from Host.
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+                probe.bind((value, 0))
+        except OSError:
+            excluded.append({'address': value, 'reason': 'not currently bindable on this host'})
+        else:
             addresses.add(value)
-    return sorted(addresses)
+    return {'addresses': sorted(addresses), 'excluded': excluded, 'error': None}
 
 
 def lan_config():
@@ -135,6 +173,38 @@ def lan_config():
     except (OSError, ValueError, KeyError, TypeError):
         pass
     raise RuntimeError('局域网端口设置无效，请运行 lan-configure.bat --port 0 重新设置。')
+
+
+def lan_diagnostic(info, active):
+    """Read-only, proxy-free local self-tests; never contact a phone or change networking."""
+    inventory = lan_inventory()
+
+    def health(address):
+        url = f"http://{address}:{info['port']}/health"
+        try:
+            with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(url, timeout=.4) as response:
+                payload = json.loads(response.read(4096))
+                return {'url': url, 'status': 'ok' if payload.get('status') == 'ok' else 'unexpected_response',
+                        'http_status': response.status}
+        except urllib.error.HTTPError as error:
+            return {'url': url, 'status': 'http_error', 'http_status': error.code}
+        except (OSError, ValueError, AttributeError):
+            return {'url': url, 'status': 'unreachable'}
+
+    result = {'service': {'owned_instance': active}, 'interfaces': inventory,
+              'phone_verified': False, 'external_network_cause': 'undetermined',
+              'note': '仅本机自测，不证明手机或校园设备互访；不修改防火墙、TUN或路由。'}
+    if active:
+        result['service'].update(mode=info.get('mode', 'local'), port=info['port'],
+                                 loopback=health('127.0.0.1'), trusted_urls=info.get('urls', []))
+        # At most 16 current local addresses, 0.4s per probe. Never probe a stale
+        # state port unless the authenticated own-instance control check passed.
+        result['interface_self_tests'] = ([health(address) for address in inventory['addresses'][:16]]
+                                          if info.get('mode') == 'lan' else [])
+    else:
+        result['interface_self_tests'] = []
+    result['omitted_interface_tests'] = max(0, len(inventory['addresses']) - 16)
+    return result
 
 
 def serve(mode='local'):
@@ -163,23 +233,36 @@ def serve(mode='local'):
         app.config['PORTABLE_AI_STATUS'] = worker.status
         from portable.public_collection import install_public_control
         install_public_control(app, worker)
+        network_lock = threading.Lock()
+
+        def refresh_addresses():
+            with network_lock:
+                current = lan_addresses() if mode == 'lan' else []
+                app.config['TRUSTED_HOSTS'] = ['127.0.0.1', 'localhost', *current]
+                info['urls'] = [f'http://{address}:{port}' for address in current]
+                write_json(STATE / 'server.json', info)
 
         def application(environ, start_response):
+            # Apply to control endpoints too: callers must reach this copy directly.
+            if any(k.startswith('HTTP_X_FORWARDED_') or k == 'HTTP_FORWARDED' for k in environ):
+                return Response('Untrusted forwarding headers', status=400)(environ, start_response)
             path = environ.get('PATH_INFO', '')
             if path.startswith('/__portable/'):
                 authenticated = (environ.get('REMOTE_ADDR') in {'127.0.0.1', '::1'} and
+                    environ.get('HTTP_HOST', '').split(':')[0].lower() in {'127.0.0.1', 'localhost'} and
                     secrets.compare_digest(environ.get('HTTP_X_PORTABLE_TOKEN', ''), token))
                 method = environ.get('REQUEST_METHOD')
                 if not authenticated or (path, method) not in {
-                        ('/__portable/status', 'GET'), ('/__portable/stop', 'POST')}:
+                        ('/__portable/status', 'GET'), ('/__portable/stop', 'POST'),
+                        ('/__portable/refresh', 'POST')}:
                     return Response('Not found', status=404)(environ, start_response)
                 if path.endswith('/stop'):
                     stopping.set()
-                return Response(json.dumps({'identity': IDENTITY, 'instance': instance}),
+                elif path.endswith('/refresh'):
+                    refresh_addresses()
+                return Response(json.dumps({'identity': IDENTITY, 'instance': instance,
+                                            'urls': info['urls'], 'mode': mode}),
                                 mimetype='application/json')(environ, start_response)
-            # LAN uses direct HTTP; no forwarded headers or trusted proxy are accepted.
-            if any(k.startswith('HTTP_X_FORWARDED_') or k == 'HTTP_FORWARDED' for k in environ):
-                return Response('Untrusted forwarding headers', status=400)(environ, start_response)
             return app(environ, start_response)
 
         try:
@@ -267,7 +350,7 @@ def prompt_admin_password(password_stdin=False):
 
 def main():
     parser = argparse.ArgumentParser(description='Start or stop this portable copy only.')
-    parser.add_argument('action', choices=['start', 'lan-start', 'lan-configure', 'stop', 'status', 'diagnose', 'ai-configure', 'ai-enable', 'ai-disable', '_serve'])
+    parser.add_argument('action', choices=['start', 'lan-start', 'lan-configure', 'lan-diagnose', 'stop', 'status', 'diagnose', 'ai-configure', 'ai-enable', 'ai-disable', '_serve'])
     parser.add_argument('--no-browser', action='store_true')
     parser.add_argument('--mode', choices=['local', 'lan'], default='local')
     parser.add_argument('--port', type=int, default=None)
@@ -300,6 +383,9 @@ def main():
     with lock('operation.lock'):
         info = read_state()
         active = contact(info)
+        if args.action == 'lan-diagnose':
+            print(json.dumps(lan_diagnostic(info, active), ensure_ascii=False, indent=2))
+            return
         mode = 'lan' if args.action == 'lan-start' else 'local'
         if args.action.startswith('ai-'):
             from portable.ai_settings import LocalAISettings
@@ -357,6 +443,10 @@ def main():
             raise RuntimeError('This copy is running in another mode. Use stop.bat before switching modes.')
         if mode == 'lan':
             lan_config()
+            if active:
+                if control(info, 'refresh') is None:
+                    raise RuntimeError('无法刷新本副本的地址；请查看运行窗口后重试。')
+                info = read_state()
         if not active:
             with (STATE / 'startup.log').open('w', encoding='utf-8') as log:
                 child = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), '_serve', '--mode', mode],
@@ -374,10 +464,12 @@ def main():
         url = f"http://127.0.0.1:{info['port']}"
         print(url)
         if mode == 'lan':
-            print('LAN trial addresses (same reachable campus network):')
+            print('本机当前IPv4候选地址（不保证手机可达；切网或开热点后再次运行 lan-start.bat 刷新）：')
             for address in info.get('urls', []):
                 print(address)
-            print('Keep this computer awake. See 使用说明.html for restricted firewall instructions.')
+            if not info.get('urls'):
+                print('当前没有可分享IPv4；本机服务继续运行。请联网后再次运行 lan-start.bat。')
+            print('请保持电脑开机不休眠。连接诊断用 lan-diagnose.bat，说明见 使用说明.html。')
         if not args.no_browser:
             os.startfile(url)
 
